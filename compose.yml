@@ -1,0 +1,20 @@
+services:
+  ollama:
+    image: ollama/ollama:0.9.0
+    container_name: bsllmner-mk2-dev
+    ports:
+      - "127.0.0.1:21434:11434"
+    volumes:
+      - ${PWD}/ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+    entrypoint: ["/bin/ollama"]
+    command: ["serve"]
+    restart: unless-stopped
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
