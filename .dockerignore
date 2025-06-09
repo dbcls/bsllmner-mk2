@@ -1,0 +1,8 @@
+# Ignore everything
+**
+
+!bsllmner2
+!LICENSE
+!pyproject.toml
+!README.md
+!tests

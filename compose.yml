@@ -1,7 +1,17 @@
 services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bsllmner-mk2-app
+    environment:
+      - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
+    entrypoint: [""]
+    command: ["sleep", "infinity"]
+    restart: unless-stopped
   ollama:
     image: ollama/ollama:0.9.0
-    container_name: bsllmner-mk2-dev
+    container_name: bsllmner-mk2-ollama
     ports:
       - "127.0.0.1:21434:11434"
     volumes:
