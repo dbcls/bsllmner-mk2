@@ -1,5 +1,8 @@
+from bsllmner2.cli import run_cli
+
+
 def main() -> None:
-    print("Hello, World! This is the main function of bsllmner2.")
+    run_cli()
 
 
 if __name__ == "__main__":
