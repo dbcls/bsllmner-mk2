@@ -6,7 +6,7 @@ from pathlib import Path
 from pydantic import BaseModel
 
 ROOT = Path(__file__).parent
-FILTER_KEY_VAL_RULES_PATH = ROOT.joinpath("bs_filter_key_val_rules.json")
+FILTER_KEY_VAL_RULES_PATH = ROOT.joinpath("bs", "filter_key_val_rules.json")
 PROMPT_FILE_PATH = ROOT.joinpath("prompt", "prompt.yml")
 
 

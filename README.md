@@ -11,9 +11,7 @@ chmod 777 ollama-data
 docker compose up -d --build
 ```
 
-## Memo
-
-- まず mode extract から
-  1. BsLlmProcess で、self に格納
-  2. self.llm_input_json = self.construct_llm_input_json()
-     1. bs json から、filter_key val で key を制限する
+```bash
+docker compose exec ollama ollama pull llama3.1:70b
+docker compose exec app bsllmner2 --debug --bs-entries ./tests/test-data/cell_line_example.biosample.json
+```

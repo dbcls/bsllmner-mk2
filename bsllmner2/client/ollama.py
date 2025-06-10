@@ -9,7 +9,7 @@ from pydantic import BaseModel
 
 from bsllmner2.bs import is_ebi_format
 from bsllmner2.config import LOGGER, Config
-from bsllmner2.prompt.utils import Prompt
+from bsllmner2.prompt import Prompt
 
 # === Paste from ollama.Options ===
 # class RuntimeOptions:
@@ -40,12 +40,15 @@ OLLAMA_MODELS = [
 ]
 
 
-def _construct_messages(prompts: List[Prompt]) -> List[Message]:
+def _construct_messages(prompts: Dict[int, Prompt], prompt_indices: List[int]) -> List[Message]:
     """
     Construct a list of messages from the prompt file content.
     """
     messages = []
-    for prompt in prompts:
+    for index in prompt_indices:
+        if index not in prompts:
+            raise ValueError(f"Prompt index {index} not found in prompts.")
+        prompt = prompts[index]
         messages.append(Message(role=prompt.role, content=prompt.text))
 
     return messages
@@ -94,21 +97,30 @@ def _construct_output(bs_entry: Dict[str, Any], res_text: str) -> Output:
     return output_json
 
 
-def ner(config: Config, bs_entries: List[Dict[str, Any]], prompts: List[Prompt], model: str) -> List[Output]:
+def ner(
+    config: Config,
+    bs_entries: List[Dict[str, Any]],
+    prompts: Dict[int, Prompt],
+    prompt_indices: List[int],
+    model: str
+) -> List[Output]:
     client = ollama.Client(host=config.ollama_host)
-    messages = _construct_messages(prompts)
+    messages = _construct_messages(prompts, prompt_indices)
     outputs = []
     for entry in bs_entries:
         LOGGER.debug("Processing entry: %s", entry.get("accession", "Unknown"))
-        entry_str = json.dumps(entry, indent=2, ensure_ascii=False)
+        # entry_str = json.dumps(entry, ensure_ascii=False)
+        entry_str = json.dumps(entry, indent=2)
         messages_copy = copy.deepcopy(messages)
         if messages_copy[-1].content is not None:
-            messages_copy[-1].content += "\n" + entry_str
+            messages_copy[-1].content += f"\n```json\n{entry_str}\n```"
+        LOGGER.debug("Messages: %s", [msg.model_dump() for msg in messages_copy])
         response: ChatResponse = client.chat(
             model=model,
             messages=messages,
             options=OLLAMA_OPTIONS
         )
+        LOGGER.debug("Response: %s", response.model_dump())
         res_text = response["message"]["content"]
         output = _construct_output(entry, res_text)
         outputs.append(output)

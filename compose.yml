@@ -4,11 +4,15 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: bsllmner-mk2-app
+    volumes:
+      - ${PWD}:/app
     environment:
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
     entrypoint: [""]
     command: ["sleep", "infinity"]
     restart: unless-stopped
+    init: true
+
   ollama:
     image: ollama/ollama:0.9.0
     container_name: bsllmner-mk2-ollama
@@ -28,3 +32,4 @@ services:
             - driver: nvidia
               count: all
               capabilities: [gpu]
+    init: true

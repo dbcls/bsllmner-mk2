@@ -13,7 +13,7 @@ class Prompt(BaseModel):
     text: str
 
 
-def load_prompt_file(path: Path) -> List[Prompt]:
+def load_prompt_file(path: Path) -> Dict[int, Prompt]:
     """
     Load a prompt file from the given path.
     The file should be in YAML format, containing a dictionary where each key is a number as a string.
@@ -36,6 +36,4 @@ def load_prompt_file(path: Path) -> List[Prompt]:
             raise ValueError(f"Prompt key {key} must be a string representing an integer.") from e
         prompts[int_key] = Prompt(**value)
 
-    sorted_prompts = [prompts.get(key) for key in sorted(prompts.keys()) if prompts.get(key) is not None]
-
-    return sorted_prompts  # type: ignore
+    return prompts

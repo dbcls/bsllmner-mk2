@@ -39,10 +39,6 @@ def construct_llm_input_json(bs_json: List[Dict[str, Any]]) -> List[Dict[str, An
     """
     filter_key_val_rules = _load_filter_key_val_rules(FILTER_KEY_VAL_RULES_PATH)
 
-    is_input_ebi_format = False
-    if "characteristics" in bs_json[0] and isinstance(bs_json[0]["characteristics"], dict):
-        is_input_ebi_format = True
-
     filtered_entries = []
     for entry in bs_json:
         if is_ebi_format(entry):

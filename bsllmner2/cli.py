@@ -8,8 +8,10 @@ from pydantic import BaseModel
 from bsllmner2.client.ollama import OLLAMA_MODELS, ner
 from bsllmner2.config import (LOGGER, PROMPT_FILE_PATH, Config, default_config,
                               get_config, set_logging_level)
-from bsllmner2.prompt.utils import load_prompt_file
+from bsllmner2.prompt import load_prompt_file
 from bsllmner2.utils import load_bs_entries
+
+DEFAULT_PROMPT_INDICES = [5, 2, 6, 7]
 
 
 class Args(BaseModel):
@@ -18,6 +20,7 @@ class Args(BaseModel):
     """
     bs_entries: Path
     prompt: Path
+    prompt_indices: List[int] = DEFAULT_PROMPT_INDICES
     model: str = OLLAMA_MODELS[0]
     max_entries: Optional[int] = None
 
@@ -48,6 +51,16 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
         """,
     )
     parser.add_argument(
+        "--prompt-indices",
+        type=str,
+        default=",".join(map(str, DEFAULT_PROMPT_INDICES)),
+        help=f"""\
+            Comma-separated list of indices to select prompts from the prompt file.
+            Default is '{",".join(map(str, DEFAULT_PROMPT_INDICES))}', which corresponds to the default prompt indices.
+            These indices are used to select specific prompts for NER processing.
+        """,
+    )
+    parser.add_argument(
         "--model",
         type=str,
         choices=OLLAMA_MODELS,
@@ -66,7 +79,7 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
     parser.add_argument(
         "--ollama-host",
         type=str,
-        default=default_config.ollama_host,
+        default=None,
         help=f"Host URL for the Ollama server (default: {default_config.ollama_host}",
     )
     parser.add_argument(
@@ -83,12 +96,15 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
         raise FileNotFoundError(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
     if not parsed_args.prompt.exists():
         raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
-    config.ollama_host = parsed_args.ollama_host
+    if parsed_args.ollama_host:
+        config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
 
     return config, Args(
         bs_entries=parsed_args.bs_entries.resolve(),
         prompt=parsed_args.prompt.resolve(),
+        prompt_indices=list(map(int, parsed_args.prompt_indices.split(","))),
+        model=parsed_args.model,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None
     )
 
@@ -107,7 +123,7 @@ def run_cli() -> None:
     if args.max_entries is not None:
         bs_entries = bs_entries[:args.max_entries]
     prompts = load_prompt_file(args.prompt)
-    outputs = ner(config, bs_entries, prompts, model="llama3.1:70b")
+    outputs = ner(config, bs_entries, prompts, args.prompt_indices, args.model)
     print(outputs)
     LOGGER.info("Processing complete.")
 
