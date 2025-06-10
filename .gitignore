@@ -201,3 +201,4 @@ cython_debug/
 # === our rules ===
 
 ollama-data/
+bsllmner2-results/

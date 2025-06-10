@@ -5,9 +5,11 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-ROOT = Path(__file__).parent
-FILTER_KEY_VAL_RULES_PATH = ROOT.joinpath("bs", "filter_key_val_rules.json")
-PROMPT_FILE_PATH = ROOT.joinpath("prompt", "prompt.yml")
+MODULE_ROOT = Path(__file__).parent
+REPO_ROOT = MODULE_ROOT.parent
+FILTER_KEY_VAL_RULES_PATH = MODULE_ROOT.joinpath("bs", "filter_key_val_rules.json")
+PROMPT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt.yml")
+RESULT_DIR = REPO_ROOT.joinpath("bsllmner2-results")
 
 
 class Config(BaseModel):

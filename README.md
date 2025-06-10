@@ -14,4 +14,5 @@ docker compose up -d --build
 ```bash
 docker compose exec ollama ollama pull llama3.1:70b
 docker compose exec app bsllmner2 --debug --bs-entries ./tests/test-data/cell_line_example.biosample.json
+docker compose exec app bsllmner2 --debug --model deepseek-r1:70b --bs-entries ./tests/test-data/cell_line_example.biosample.json
 ```

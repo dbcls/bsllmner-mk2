@@ -1,13 +1,16 @@
 import argparse
+import json
 import sys
+import time
 from pathlib import Path
 from typing import List, Optional, Tuple
 
+from ollama import ChatResponse
 from pydantic import BaseModel
 
-from bsllmner2.client.ollama import OLLAMA_MODELS, ner
-from bsllmner2.config import (LOGGER, PROMPT_FILE_PATH, Config, default_config,
-                              get_config, set_logging_level)
+from bsllmner2.client.ollama import OLLAMA_MODELS, Output, ner
+from bsllmner2.config import (LOGGER, PROMPT_FILE_PATH, RESULT_DIR, Config,
+                              default_config, get_config, set_logging_level)
 from bsllmner2.prompt import load_prompt_file
 from bsllmner2.utils import load_bs_entries
 
@@ -109,6 +112,28 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
     )
 
 
+def dump_results(config: Config, args: Args, results: List[Tuple[ChatResponse, Output]]) -> Path:
+    RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    now = time.strftime("%Y%m%d_%H%M%S")
+    results_file = RESULT_DIR.joinpath(f"results_{args.model}_{now}.json")
+    outputs_only = [output.output for _, output in results]
+    with results_file.open("w", encoding="utf-8") as f:
+        f.write(json.dumps(
+            {
+                "config": config.model_dump(mode="json"),
+                "args": args.model_dump(mode="json"),
+                "outputs_only": outputs_only,
+                "results": [{
+                    "chat_response": response.model_dump(),
+                    "output": output.model_dump()
+                } for response, output in results]
+            },
+            indent=2, ensure_ascii=False,
+        ))
+
+    return results_file
+
+
 def run_cli() -> None:
     """
     Run the CLI for bsllmner2.
@@ -123,9 +148,9 @@ def run_cli() -> None:
     if args.max_entries is not None:
         bs_entries = bs_entries[:args.max_entries]
     prompts = load_prompt_file(args.prompt)
-    outputs = ner(config, bs_entries, prompts, args.prompt_indices, args.model)
-    print(outputs)
-    LOGGER.info("Processing complete.")
+    results = ner(config, bs_entries, prompts, args.prompt_indices, args.model)
+    results_file = dump_results(config, args, results)
+    LOGGER.info("Processing complete. Results saved to %s", results_file)
 
 
 if __name__ == "__main__":

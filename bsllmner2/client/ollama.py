@@ -1,7 +1,7 @@
 import copy
 import json
 import re
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Tuple
 
 import ollama
 from ollama import ChatResponse, Message, Options
@@ -36,7 +36,8 @@ OLLAMA_OPTIONS = Options(
     temperature=0.0,
 )
 OLLAMA_MODELS = [
-    "llama3.1:70b"
+    "llama3.1:70b",
+    "deepseek-r1:70b",
 ]
 
 
@@ -103,26 +104,25 @@ def ner(
     prompts: Dict[int, Prompt],
     prompt_indices: List[int],
     model: str
-) -> List[Output]:
+) -> List[Tuple[ChatResponse, Output]]:
     client = ollama.Client(host=config.ollama_host)
     messages = _construct_messages(prompts, prompt_indices)
-    outputs = []
+    results = []
     for entry in bs_entries:
         LOGGER.debug("Processing entry: %s", entry.get("accession", "Unknown"))
-        # entry_str = json.dumps(entry, ensure_ascii=False)
-        entry_str = json.dumps(entry, indent=2)
+        entry_str = json.dumps(entry, ensure_ascii=False)
         messages_copy = copy.deepcopy(messages)
         if messages_copy[-1].content is not None:
-            messages_copy[-1].content += f"\n```json\n{entry_str}\n```"
+            messages_copy[-1].content += "\n" + entry_str
         LOGGER.debug("Messages: %s", [msg.model_dump() for msg in messages_copy])
         response: ChatResponse = client.chat(
             model=model,
-            messages=messages,
+            messages=messages_copy,
             options=OLLAMA_OPTIONS
         )
         LOGGER.debug("Response: %s", response.model_dump())
         res_text = response["message"]["content"]
         output = _construct_output(entry, res_text)
-        outputs.append(output)
+        results.append((response, output))
 
-    return outputs
+    return results
