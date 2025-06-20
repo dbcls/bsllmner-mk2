@@ -41,18 +41,11 @@ OLLAMA_MODELS = [
 ]
 
 
-def _construct_messages(prompts: Dict[int, Prompt], prompt_indices: List[int]) -> List[Message]:
+def _construct_messages(prompts: List[Prompt]) -> List[Message]:
     """
     Construct a list of messages from the prompt file content.
     """
-    messages = []
-    for index in prompt_indices:
-        if index not in prompts:
-            raise ValueError(f"Prompt index {index} not found in prompts.")
-        prompt = prompts[index]
-        messages.append(Message(role=prompt.role, content=prompt.text))
-
-    return messages
+    return [Message(role=prompt.role, content=prompt.content) for prompt in prompts]
 
 
 def _extract_last_json(text: str) -> Optional[str]:
@@ -101,12 +94,11 @@ def _construct_output(bs_entry: Dict[str, Any], res_text: str) -> Output:
 def ner(
     config: Config,
     bs_entries: List[Dict[str, Any]],
-    prompts: Dict[int, Prompt],
-    prompt_indices: List[int],
+    prompts: List[Prompt],
     model: str
 ) -> List[Tuple[ChatResponse, Output]]:
     client = ollama.Client(host=config.ollama_host)
-    messages = _construct_messages(prompts, prompt_indices)
+    messages = _construct_messages(prompts)
     results = []
     for entry in bs_entries:
         LOGGER.debug("Processing entry: %s", entry.get("accession", "Unknown"))

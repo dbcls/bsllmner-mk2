@@ -8,7 +8,8 @@ from pydantic import BaseModel
 MODULE_ROOT = Path(__file__).parent
 REPO_ROOT = MODULE_ROOT.parent
 FILTER_KEY_VAL_RULES_PATH = MODULE_ROOT.joinpath("bs", "filter_key_val_rules.json")
-PROMPT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt.yml")
+PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
+PROMPT_SELECT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_select.yml")
 RESULT_DIR = REPO_ROOT.joinpath("bsllmner2-results")
 
 

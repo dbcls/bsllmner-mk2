@@ -9,12 +9,11 @@ from ollama import ChatResponse
 from pydantic import BaseModel
 
 from bsllmner2.client.ollama import OLLAMA_MODELS, Output, ner
-from bsllmner2.config import (LOGGER, PROMPT_FILE_PATH, RESULT_DIR, Config,
-                              default_config, get_config, set_logging_level)
+from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, RESULT_DIR,
+                              Config, default_config, get_config,
+                              set_logging_level)
 from bsllmner2.prompt import load_prompt_file
 from bsllmner2.utils import load_bs_entries
-
-DEFAULT_PROMPT_INDICES = [5, 2, 6, 7]
 
 
 class Args(BaseModel):
@@ -23,7 +22,6 @@ class Args(BaseModel):
     """
     bs_entries: Path
     prompt: Path
-    prompt_indices: List[int] = DEFAULT_PROMPT_INDICES
     model: str = OLLAMA_MODELS[0]
     max_entries: Optional[int] = None
 
@@ -47,20 +45,10 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
     parser.add_argument(
         "--prompt",
         type=Path,
-        default=PROMPT_FILE_PATH,
+        default=PROMPT_EXTRACT_FILE_PATH,
         help="""\
             Path to the prompt file in YAML format.
-            Default is 'prompt/prompt.yml' relative to the project root.
-        """,
-    )
-    parser.add_argument(
-        "--prompt-indices",
-        type=str,
-        default=",".join(map(str, DEFAULT_PROMPT_INDICES)),
-        help=f"""\
-            Comma-separated list of indices to select prompts from the prompt file.
-            Default is '{",".join(map(str, DEFAULT_PROMPT_INDICES))}', which corresponds to the default prompt indices.
-            These indices are used to select specific prompts for NER processing.
+            Default is 'prompt/prompt_extract.yml' relative to the project root.
         """,
     )
     parser.add_argument(
@@ -106,7 +94,6 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
     return config, Args(
         bs_entries=parsed_args.bs_entries.resolve(),
         prompt=parsed_args.prompt.resolve(),
-        prompt_indices=list(map(int, parsed_args.prompt_indices.split(","))),
         model=parsed_args.model,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None
     )
@@ -148,7 +135,7 @@ def run_cli() -> None:
     if args.max_entries is not None:
         bs_entries = bs_entries[:args.max_entries]
     prompts = load_prompt_file(args.prompt)
-    results = ner(config, bs_entries, prompts, args.prompt_indices, args.model)
+    results = ner(config, bs_entries, prompts, args.model)
     results_file = dump_results(config, args, results)
     LOGGER.info("Processing complete. Results saved to %s", results_file)
 
