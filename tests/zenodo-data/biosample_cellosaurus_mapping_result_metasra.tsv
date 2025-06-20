@@ -1,0 +1,601 @@
+BioSample ID	Experiment type	Attribute name	Attribute value	Mapped Cellosaurus term ID	Mapped Cellosaurus term label	Is Mapped term correct?	Category of results	Gold standard Cellosaurus term ID	Gold standard Cellosaurus term label
+SAMD00011704	ChIP-Seq					FALSE	missed cell line	CVCL:1532	NCI-H2126
+SAMD00013207	ChIP-Seq					FALSE	missed cell line	CVCL:0045	HEK293
+SAMD00043224	ChIP-Seq					TRUE	correct non-cell line		None
+SAMD00055696	ChIP-Seq	cell line	HB1119	CVCL:8227	HB11;19	TRUE	correct cell line	CVCL:8227	HB11;19
+SAMD00123367	ATAC-Seq	cell line	H1299	CVCL:0060	NCI-H1299	TRUE	correct cell line	CVCL:0060	NCI-H1299
+SAMD00144947	ChIP-Seq					TRUE	correct non-cell line		None
+SAMD00235411	ATAC-Seq	cell line	SKNO-1	CVCL:2196	SKNO-1	TRUE	correct cell line	CVCL:2196	SKNO-1
+SAMD00316482	ATAC-Seq	cell line	MDA-MB-453	CVCL:0418	MDA-MB-453	TRUE	correct cell line	CVCL:0418	MDA-MB-453
+SAMD00324177	ATAC-Seq	cell_line	NCI-H2122	CVCL:1531	NCI-H2122	TRUE	correct cell line	CVCL:1531	NCI-H2122
+SAMD00596646	ATAC-Seq	cell_line	HFF-1	CVCL:3285	HFF-1	TRUE	correct cell line	CVCL:3285	HFF-1
+SAMEA103884999	ATAC-Seq					TRUE	correct non-cell line		None
+SAMEA104717429	ATAC-Seq					TRUE	correct non-cell line		None
+SAMEA1706519	ChIP-Seq					TRUE	correct non-cell line		None
+SAMEA1929670	ChIP-Seq	ArrayExpress-CellType	H9 hESC line	CVCL:9773	WA09	TRUE	correct cell line	CVCL:9773	WA09
+SAMEA2396196	ChIP-Seq	ArrayExpress-CellType	HL60	CVCL:0002	HL-60	TRUE	correct cell line	CVCL:0002	HL-60
+SAMEA4028888	ATAC-Seq					TRUE	correct non-cell line		None
+SAMEA4075774	ChIP-Seq					TRUE	correct non-cell line		None
+SAMEA4753711	ATAC-Seq	cell line	Het1A	CVCL:3702	HET-1A	TRUE	correct cell line	CVCL:3702	HET-1A
+SAMEA4799826	ATAC-Seq	cell line	L3.6pl	CVCL:0384	L3.6pl	TRUE	correct cell line	CVCL:0384	L3.6pl
+SAMEA4957855	ATAC-Seq					TRUE	correct non-cell line		None
+SAMEA5424632	ATAC-Seq					TRUE	correct non-cell line		None
+SAMEA5547874	ATAC-Seq	cell line	Caki1	CVCL:0234	Caki-1	TRUE	correct cell line	CVCL:0234	Caki-1
+SAMEA6479266	ATAC-Seq	cell line	RS4;11	CVCL:0093	RS4;11	TRUE	correct cell line	CVCL:0093	RS4;11
+SAMEA8492014	ATAC-Seq	cell_line	OE19	CVCL:1622	OE19	TRUE	correct cell line	CVCL:1622	OE19
+SAMEA8693437	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN00006882	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN00010337	ChIP-Seq	cell line	GM12892	CVCL:9631	GM12892	TRUE	correct cell line	CVCL:9631	GM12892
+SAMN00010679	ChIP-Seq	cell line	T24 bladder cancer cells	CVCL:0554	T24	TRUE	correct cell line	CVCL:0554	T24
+SAMN00010935	ChIP-Seq	cell line	hES cell line WIBR3	CVCL:9767	WIBR3	TRUE	correct cell line	CVCL:9767	WIBR3
+SAMN00011725	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN00113249	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN00188971	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN00189373	ChIP-Seq	cell line	NCCIT	CVCL:1451	NCC-IT	TRUE	correct cell line	CVCL:1451	NCC-IT
+SAMN00619129	ChIP-Seq					FALSE	missed cell line	CVCL:2196	SKNO-1
+SAMN00738201	ChIP-Seq	cell line	H3396 cells	CVCL:D348	H3396	TRUE	correct cell line	CVCL:D348	H3396
+SAMN00738318	ChIP-Seq					FALSE	missed cell line	CVCL:7526	GM12878
+SAMN00739223	ChIP-Seq					FALSE	missed cell line	CVCL:2235	VCaP
+SAMN00760176	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN00792919	ChIP-Seq					FALSE	missed cell line	CVCL:9771	WA01
+SAMN01129907	ChIP-Seq	cell type	Primary isolated AT2 cells	CVCL:A316	SUP-B28	FALSE	missed non-cell line		None
+SAMN01174239	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN01874812	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN02048836	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN02198091	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN02199196	ChIP-Seq	cell type	IMR90 cells	CVCL:0347	IMR-90	TRUE	correct cell line	CVCL:0347	IMR-90
+SAMN02204424	ChIP-Seq	cell line	GM19239	CVCL:9634	GM19239	TRUE	correct cell line	CVCL:9634	GM19239
+SAMN02359414	ChIP-Seq					FALSE	missed cell line	CVCL:N799	GM10847
+SAMN02363670	ChIP-Seq	cell line	LoVo	CVCL:0399	LoVo	TRUE	correct cell line	CVCL:0399	LoVo
+SAMN02364587	ChIP-Seq	cell line	GP5d	CVCL:1235	GP5d	TRUE	correct cell line	CVCL:1235	GP5d
+SAMN02469158	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN02673401	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN02677606	ChIP-Seq	cell line	AGS	CVCL:0139	AGS	TRUE	correct cell line	CVCL:0139	AGS
+SAMN02943049	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN02947372	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN03001998	ChIP-Seq	cell line	myeloma cell line JJN-3	CVCL:2078	JJN-3	TRUE	correct cell line	CVCL:2078	JJN-3
+SAMN03069916	ChIP-Seq	cell line	HUES64	CVCL:B199	HUES 64	FALSE	missed non-cell line		None
+SAMN03120338	ChIP-Seq	cell type	Th1	CVCL:5J51	TH1	FALSE	missed non-cell line		None
+SAMN03247009	ChIP-Seq	cell line	L1236	CVCL:2096	L-1236	TRUE	correct cell line	CVCL:2096	L-1236
+SAMN03273130	ChIP-Seq	cell line	OCI-Ly1	CVCL:1879	OCI-Ly1	TRUE	correct cell line	CVCL:1879	OCI-Ly1
+SAMN03275794	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN03290581	ChIP-Seq	cell line	MOLM14	CVCL:7916	MOLM-14	TRUE	correct cell line	CVCL:7916	MOLM-14
+SAMN03339163	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN03339919	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN03366098	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN03782267	ChIP-Seq					FALSE	missed cell line	CVCL:U969	IMEC
+SAMN03857517	ChIP-Seq	cell line	TC-797 (Toretsky et al. 2003)	CVCL:C8YZ	TC-797	TRUE	correct cell line	CVCL:C8YZ	TC-797
+SAMN03946420	ChIP-Seq	cell line	RS4;11	CVCL:0093	RS4;11	TRUE	correct cell line	CVCL:0093	RS4;11
+SAMN04004036	ChIP-Seq	cell line	ZR-75-1	CVCL:0588	ZR-75-1	TRUE	correct cell line	CVCL:0588	ZR-75-1
+SAMN04053601	ChIP-Seq	cell line	RL95-2	CVCL:0505	RL95-2	TRUE	correct cell line	CVCL:0505	RL95-2
+SAMN04110975	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN04168597	ChIP-Seq					FALSE	missed cell line	CVCL:0418	MDA-MB-453
+SAMN04229273	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN04270717	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN04350727	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN04370259	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN04432220	ChIP-Seq					FALSE	missed cell line	CVCL:6783	P493-6
+SAMN04958926	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN04990212	ChIP-Seq					FALSE	missed cell line	CVCL:XB25	NCI-H1299-EGFP
+SAMN05214333	ChIP-Seq					FALSE	missed cell line	CVCL:3876	SK-MEL-147
+SAMN05509685	ChIP-Seq	cell line	SKBR3	CVCL:0033	SK-BR-3	TRUE	correct cell line	CVCL:0033	SK-BR-3
+SAMN05510500	ChIP-Seq					FALSE	missed cell line	CVCL:W527	RMS
+SAMN05514005	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN05571199	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN05578157	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN05587084	ChIP-Seq					FALSE	missed cell line	CVCL:0248	DLD-1
+SAMN05615480	ChIP-Seq					FALSE	missed cell line	CVCL:1851	RCH-ACV
+SAMN05930281	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN05944026	ChIP-Seq					FALSE	missed cell line	CVCL:0336	Huh-7
+SAMN05968151	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN06054373	ChIP-Seq	cell line	MV4;11(Cas9; ENL-FKBP(F36V); ENL-/-)	CVCL:0064	MV4-11	TRUE	correct cell line	CVCL:0064	MV4-11
+SAMN06163727	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN06165849	ChIP-Seq	cell line	D341	CVCL:0018	D341 Med	TRUE	correct cell line	CVCL:0018	D341 Med
+SAMN06234154	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN06273137	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN06281731	ChIP-Seq					FALSE	missed cell line	CVCL:0530	SK-N-MC
+SAMN06294517	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN06312754	ChIP-Seq	cell line	leukemia cell line MOLM13	CVCL:2119	MOLM-13	TRUE	correct cell line	CVCL:2119	MOLM-13
+SAMN06320319	ChIP-Seq	cell line	NB-1643	CVCL:5627	NB-1643	TRUE	correct cell line	CVCL:5627	NB-1643
+SAMN06470132	ChIP-Seq	cell line	CHL-1	CVCL:1122	CHL-1	TRUE	correct cell line	CVCL:1122	CHL-1
+SAMN06474273	ChIP-Seq	cell line	MOLT4	CVCL:0013	MOLT-4	TRUE	correct cell line	CVCL:0013	MOLT-4
+SAMN06616141	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN06629446	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN06642822	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN06687719	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN06688196	ATAC-Seq	cell line	HepG2	CVCL:0027	Hep-G2	TRUE	correct cell line	CVCL:0027	Hep-G2
+SAMN06701880	ChIP-Seq	cell line	Rec-1	CVCL:1884	REC-1	TRUE	correct cell line	CVCL:1884	REC-1
+SAMN06706268	ChIP-Seq	cell line	MRC5 fibroblast	CVCL:0440	MRC-5	TRUE	correct cell line	CVCL:0440	MRC-5
+SAMN06706912	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN06711434	ATAC-Seq	cell line	WM989	CVCL:0B84	WM989	TRUE	correct cell line	CVCL:0B84	WM989
+SAMN07210947	ChIP-Seq	cell line	THP1	CVCL:0006	THP-1	TRUE	correct cell line	CVCL:0006	THP-1
+SAMN07258791	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN07269643	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN07274458	ChIP-Seq	cell line	WM164	CVCL:7928	WM164	TRUE	correct cell line	CVCL:7928	WM164
+SAMN07312216	ATAC-Seq	cell line	PC9	CVCL:B260	PC-9	TRUE	correct cell line	CVCL:B260	PC-9
+SAMN07339217	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN07361140	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN07423758	ATAC-Seq	cell line	GM02171	CVCL:1H55	GM02171	TRUE	correct cell line	CVCL:1H55	GM02171
+SAMN07460479	ChIP-Seq	cell line	MCF10A	CVCL:0598	MCF-10A	TRUE	correct cell line	CVCL:0598	MCF-10A
+SAMN07518904	ChIP-Seq	cell line	clear cell renal cell carcinoma cell line 786-O	CVCL:1051	786-O	TRUE	correct cell line	CVCL:1051	786-O
+SAMN07614499	ATAC-Seq					FALSE	missed cell line	CVCL:0347	IMR-90
+SAMN07633311	ChIP-Seq	cell type	Huh-7.5	CVCL:7927	Huh-7.5	TRUE	correct cell line	CVCL:7927	Huh-7.5
+SAMN07757284	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN07795402	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN07815081	ChIP-Seq	cell line	H9	CVCL:9773	WA09	FALSE	missed non-cell line		None
+SAMN08035713	ATAC-Seq	cell line	T47D	CVCL:0553	T-47D	TRUE	correct cell line	CVCL:0553	T-47D
+SAMN08045017	ATAC-Seq	cell line	OCI-AML2	CVCL:1619	OCI-AML-2	TRUE	correct cell line	CVCL:1619	OCI-AML-2
+SAMN08045257	ATAC-Seq					FALSE	missed cell line	CVCL:3383	hTERT-HME1
+SAMN08057878	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN08118233	ChIP-Seq	cell line	HT1080	CVCL:0317	HT-1080	TRUE	correct cell line	CVCL:0317	HT-1080
+SAMN08138333	ChIP-Seq	cell type	JMSU-1	CVCL:2081	JMSU-1	TRUE	correct cell line	CVCL:2081	JMSU-1
+SAMN08144802	ATAC-Seq	cell type	single Jurkat T cell	CVCL:0065	Jurkat	TRUE	correct cell line	CVCL:0065	Jurkat
+SAMN08165046	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08178704	ChIP-Seq	cell line | cell type	derived from H9 (day 17) | Human Neuron Cell D17	CVCL:9773, CVCL:H943	WA09, D17	FALSE	missed non-cell line		None
+SAMN08200557	ATAC-Seq	originating cell line	H9	CVCL:9773	WA09	FALSE	missed non-cell line		None
+SAMN08204728	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08224287	ATAC-Seq	cell line	HAP1	CVCL:Y019	HAP1	TRUE	correct cell line	CVCL:Y019	HAP1
+SAMN08326919	ChIP-Seq					FALSE	missed cell line	CVCL:0609	Calu-3
+SAMN08348543	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN08354857	ChIP-Seq	cell line	MDA-MB-134	CVCL:0617	MDA-MB-134-VI	TRUE	correct cell line	CVCL:0617	MDA-MB-134-VI
+SAMN08370443	ATAC-Seq	cell line	G401	CVCL:0270	G-401	TRUE	correct cell line	CVCL:0270	G-401
+SAMN08378922	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN08405447	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08434958	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08448353	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08457713	ATAC-Seq	cell line background	BJ-5ta	CVCL:6573	BJ1-hTERT	TRUE	correct cell line	CVCL:6573	BJ1-hTERT
+SAMN08623595	ChIP-Seq					FALSE	missed cell line	CVCL:M823	LPS141
+SAMN08713072	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN08796151	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN08833129	ChIP-Seq					FALSE	missed cell line	CVCL:1536	NCI-H2171
+SAMN08896955	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08982087	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN08982205	ChIP-Seq	cell line	MDA-MB-436	CVCL:0623	MDA-MB-436	TRUE	correct cell line	CVCL:0623	MDA-MB-436
+SAMN09080968	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09205921	ATAC-Seq	cell line	RWPE1	CVCL:3791	RWPE-1	TRUE	correct cell line	CVCL:3791	RWPE-1
+SAMN09223825	ChIP-Seq	cell line	Kasumi-1	CVCL:0589	Kasumi-1	TRUE	correct cell line	CVCL:0589	Kasumi-1
+SAMN09253946	ATAC-Seq	cell type	NCI-H69	CVCL:1579	NCI-H69	TRUE	correct cell line	CVCL:1579	NCI-H69
+SAMN09254222	ChIP-Seq	cell line	SUM159PT	CVCL:5423	SUM159PT	TRUE	correct cell line	CVCL:5423	SUM159PT
+SAMN09272127	ATAC-Seq	cell line	RL95_2	CVCL:0505	RL95-2	TRUE	correct cell line	CVCL:0505	RL95-2
+SAMN09276576	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09284051	ChIP-Seq	cell line	NCI-H211	CVCL:1529	NCI-H211	TRUE	correct cell line	CVCL:1529	NCI-H211
+SAMN09291893	ATAC-Seq	cell line	TF1	CVCL:0559	TF-1	TRUE	correct cell line	CVCL:0559	TF-1
+SAMN09293686	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09407805	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN09429098	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN09430901	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN09492423	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09496831	ATAC-Seq	cell type	GM12878 cell line	CVCL:7526	GM12878	TRUE	correct cell line	CVCL:7526	GM12878
+SAMN09501694	ChIP-Seq	cell line	RH4	CVCL:C357	RH4	FALSE	missed non-cell line		None
+SAMN09532155	ATAC-Seq	cell line	A673 Ewing sarcoma	CVCL:0080	A-673	TRUE	correct cell line	CVCL:0080	A-673
+SAMN09724723	ChIP-Seq	cell line	BIN-67	CVCL:S987	BIN-67	TRUE	correct cell line	CVCL:S987	BIN-67
+SAMN09742271	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN09768731	ChIP-Seq	cell line	MDA-MB-435 melanoma cells	CVCL:0417	MDA-MB-435	TRUE	correct cell line	CVCL:0417	MDA-MB-435
+SAMN09769848	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09770761	ATAC-Seq					FALSE	missed cell line	CVCL:1542	NCI-H2227
+SAMN09802019	ChIP-Seq	cell line	HEYA8	CVCL:8878	HEY A8	TRUE	correct cell line	CVCL:8878	HEY A8
+SAMN09832427	ATAC-Seq	cell line	C4-2B	CVCL:4784	LNCaP C4-2B	TRUE	correct cell line	CVCL:4784	LNCaP C4-2B
+SAMN09839561	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09873848	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09917808	ChIP-Seq					FALSE	missed cell line	CVCL:0534	SMMC-7721
+SAMN09924997	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN09948042	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN09953980	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10026955	ATAC-Seq					FALSE	missed cell line	CVCL:Y382	OSU-CLL
+SAMN10128010	ChIP-Seq	cell line	PANC1	CVCL:0480	PANC-1	TRUE	correct cell line	CVCL:0480	PANC-1
+SAMN10138840	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10148309	ChIP-Seq	cell line | cell type	ST88-14 | NF1-derived MPNST	CVCL:8916, CVCL:JG80	ST88-14, NF1	FALSE	wrong cell line	CVCL:8916	ST88-14
+SAMN10150529	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10160937	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10228273	ChIP-Seq	cell line	NALM6	CVCL:0092	NALM-6	TRUE	correct cell line	CVCL:0092	NALM-6
+SAMN10258646	ChIP-Seq	cell line	KATOIII	CVCL:0371	KATO III	TRUE	correct cell line	CVCL:0371	KATO III
+SAMN10280103	ChIP-Seq	cell line	MDA-MB-468	CVCL:0419	MDA-MB-468	TRUE	correct cell line	CVCL:0419	MDA-MB-468
+SAMN10289900	ATAC-Seq	cell line	H1703	CVCL:1490	NCI-H1703	TRUE	correct cell line	CVCL:1490	NCI-H1703
+SAMN10340257	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10355962	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10378871	ChIP-Seq					FALSE	missed cell line	CVCL:B079	UWB1.289
+SAMN10391725	ATAC-Seq	cell line | cell line	U2OS with H2B-GFP and Halo tagged CTCF received from Anders Hansen in Xavier Darzacq lab in Berkeley | U2OS with H2B-GFP and Halo tagged CTCF received from Anders Hansen in Xavier Darzacq lab in Berkeley	CVCL:0042, CVCL:B4J0	U2OS, BEP2D H2B	FALSE	wrong cell line	CVCL:0042	U2OS
+SAMN10430956	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10431462	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10492201	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10494993	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10574837	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10596804	ATAC-Seq	cell type	JK1	CVCL:2079	JK-1	TRUE	correct cell line	CVCL:2079	JK-1
+SAMN10597936	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10611160	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10619036	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10686494	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10686566	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10689195	ATAC-Seq	cell line	WIBR3	CVCL:9767	WIBR3	TRUE	correct cell line	CVCL:9767	WIBR3
+SAMN10699290	ChIP-Seq	cell line	MEL270	CVCL:C302	Mel270	TRUE	correct cell line	CVCL:C302	Mel270
+SAMN10721742	ATAC-Seq	cell line	TTC1240	CVCL:8002	TTC-1240	TRUE	correct cell line	CVCL:8002	TTC-1240
+SAMN10721751	ChIP-Seq	cell line	TTC1240	CVCL:8002	TTC-1240	TRUE	correct cell line	CVCL:8002	TTC-1240
+SAMN10730292	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10737711	ATAC-Seq	cell type	SGBS preadipocyte	CVCL:GS28	SGBS	FALSE	missed non-cell line		None
+SAMN10764533	ChIP-Seq					FALSE	missed cell line	CVCL:0425	MEG-01
+SAMN10833646	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10873654	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10881046	ChIP-Seq					FALSE	missed cell line	CVCL:IN98	SVOG-3e
+SAMN10882075	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10904731	ChIP-Seq	cell line	KG1	CVCL:0374	KG-1	TRUE	correct cell line	CVCL:0374	KG-1
+SAMN10904990	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN10926448	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN10983197	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN11082977	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN11122076	ATAC-Seq	cell line	Cal27	CVCL:1107	CAL-27	TRUE	correct cell line	CVCL:1107	CAL-27
+SAMN11131203	ChIP-Seq					FALSE	missed cell line	CVCL:0524	SH-EP
+SAMN11156925	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN11252836	ChIP-Seq	cell line	CTV-1	CVCL:1150	CTV-1	TRUE	correct cell line	CVCL:1150	CTV-1
+SAMN11282637	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN11290792	ATAC-Seq	cell line	MOLT-4	CVCL:0013	MOLT-4	TRUE	correct cell line	CVCL:0013	MOLT-4
+SAMN11309268	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN11357740	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN11402498	ChIP-Seq	cell line	A2780	CVCL:0134	A2780	TRUE	correct cell line	CVCL:0134	A2780
+SAMN11414626	ATAC-Seq	cell line	12Z endometriotic epithelial cells	CVCL:0Q73	12Z	TRUE	correct cell line	CVCL:0Q73	12Z
+SAMN11463459	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN11505973	ChIP-Seq	cell type	WI-38hTERT/GFP-RAF1-ER	CVCL:N806	WI-38/hTERT/GFP-RAF-ER	TRUE	correct cell line	CVCL:N806	WI-38/hTERT/GFP-RAF-ER
+SAMN11509971	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN11784676	ChIP-Seq	cell line	KYSE150	CVCL:1348	KYSE-150	TRUE	correct cell line	CVCL:1348	KYSE-150
+SAMN11822486	ATAC-Seq	cell type	RCH-ACV stably expressing estrogen inducible C/EBPa	CVCL:1851	RCH-ACV	FALSE	wrong cell line	CVCL:VQ57	BLaER1
+SAMN11822520	ChIP-Seq	cell type	RCH-ACV stably expressing estrogen inducible C/EBPa	CVCL:1851	RCH-ACV	FALSE	wrong cell line	CVCL:VQ57	BLaER1
+SAMN11831865	ChIP-Seq	parental cell line	KMS11	CVCL:2989	KMS-11	TRUE	correct cell line	CVCL:2989	KMS-11
+SAMN11840189	ChIP-Seq	cell line	PC9	CVCL:B260	PC-9	TRUE	correct cell line	CVCL:B260	PC-9
+SAMN11893192	ATAC-Seq	cell line	MCF10A	CVCL:0598	MCF-10A	TRUE	correct cell line	CVCL:0598	MCF-10A
+SAMN11917881	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN12018382	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN12077980	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12127387	ATAC-Seq	cell line	EndoC-BH1	CVCL:L909	EndoC-betaH1	TRUE	correct cell line	CVCL:L909	EndoC-betaH1
+SAMN12137363	ChIP-Seq	cell line	Ishikawa	CVCL:2529	Ishikawa	TRUE	correct cell line	CVCL:2529	Ishikawa
+SAMN12237798	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN12254851	ChIP-Seq	cell line	SUDHL6	CVCL:2206	SU-DHL-6	TRUE	correct cell line	CVCL:2206	SU-DHL-6
+SAMN12275841	ATAC-Seq					FALSE	missed cell line	CVCL:0031	MCF-7
+SAMN12334496	ChIP-Seq	cell line	NGP	CVCL:2141	NGP	TRUE	correct cell line	CVCL:2141	NGP
+SAMN12498860	ATAC-Seq	cell line	H3.3K27M HSJD-DIPG007	CVCL:VU70	HSJD-DIPG-007	TRUE	correct cell line	CVCL:VU70	HSJD-DIPG-007
+SAMN12499211	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12541232	ATAC-Seq	cell line | cell line	HNSCC cell line SCC25 | HNSCC cell line SCC25	CVCL:1682, CVCL:7735	SCC-25, UM-SCC-25	FALSE	missed non-cell line		None
+SAMN12558350	ATAC-Seq					FALSE	missed cell line	CVCL:9771	WA01
+SAMN12607191	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12691850	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12723276	ChIP-Seq	cell line | cell line | cell line | cell line | cell line	PC-3 | PC-3 | PC-3 | PC-3 | PC-3	CVCL:0035, CVCL:4011, CVCL:4055, CVCL:C8XA, CVCL:S982	PC-3, PaCa-3, SK-PC-3, HNC PC3, PC-3 [Human lung carcinoma]	FALSE	wrong cell line	CVCL:0035	PC-3
+SAMN12742334	ATAC-Seq	cell line | cell line	BT12 | BT12	CVCL:M155, CVCL:RU28	BT-12, BT012	FALSE	wrong cell line	CVCL:M155	BT-12
+SAMN12757142	ChIP-Seq	cell line	LK2_DNp63	CVCL:W132	LK2	FALSE	wrong cell line	CVCL:1377	LK-2
+SAMN12771474	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12781042	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12818063	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN12818074	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN12856516	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN12889049	ChIP-Seq	cell line	NB69	CVCL:1448	NB69	TRUE	correct cell line	CVCL:1448	NB69
+SAMN12956634	ChIP-Seq	cell line	KGN	CVCL:0375	KGN	TRUE	correct cell line	CVCL:0375	KGN
+SAMN13018542	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13019282	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13059000	ATAC-Seq					FALSE	missed cell line	CVCL:0004	K562
+SAMN13109377	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13112111	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13112379	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN13113817	ChIP-Seq	cell line	HCT116	CVCL:0291	HCT 116	TRUE	correct cell line	CVCL:0291	HCT 116
+SAMN13175641	ChIP-Seq	cell line	Ramos	CVCL:0597	Ramos	TRUE	correct cell line	CVCL:0597	Ramos
+SAMN13223223	ChIP-Seq					FALSE	missed cell line	CVCL:1649	RD
+SAMN13353585	ChIP-Seq					FALSE	missed cell line	CVCL:0294	HEC-1-B
+SAMN13451172	ATAC-Seq					FALSE	missed cell line	CVCL:0597	Ramos
+SAMN13471392	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13478071	ChIP-Seq					FALSE	missed cell line	CVCL:8917	STS-26T
+SAMN13511214	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13512667	ATAC-Seq	cell line	HUES 8 hESC line	CVCL:B207	HUES 8	FALSE	missed non-cell line		None
+SAMN13521320	ChIP-Seq	cell line background	WT 9-12	CVCL:K230	WT 9-12	TRUE	correct cell line	CVCL:K230	WT 9-12
+SAMN13616499	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13624390	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13699408	ATAC-Seq	cell line	GM11906	CVCL:IN29	GM11906	TRUE	correct cell line	CVCL:IN29	GM11906
+SAMN13719297	ATAC-Seq	cell line	Caski	CVCL:1100	Ca Ski	TRUE	correct cell line	CVCL:1100	Ca Ski
+SAMN13763597	ChIP-Seq					FALSE	missed cell line	CVCL:5552	MCF10DCIS.com
+SAMN13825206	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13862411	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN13909477	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN13927477	ChIP-Seq	cell line	IMR-5	CVCL:1306	IMR-5	TRUE	correct cell line	CVCL:1306	IMR-5
+SAMN13938363	ATAC-Seq	cell line	143B	CVCL:2270	143B	TRUE	correct cell line	CVCL:2270	143B
+SAMN14048750	ATAC-Seq	cell line	SUIT-2	CVCL:3172	SUIT-2	TRUE	correct cell line	CVCL:3172	SUIT-2
+SAMN14049740	ATAC-Seq	cell line	lung cancer cell line NCI-H1944	CVCL:1508	NCI-H1944	TRUE	correct cell line	CVCL:1508	NCI-H1944
+SAMN14075079	ChIP-Seq	cell line	SET2	CVCL:2187	SET-2	TRUE	correct cell line	CVCL:2187	SET-2
+SAMN14088506	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14122096	ATAC-Seq	cell type	OVCAR8	CVCL:1629	OVCAR-8	TRUE	correct cell line	CVCL:1629	OVCAR-8
+SAMN14212260	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14212272	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14322328	ChIP-Seq					FALSE	missed cell line	CVCL:Z029	SK-JHRCC-12
+SAMN14322350	ATAC-Seq					FALSE	missed cell line	CVCL:Z029	SK-JHRCC-12
+SAMN14367258	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14418622	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14427981	ChIP-Seq	cell line	MKL1	CVCL:2600	MKL-1	TRUE	correct cell line	CVCL:2600	MKL-1
+SAMN14430459	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14439608	ChIP-Seq					FALSE	missed cell line	CVCL:0035	PC-3
+SAMN14444859	ChIP-Seq	cell line	TEX	CVCL:A5CF	TEX	TRUE	correct cell line	CVCL:A5CF	TEX
+SAMN14469262	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14479871	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14488030	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14556325	ATAC-Seq	parental cell line	T-47D	CVCL:0553	T-47D	TRUE	correct cell line	CVCL:0553	T-47D
+SAMN14560635	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14567275	ATAC-Seq	cell line	Cyt49	CVCL:B850	CyT49	FALSE	missed non-cell line		None
+SAMN14568362	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14648043	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14655115	ChIP-Seq	cell line | cell line	SCC-25 | SCC-25	CVCL:1682, CVCL:7735	SCC-25, UM-SCC-25	FALSE	missed non-cell line		None
+SAMN14655915	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14668587	ATAC-Seq	cell type	ROSA Kit D816V mast cell line	CVCL:5G50	ROSA KIT D816V	TRUE	correct cell line	CVCL:5G50	ROSA KIT D816V
+SAMN14671335	ATAC-Seq					FALSE	missed cell line	CVCL:0093	RS4;11
+SAMN14671435	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14677857	ChIP-Seq	cell line	Im-GCT-4072	CVCL:1229	GCT	FALSE	missed non-cell line		None
+SAMN14777640	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14783516	ChIP-Seq	cell line	Cal-27	CVCL:1107	CAL-27	TRUE	correct cell line	CVCL:1107	CAL-27
+SAMN14840221	ChIP-Seq	cell line	A375 cells expressing HA-tagged PRL3	CVCL:0132	A-375	TRUE	correct cell line	CVCL:0132	A-375
+SAMN14854036	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14906822	ChIP-Seq	cell line	M397	CVCL:XK00	M397	TRUE	correct cell line	CVCL:XK00	M397
+SAMN14945322	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN14992810	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN14994176	ATAC-Seq	cell line	BIN67	CVCL:S987	BIN-67	TRUE	correct cell line	CVCL:S987	BIN-67
+SAMN15000038	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN15032517	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN15087049	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15096394	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15159705	ChIP-Seq	cell line	SUM-229PE	CVCL:5594	SUM229PE	TRUE	correct cell line	CVCL:5594	SUM229PE
+SAMN15222141	ChIP-Seq					FALSE	missed cell line	CVCL:VI06	HUDEP-2
+SAMN15249460	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15313622	ATAC-Seq	cell line	SW872 liposarcoma cells	CVCL:1730	SW872	TRUE	correct cell line	CVCL:1730	SW872
+SAMN15332213	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15345787	ATAC-Seq					FALSE	missed cell line	CVCL:0320	HT-29
+SAMN15367235	ATAC-Seq	cell line	SEM	CVCL:0095	SEM	TRUE	correct cell line	CVCL:0095	SEM
+SAMN15419857	ChIP-Seq	cell line	LNCaP	CVCL:0395	LNCaP	TRUE	correct cell line	CVCL:0395	LNCaP
+SAMN15489500	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15496501	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN15618047	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN15664611	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN15676166	ChIP-Seq	cell line	EKVX	CVCL:1195	EKVX	TRUE	correct cell line	CVCL:1195	EKVX
+SAMN15815142	ATAC-Seq	cell line	MDA-MB-231	CVCL:0062	MDA-MB-231	TRUE	correct cell line	CVCL:0062	MDA-MB-231
+SAMN15825308	ATAC-Seq	cell line	451Lu	CVCL:6357	451Lu	TRUE	correct cell line	CVCL:6357	451Lu
+SAMN15825317	ChIP-Seq	cell line	451Lu	CVCL:6357	451Lu	TRUE	correct cell line	CVCL:6357	451Lu
+SAMN15831819	ATAC-Seq	cell line	NCI-H82	CVCL:1591	NCI-H82	TRUE	correct cell line	CVCL:1591	NCI-H82
+SAMN15865898	ChIP-Seq	cell line	ESCC cell line KYSE410	CVCL:1352	KYSE-410	TRUE	correct cell line	CVCL:1352	KYSE-410
+SAMN15866933	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN15889178	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15904067	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN15934471	ChIP-Seq	cell line	RH30	CVCL:0041	Rh30	TRUE	correct cell line	CVCL:0041	Rh30
+SAMN16118405	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16130003	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN16213474	ATAC-Seq	cell line	L1236	CVCL:2096	L-1236	TRUE	correct cell line	CVCL:2096	L-1236
+SAMN16380772	ChIP-Seq	cell line	HeLa	CVCL:0030	HeLa	TRUE	correct cell line	CVCL:0030	HeLa
+SAMN16406501	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16475034	ChIP-Seq					FALSE	missed cell line	CVCL:0023	A-549
+SAMN16483327	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16483362	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN16485790	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN16489400	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN16517495	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN16517672	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16532773	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN16563029	ATAC-Seq	cell line	H524	CVCL:1568	NCI-H524	TRUE	correct cell line	CVCL:1568	NCI-H524
+SAMN16595824	ATAC-Seq					FALSE	missed cell line	CVCL:C466	hTERT-HPNE
+SAMN16597967	ATAC-Seq	cell line	Kasumi-1	CVCL:0589	Kasumi-1	TRUE	correct cell line	CVCL:0589	Kasumi-1
+SAMN16607276	ChIP-Seq	cell line	U937	CVCL:0007	U-937	TRUE	correct cell line	CVCL:0007	U-937
+SAMN16678000	ATAC-Seq	cell line	H9	CVCL:9773	WA09	TRUE	correct cell line	CVCL:9773	WA09
+SAMN16786364	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16817051	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16856004	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16949844	ChIP-Seq					FALSE	missed cell line	CVCL:0004	K-562
+SAMN16981382	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN16989373	ChIP-Seq	cell line	SCCOHT-1	CVCL:VU69	SCCOHT-1	TRUE	correct cell line	CVCL:VU69	SCCOHT-1
+SAMN17061504	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN17078476	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN17113198	ATAC-Seq	cell line	786-M1A	CVCL:VR30	786-M1A	TRUE	correct cell line	CVCL:VR30	786-M1A
+SAMN17113237	ChIP-Seq	cell line	OS-LM1	CVCL:9549	SN12C-PM6	FALSE	wrong cell line	CVCL:9563	SaOS-LM1
+SAMN17120381	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17126737	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17131558	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17147423	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN17153028	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17168536	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN17225421	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17228531	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17243154	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17274720	ATAC-Seq	cell line	SKNAS	CVCL:1700	SK-N-AS	TRUE	correct cell line	CVCL:1700	SK-N-AS
+SAMN17283437	ChIP-Seq					FALSE	missed cell line	CVCL:0005	NB4
+SAMN17298123	ChIP-Seq	cell line	D458	CVCL:1161	D458 Med	TRUE	correct cell line	CVCL:1161	D458 Med
+SAMN17315697	ChIP-Seq	cell line	Kasumi-3	CVCL:0612	Kasumi-3	TRUE	correct cell line	CVCL:0612	Kasumi-3
+SAMN17316251	ChIP-Seq	cell line	16HBE14o-	CVCL:0112	16HBE14o-	TRUE	correct cell line	CVCL:0112	16HBE14o-
+SAMN17367676	ATAC-Seq	cell line	Miapaca2	CVCL:0428	MIA PaCa-2	TRUE	correct cell line	CVCL:0428	MIA PaCa-2
+SAMN17372974	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN17493275	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN17493294	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17610226	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17615474	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17677682	ChIP-Seq	cell line	A673	CVCL:0080	A-673	TRUE	correct cell line	CVCL:0080	A-673
+SAMN17715038	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17730112	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17730295	ATAC-Seq	cell type	MiaPaCa2 wild-type cell line	CVCL:0428	MIA PaCa-2	TRUE	correct cell line	CVCL:0428	MIA PaCa-2
+SAMN17730306	ChIP-Seq	cell type	MiaPaCa2 cell line	CVCL:0428	MIA PaCa-2	TRUE	correct cell line	CVCL:0428	MIA PaCa-2
+SAMN17734298	ChIP-Seq	cell line	NCI-H322M	CVCL:1557	NCI-H322M	FALSE	missed non-cell line		None
+SAMN17795665	ChIP-Seq	cell line	MCF-7	CVCL:0031	MCF-7	TRUE	correct cell line	CVCL:0031	MCF-7
+SAMN17799927	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN17804413	ChIP-Seq	cell line	KYSE140	CVCL:1347	KYSE-140	TRUE	correct cell line	CVCL:1347	KYSE-140
+SAMN17987828	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN18016329	ATAC-Seq	cell line	BT549	CVCL:1092	BT-549	TRUE	correct cell line	CVCL:1092	BT-549
+SAMN18040609	ATAC-Seq	cell line	BEAS-2B	CVCL:0168	BEAS-2B	TRUE	correct cell line	CVCL:0168	BEAS-2B
+SAMN18042132	ATAC-Seq	cell line	NCIH1437	CVCL:1472	NCI-H1437	TRUE	correct cell line	CVCL:1472	NCI-H1437
+SAMN18054121	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN18095761	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN18105867	ChIP-Seq	cell line	CAL-120	CVCL:1104	CAL-120	TRUE	correct cell line	CVCL:1104	CAL-120
+SAMN18128455	ChIP-Seq	cell type	HFF	CVCL:XB54	HFF	FALSE	missed non-cell line		None
+SAMN18132881	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN18132928	ATAC-Seq	cell line	ARPE-19	CVCL:0145	ARPE-19	TRUE	correct cell line	CVCL:0145	ARPE-19
+SAMN18243552	ChIP-Seq					FALSE	missed cell line	CVCL:0553	T-47D
+SAMN18290280	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN18350771	ATAC-Seq					FALSE	missed cell line	CVCL:0291	HCT 116
+SAMN18513615	ChIP-Seq	cell line	HepG2	CVCL:0027	Hep-G2	TRUE	correct cell line	CVCL:0027	Hep-G2
+SAMN18527290	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN18632249	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN18640584	ATAC-Seq	cell line	VCaP	CVCL:2235	VCaP	TRUE	correct cell line	CVCL:2235	VCaP
+SAMN18737268	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN18740689	ATAC-Seq	cell line	Hep3B	CVCL:0326	Hep 3B2.1-7	TRUE	correct cell line	CVCL:0326	Hep 3B2.1-7
+SAMN18741402	ChIP-Seq	cell line	DLD-1	CVCL:0248	DLD-1	TRUE	correct cell line	CVCL:0248	DLD-1
+SAMN18814096	ATAC-Seq	cell line	K562	CVCL:0004	K-562	TRUE	correct cell line	CVCL:0004	K-562
+SAMN18823532	ATAC-Seq	cell line origin	SUM149PT	CVCL:3422	SUM149PT	TRUE	correct cell line	CVCL:3422	SUM149PT
+SAMN18926557	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN18988606	ChIP-Seq	cell line	MM1.S	CVCL:8792	MM1.S	TRUE	correct cell line	CVCL:8792	MM1.S
+SAMN19014223	ChIP-Seq	cell line	DND41 cell line	CVCL:2022	DND-41	TRUE	correct cell line	CVCL:2022	DND-41
+SAMN19014258	ATAC-Seq	cell line	Jurkat E6-1 cell line	CVCL:0367	Jurkat E6.1	TRUE	correct cell line	CVCL:0367	Jurkat E6.1
+SAMN19014861	ATAC-Seq	cell line	DND41 cell line	CVCL:2022	DND-41	TRUE	correct cell line	CVCL:2022	DND-41
+SAMN19024211	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN19068356	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN19108920	ATAC-Seq	cell line	MM1.S	CVCL:8792	MM1.S	TRUE	correct cell line	CVCL:8792	MM1.S
+SAMN19128585	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN19190436	ChIP-Seq	cell line	G401	CVCL:0270	G-401	TRUE	correct cell line	CVCL:0270	G-401
+SAMN19337104	ATAC-Seq	cell line	WI-38	CVCL:0579	WI-38	TRUE	correct cell line	CVCL:0579	WI-38
+SAMN19405427	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN19471087	ATAC-Seq	cell line	786-O	CVCL:1051	786-O	TRUE	correct cell line	CVCL:1051	786-O
+SAMN19609147	ATAC-Seq	cell line	NALM-6	CVCL:0092	NALM-6	TRUE	correct cell line	CVCL:0092	NALM-6
+SAMN19644723	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN19656030	ATAC-Seq					FALSE	missed cell line	CVCL:0012	LP-1
+SAMN19729820	ChIP-Seq					FALSE	missed cell line	CVCL:0042	U2OS
+SAMN19731419	ATAC-Seq	cell line	C4-2B	CVCL:4784	LNCaP C4-2B	TRUE	correct cell line	CVCL:4784	LNCaP C4-2B
+SAMN19909850	ATAC-Seq					FALSE	missed cell line	CVCL:1045	22Rv1
+SAMN19909874	ChIP-Seq					FALSE	missed cell line	CVCL:1045	22Rv1
+SAMN19915273	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN19921366	ATAC-Seq	cell line	BxPC-3	CVCL:0186	BxPC-3	TRUE	correct cell line	CVCL:0186	BxPC-3
+SAMN19923247	ATAC-Seq	cell type	DMS-53	CVCL:1177	DMS 53	TRUE	correct cell line	CVCL:1177	DMS 53
+SAMN20057201	ATAC-Seq	cell line	MOLM13-RES	CVCL:D779	MOLM-13-RES	TRUE	correct cell line	CVCL:D779	MOLM-13-RES
+SAMN20085346	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN20109697	ChIP-Seq	cell line	C4-2	CVCL:4782	LNCaP C4-2	TRUE	correct cell line	CVCL:4782	LNCaP C4-2
+SAMN20111665	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN20188952	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN20189112	ChIP-Seq	cell line	differentiated HepaRG cells day 30	CVCL:9720	HepaRG	FALSE	missed non-cell line		None
+SAMN20247328	ATAC-Seq	cell line	SU-CCS-1 (RRID:CVCL_B470)	CVCL:B470	SU-CCS-1	TRUE	correct cell line	CVCL:B470	SU-CCS-1
+SAMN20248383	ChIP-Seq	cell line	DTC1 (CVCL_0J31)	CVCL:0J31	DTC1	TRUE	correct cell line	CVCL:0J31	DTC1
+SAMN20350178	ChIP-Seq	cell type	RPMI8402 T-ALL cell line	CVCL:1667	RPMI-8402	TRUE	correct cell line	CVCL:1667	RPMI-8402
+SAMN20407858	ATAC-Seq					FALSE	missed cell line	CVCL:0248	DLD-1
+SAMN20427565	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN20511706	ATAC-Seq	cell line	HT1080	CVCL:0317	HT-1080	TRUE	correct cell line	CVCL:0317	HT-1080
+SAMN20600888	ChIP-Seq	cell line	EW8	CVCL:1658	EW-8	TRUE	correct cell line	CVCL:1658	EW-8
+SAMN20793198	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN20835385	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN20845859	ChIP-Seq	cell line | cell line	SKOV3 possessing homozygous mutation (C/C) at rs1192691 | SKOV3 possessing homozygous mutation (C/C) at rs1192691	CVCL:0532, CVCL:3629	SK-OV-3, YSCCC	FALSE	wrong cell line	CVCL:0532	SK-OV-3
+SAMN20867065	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN20867082	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN20923902	ChIP-Seq					FALSE	missed cell line	CVCL:T803	GM23716
+SAMN20990758	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN21171249	ATAC-Seq					FALSE	missed cell line	CVCL:RW50	MR42D
+SAMN21369091	ATAC-Seq					FALSE	missed cell line	CVCL:0539	SU-DHL-4
+SAMN21384095	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN21418585	ChIP-Seq	cell line	IMR32	CVCL:0346	IMR-32	TRUE	correct cell line	CVCL:0346	IMR-32
+SAMN21445322	ATAC-Seq					FALSE	missed cell line	CVCL:0346	IMR-32
+SAMN21501776	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN21523907	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN21555182	ChIP-Seq					FALSE	missed cell line	CVCL:0559	TF-1
+SAMN21889458	ChIP-Seq	cell type	SHSY5Y cells	CVCL:0019	SH-SY5Y	TRUE	correct cell line	CVCL:0019	SH-SY5Y
+SAMN22227079	ChIP-Seq	cell line	HT115	CVCL:2520	HT115	TRUE	correct cell line	CVCL:2520	HT115
+SAMN22404978	ATAC-Seq	cell line	HeLa	CVCL:0030	HeLa	TRUE	correct cell line	CVCL:0030	HeLa
+SAMN22560682	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN22569474	ATAC-Seq	cell line	RPE-1	CVCL:4388	hTERT-RPE1	TRUE	correct cell line	CVCL:4388	hTERT-RPE1
+SAMN22820375	ATAC-Seq	cell line	Karpas422	CVCL:1325	Karpas-422	TRUE	correct cell line	CVCL:1325	Karpas-422
+SAMN22841654	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN22985832	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN23009692	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN23012531	ATAC-Seq	cell line	SKBR3	CVCL:0033	SK-BR-3	TRUE	correct cell line	CVCL:0033	SK-BR-3
+SAMN23297536	ChIP-Seq	cell line	GI-ME-N	CVCL:1232	GI-ME-N	TRUE	correct cell line	CVCL:1232	GI-ME-N
+SAMN23309372	ChIP-Seq	cell line	TTC549 cells	CVCL:8005	TTC-549	TRUE	correct cell line	CVCL:8005	TTC-549
+SAMN23514753	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN23958106	ATAC-Seq	cell line	THP-1 cells	CVCL:0006	THP-1	TRUE	correct cell line	CVCL:0006	THP-1
+SAMN24146407	ATAC-Seq	cell line	HaCat	CVCL:0038	HaCaT	TRUE	correct cell line	CVCL:0038	HaCaT
+SAMN24247613	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN24273144	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN24273174	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN24320442	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN24497338	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN24501934	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN24726646	ATAC-Seq	cell line	H1975	CVCL:1511	NCI-H1975	TRUE	correct cell line	CVCL:1511	NCI-H1975
+SAMN24776693	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN24776737	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN24812211	ATAC-Seq	cell line	AsPC-1	CVCL:0152	AsPC-1	TRUE	correct cell line	CVCL:0152	AsPC-1
+SAMN25042836	ATAC-Seq	cell type	ESC H9 derived fibroblasts H9F	CVCL:9773	WA09	FALSE	missed non-cell line		None
+SAMN25068126	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN25242903	ATAC-Seq	cell line	HUDEP2	CVCL:VI06	HUDEP-2	TRUE	correct cell line	CVCL:VI06	HUDEP-2
+SAMN25246648	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN25248181	ATAC-Seq	cell line	A375	CVCL:0132	A-375	TRUE	correct cell line	CVCL:0132	A-375
+SAMN25280644	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN25810158	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN26024431	ATAC-Seq	cell line	HEK293T	CVCL:0063	HEK293T	TRUE	correct cell line	CVCL:0063	HEK293T
+SAMN26086460	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN26226108	ATAC-Seq					FALSE	missed cell line	CVCL:1844	OCI-AML-3
+SAMN26245495	ATAC-Seq					FALSE	missed cell line	CVCL:1569	NCI-H526
+SAMN26245508	ChIP-Seq					FALSE	missed cell line	CVCL:1569	NCI-H526
+SAMN26543158	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN26814360	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN26853186	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN27110794	ChIP-Seq					FALSE	missed cell line	CVCL:1325	Karpas-422
+SAMN27505541	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN27567848	ChIP-Seq	cell line | cell type	hTSC CT27 | Human trophoblast stem cells	CVCL:A7AZ, CVCL:WU77	CT27, HT [Human HeLa contaminated cell line]	FALSE	wrong cell line	CVCL:A7AZ	CT27
+SAMN27570519	ChIP-Seq					FALSE	missed cell line	CVCL:0103	SUP-B15
+SAMN27673430	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN28103025	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN28160998	ATAC-Seq	cell line	PANC1	CVCL:0480	PANC-1	TRUE	correct cell line	CVCL:0480	PANC-1
+SAMN28175412	ATAC-Seq	cell line	SHSY5Y	CVCL:0019	SH-SY5Y	TRUE	correct cell line	CVCL:0019	SH-SY5Y
+SAMN28188743	ATAC-Seq	cell line	BE(2)-C	CVCL:0529	SK-N-BE(2)-C	TRUE	correct cell line	CVCL:0529	SK-N-BE(2)-C
+SAMN28203109	ATAC-Seq	cell line | cell line	SK-N-BE(2)C | SK-N-BE(2)C	CVCL:0528, CVCL:0529	SK-N-BE(2), SK-N-BE(2)-C	FALSE	wrong cell line	CVCL:0529	SK-N-BE(2)-C
+SAMN28451483	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN28590829	ChIP-Seq	cell line	WM1205	CVCL:5239	1205Lu	TRUE	correct cell line	CVCL:5239	1205Lu
+SAMN28591123	ATAC-Seq	cell line	16HBE14o-	CVCL:0112	16HBE14o-	TRUE	correct cell line	CVCL:0112	16HBE14o-
+SAMN28861861	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN28956647	ATAC-Seq	cell line	C20	CVCL:WT77	UNIBSi005-C	FALSE	missed non-cell line		None
+SAMN29017063	ChIP-Seq					FALSE	missed cell line	CVCL:0498	RCC4
+SAMN29058346	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN29379479	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN29471218	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN29494169	ChIP-Seq	cell line	GSC23	CVCL:DR59	GSC23	TRUE	correct cell line	CVCL:DR59	GSC23
+SAMN29506915	ChIP-Seq	cell line	MDA-MB-231	CVCL:0062	MDA-MB-231	TRUE	correct cell line	CVCL:0062	MDA-MB-231
+SAMN29635247	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN29758246	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN29765851	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN29937875	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30002429	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30058156	ChIP-Seq	cell line	H446	CVCL:1562	NCI-H446	TRUE	correct cell line	CVCL:1562	NCI-H446
+SAMN30078849	ChIP-Seq					FALSE	missed cell line	CVCL:0Q73	12Z
+SAMN30128311	ATAC-Seq	cell line	TeloHAEC	CVCL:Z065	TeloHAEC	TRUE	correct cell line	CVCL:Z065	TeloHAEC
+SAMN30129308	ChIP-Seq	cell line	Eahy926	CVCL:3901	EA.hy 926	TRUE	correct cell line	CVCL:3901	EA.hy 926
+SAMN30135366	ChIP-Seq					FALSE	missed cell line	CVCL:RU10	CCMCL1
+SAMN30244111	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30262167	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30273402	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30319254	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN30445145	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30522784	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30566529	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30685543	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN30812687	ChIP-Seq	cell line	H460 cells	CVCL:0459	NCI-H460	TRUE	correct cell line	CVCL:0459	NCI-H460
+SAMN30827487	ATAC-Seq					FALSE	missed cell line	CVCL:K278	RPTEC/TERT1
+SAMN30926673	ATAC-Seq					FALSE	missed cell line	CVCL:9771	WA01
+SAMN31028474	ATAC-Seq	cell line	LHCN-M2 (PMID: 17559502)	CVCL:8890	LHCN-M2	TRUE	correct cell line	CVCL:8890	LHCN-M2
+SAMN31065847	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN31137568	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN31169508	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN31247208	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN31247264	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN31313810	ATAC-Seq	cell line	H9	CVCL:9773	WA09	FALSE	missed non-cell line		None
+SAMN31420899	ChIP-Seq	cell line	H9 hESC	CVCL:9773	WA09	FALSE	missed non-cell line		None
+SAMN31526619	ATAC-Seq	cell line	HL-60	CVCL:0002	HL-60	TRUE	correct cell line	CVCL:0002	HL-60
+SAMN31836779	ChIP-Seq	cell line	U2OS	CVCL:0042	U2OS	TRUE	correct cell line	CVCL:0042	U2OS
+SAMN31972300	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN31976306	ChIP-Seq					FALSE	missed cell line	CVCL:1844	OCI-AML-3
+SAMN32010992	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN32889638	ATAC-Seq	cell line	U937	CVCL:0007	U-937	TRUE	correct cell line	CVCL:0007	U-937
+SAMN32953939	ChIP-Seq	cell line	SUM149	CVCL:3422	SUM149PT	TRUE	correct cell line	CVCL:3422	SUM149PT
+SAMN32991376	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN33006350	ATAC-Seq	cell line	SH-EP	CVCL:0524	SH-EP	TRUE	correct cell line	CVCL:0524	SH-EP
+SAMN33229061	ATAC-Seq	cell line	FS4	CVCL:0266	FS-4 [Human foreskin]	FALSE	missed non-cell line		None
+SAMN33483290	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN33483302	ATAC-Seq	cell line	HCT-116	CVCL:0291	HCT 116	TRUE	correct cell line	CVCL:0291	HCT 116
+SAMN33798205	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN33832125	ATAC-Seq	cell line	FT282	CVCL:A4AX	hTERT FT282	TRUE	correct cell line	CVCL:A4AX	hTERT FT282
+SAMN33874701	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN33941752	ATAC-Seq	cell line	MV4-11	CVCL:0064	MV4-11	TRUE	correct cell line	CVCL:0064	MV4-11
+SAMN33948782	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN34091162	ChIP-Seq					FALSE	missed cell line	CVCL:VI05	HUDEP-1
+SAMN34298236	ATAC-Seq	cell line	H9	CVCL:9773	WA09	FALSE	missed non-cell line		None
+SAMN34426038	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN34441476	ATAC-Seq					TRUE	correct non-cell line		None
+SAMN35369678	ChIP-Seq					TRUE	correct non-cell line		None
+SAMN35448386	ChIP-Seq	cell line	HUES8	CVCL:B207	HUES 8	TRUE	correct cell line	CVCL:B207	HUES 8
+SAMN36407488	ATAC-Seq					FALSE	missed cell line	CVCL:LI38	CWR22Pc
