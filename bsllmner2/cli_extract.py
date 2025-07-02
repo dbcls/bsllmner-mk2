@@ -19,7 +19,7 @@ from bsllmner2.utils import load_bs_entries
 
 class Args(BaseModel):
     """
-    Command-line arguments for the bsllmner2 CLI.
+    Command-line arguments for the bsllmner2 CLI extract mode.
     """
     bs_entries: Path
     prompt: Path
@@ -30,7 +30,7 @@ class Args(BaseModel):
 
 def parse_args(args: List[str]) -> Tuple[Config, Args]:
     """
-    Parse command-line arguments for the bsllmner2 CLI.
+    Parse command-line arguments for the bsllmner2 CLI extract mode.
 
     Returns:
         Args: Parsed command-line arguments.
@@ -135,11 +135,11 @@ def dump_results(
     return results_file
 
 
-def run_cli() -> None:
+def run_cli_extract() -> None:
     """
-    Run the CLI for bsllmner2.
+    Run the CLI for bsllmner2 extract mode.
     """
-    LOGGER.info("Starting bsllmner2 CLI...")
+    LOGGER.info("Starting bsllmner2 CLI extract mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
     LOGGER.debug("Config:\n%s", config.model_dump_json(indent=2))
@@ -165,4 +165,4 @@ def run_cli() -> None:
 
 
 if __name__ == "__main__":
-    run_cli()
+    run_cli_extract()

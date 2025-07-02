@@ -7,7 +7,7 @@ import ollama
 from ollama import ChatResponse, Message, Options
 from pydantic import BaseModel
 
-from bsllmner2.bs import is_ebi_format
+from bsllmner2.bs import construct_llm_input_json, is_ebi_format
 from bsllmner2.config import LOGGER, Config
 from bsllmner2.prompt import Prompt
 
@@ -102,7 +102,7 @@ def ner(
     results = []
     for entry in bs_entries:
         LOGGER.debug("Processing entry: %s", entry.get("accession", "Unknown"))
-        entry_str = json.dumps(entry, ensure_ascii=False)
+        entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
         messages_copy = copy.deepcopy(messages)
         if messages_copy[-1].content is not None:
             messages_copy[-1].content += "\n" + entry_str

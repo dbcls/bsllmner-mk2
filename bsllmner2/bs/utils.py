@@ -4,18 +4,17 @@ from typing import Any, Dict, List
 
 from pydantic import BaseModel
 
-from bsllmner2.config import FILTER_KEY_VAL_RULES_PATH
+from bsllmner2.config import FILTER_KEYS_PATH
 
 
-class FilterKeyValRules(BaseModel):
+class FilterKeys(BaseModel):
     filter_keys: List[str] = []
-    filter_values: List[str] = []
 
 
-def _load_filter_key_val_rules(path: Path) -> FilterKeyValRules:
+def _load_filter_keys(path: Path) -> FilterKeys:
     with path.open("r", encoding="utf-8") as f:
         data = json.load(f)
-    return FilterKeyValRules(**data)
+    return FilterKeys(**data)
 
 
 def is_ebi_format(bs_entry: Dict[str, Any]) -> bool:
@@ -26,29 +25,29 @@ def is_ebi_format(bs_entry: Dict[str, Any]) -> bool:
     return "characteristics" in bs_entry and isinstance(bs_entry["characteristics"], dict)
 
 
-def construct_llm_input_json(bs_json: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+def construct_llm_input_json(entry: Dict[str, Any]) -> Dict[str, Any]:
     """
     Construct minimized input JSON for LLM calls from a list of BioSample JSON objects.
     This function filters out keys that are not relevant for LLM processing.
 
     Args:
-        bs_json (List[Dict[str, Any]]): List of BioSample JSON objects.
+        bs_entry (Dict[str, Any]): A single BioSample JSON object.
 
     Returns:
-        List[Dict[str, Any]]: Filtered list of BioSample JSON objects ready for LLM input.
+        Dict[str, Any]: A filtered dictionary containing only relevant keys for LLM processing.
     """
-    filter_key_val_rules = _load_filter_key_val_rules(FILTER_KEY_VAL_RULES_PATH)
+    filter_keys = _load_filter_keys(FILTER_KEYS_PATH)
 
-    filtered_entries = []
-    for entry in bs_json:
-        if is_ebi_format(entry):
-            attrs = entry.get("characteristics", {})
-        else:
-            attrs = entry
-        filtered_entry = {}
-        for key, value in attrs.items():
-            if key not in filter_key_val_rules.filter_keys:
+    filtered_entry = {}
+    if is_ebi_format(entry):
+        attrs = entry.get("characteristics", {})
+    else:
+        attrs = entry
+    for key, value in attrs.items():
+        if key not in filter_keys.filter_keys:
+            if is_ebi_format(entry):
+                filtered_entry[key] = value[0]["text"]
+            else:
                 filtered_entry[key] = value
-        filtered_entries.append(filtered_entry)
 
-    return filtered_entries
+    return filtered_entry
