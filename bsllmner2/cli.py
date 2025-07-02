@@ -12,6 +12,7 @@ from bsllmner2.client.ollama import OLLAMA_MODELS, Output, ner
 from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, RESULT_DIR,
                               Config, default_config, get_config,
                               set_logging_level)
+from bsllmner2.metrics import LiveMetricsCollector, Metrics
 from bsllmner2.prompt import load_prompt_file
 from bsllmner2.utils import load_bs_entries
 
@@ -24,6 +25,7 @@ class Args(BaseModel):
     prompt: Path
     model: str = OLLAMA_MODELS[0]
     max_entries: Optional[int] = None
+    with_metrics: bool = False
 
 
 def parse_args(args: List[str]) -> Tuple[Config, Args]:
@@ -74,6 +76,11 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
         help=f"Host URL for the Ollama server (default: {default_config.ollama_host}",
     )
     parser.add_argument(
+        "--with-metrics",
+        action="store_true",
+        help="Enable collection of metrics during processing.",
+    )
+    parser.add_argument(
         "--debug",
         action="store_true",
         help="Enable debug mode for more verbose logging.",
@@ -95,11 +102,17 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
         bs_entries=parsed_args.bs_entries.resolve(),
         prompt=parsed_args.prompt.resolve(),
         model=parsed_args.model,
-        max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None
+        max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
+        with_metrics=parsed_args.with_metrics,
     )
 
 
-def dump_results(config: Config, args: Args, results: List[Tuple[ChatResponse, Output]]) -> Path:
+def dump_results(
+    config: Config,
+    args: Args,
+    results: List[Tuple[ChatResponse, Output]],
+    metrics: Optional[List[Metrics]]
+) -> Path:
     RESULT_DIR.mkdir(parents=True, exist_ok=True)
     now = time.strftime("%Y%m%d_%H%M%S")
     results_file = RESULT_DIR.joinpath(f"results_{args.model}_{now}.json")
@@ -109,6 +122,7 @@ def dump_results(config: Config, args: Args, results: List[Tuple[ChatResponse, O
             {
                 "config": config.model_dump(mode="json"),
                 "args": args.model_dump(mode="json"),
+                "metrics": [metric.model_dump() for metric in metrics] if metrics else None,
                 "outputs_only": outputs_only,
                 "results": [{
                     "chat_response": response.model_dump(),
@@ -135,8 +149,18 @@ def run_cli() -> None:
     if args.max_entries is not None:
         bs_entries = bs_entries[:args.max_entries]
     prompts = load_prompt_file(args.prompt)
-    results = ner(config, bs_entries, prompts, args.model)
-    results_file = dump_results(config, args, results)
+
+    if args.with_metrics:
+        metrics_collector = LiveMetricsCollector()
+        metrics_collector.start()
+    try:
+        results = ner(config, bs_entries, prompts, args.model)
+    finally:
+        if args.with_metrics:
+            metrics_collector.stop()
+    metrics = metrics_collector.get_records() if args.with_metrics else None
+
+    results_file = dump_results(config, args, results, metrics)
     LOGGER.info("Processing complete. Results saved to %s", results_file)
 
 

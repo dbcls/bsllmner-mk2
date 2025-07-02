@@ -6,6 +6,7 @@ services:
     container_name: bsllmner-mk2-app
     volumes:
       - ${PWD}:/app
+      - /var/run/docker.sock:/var/run/docker.sock # For docker inspect
     environment:
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
     entrypoint: [""]
