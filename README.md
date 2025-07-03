@@ -8,6 +8,7 @@
 ```bash
 mkdir ollama-data
 chmod 777 ollama-data
+docker network create bsllmner-mk2-network
 docker compose up -d --build
 ```
 

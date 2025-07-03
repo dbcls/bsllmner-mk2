@@ -5,7 +5,7 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
-MODULE_ROOT = Path(__file__).parent
+MODULE_ROOT = Path(__file__).parent.resolve()
 REPO_ROOT = MODULE_ROOT.parent
 FILTER_KEYS_PATH = MODULE_ROOT.joinpath("bs", "filter_keys.json")
 PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
@@ -19,6 +19,9 @@ class Config(BaseModel):
     """
     ollama_host: str = "http://localhost:11434"
     debug: bool = False
+    api_host: str = "127.0.0.1"
+    api_port: int = 8000
+    api_url_prefix: str = ""
 
 
 default_config = Config()
@@ -36,6 +39,9 @@ def get_config() -> Config:
     return Config(
         ollama_host=os.environ.get("OLLAMA_HOST", default_config.ollama_host),
         debug=bool(os.environ.get(f"{ENV_PREFIX}DEBUG", default_config.debug)),
+        api_host=os.environ.get(f"{ENV_PREFIX}API_HOST", default_config.api_host),
+        api_port=int(os.environ.get(f"{ENV_PREFIX}API_PORT", default_config.api_port)),
+        api_url_prefix=os.environ.get(f"{ENV_PREFIX}API_URL_PREFIX", default_config.api_url_prefix)
     )
 
 

@@ -9,7 +9,14 @@ description = "Named Entity Recognition (NER) of biological terms in BioSample r
 readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.8"
 license = { text = "MIT" }
-dependencies = ["pydantic", "ollama", "pyyaml"]
+dependencies = [
+  "fastapi",
+  "httpx",
+  "ollama",
+  "pydantic",
+  "pyyaml",
+  "uvicorn[standard]",
+]
 version = "0.1.0"
 
 [project.urls]
@@ -31,6 +38,7 @@ tests = [
 [project.scripts]
 bsllmner2_extract = "bsllmner2.cli_extract:run_cli_extract"
 bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
+bsllmner2_api = "bsllmner2.api:run_api"
 bsllmner2_metrics = "bsllmner2.metrics:main"
 
 [tool.setuptools]

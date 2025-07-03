@@ -1,17 +1,45 @@
 services:
-  app:
+  api:
     build:
       context: .
       dockerfile: Dockerfile
-    container_name: bsllmner-mk2-app
+    container_name: bsllmner-mk2-api
     volumes:
       - ${PWD}:/app
       - /var/run/docker.sock:/var/run/docker.sock # For docker inspect
     environment:
+      - BSLLMNER2_API_HOST=0.0.0.0
+      - BSLLMNER2_API_PORT=8000
+      - BSLLMNER2_DEBUG=true
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
     working_dir: /app
     entrypoint: [""]
+    # command: ["bsllmner2_api"]
     command: ["sleep", "infinity"]
+    restart: unless-stopped
+    init: true
+    networks:
+      - bsllmner-mk2-network
+
+  front:
+    build:
+      context: ./front
+      dockerfile: Dockerfile
+    container_name: bsllmner-mk2-front
+    volumes:
+      - ${PWD}/front:/app
+      - node_modules:/app/node_modules
+    environment:
+      - BSLLMNER2_FRONT_HOST=0.0.0.0
+      - BSLLMNER2_FRONT_PORT=3000
+      - BSLLMNER2_FRONT_EXTERNAL_URL=http://localhost:3000 # Front URL as seen from the browser
+      - BSLLMNER2_API_INTERNAL_URL=http://bsllmner-mk2-api:8000 # API URL as seen from the front container
+    ports:
+      - 127.0.0.1:3000:3000
+    working_dir: /app
+    entrypoint: [""]
+    # command: ["npm", "run", "preview"]
+    command: [ "sleep", "infinity" ]
     restart: unless-stopped
     init: true
     networks:
@@ -37,6 +65,9 @@ services:
     init: true
     networks:
       - bsllmner-mk2-network
+
+volumes:
+  node_modules: {}
 
 networks:
   bsllmner-mk2-network:

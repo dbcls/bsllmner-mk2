@@ -1,0 +1,11 @@
+# Ignore everything
+**
+
+!eslint.config.js
+!package-lock.json
+!package.json
+!src
+!tsconfig.app.json
+!tsconfig.json
+!tsconfig.node.json
+!vite.config.ts
