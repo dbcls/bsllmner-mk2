@@ -1,34 +1,19 @@
 import argparse
-import json
 import sys
-import time
 from pathlib import Path
-from typing import List, Optional, Tuple
+from typing import List, Tuple
 
-from ollama import ChatResponse
-from pydantic import BaseModel
-
-from bsllmner2.client.ollama import OLLAMA_MODELS, Output, ner
-from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, RESULT_DIR,
-                              Config, default_config, get_config,
-                              set_logging_level)
-from bsllmner2.metrics import LiveMetricsCollector, Metrics
-from bsllmner2.prompt import load_prompt_file
-from bsllmner2.utils import load_bs_entries
+from bsllmner2.client.ollama import ner
+from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
+                              default_config, get_config, set_logging_level)
+from bsllmner2.metrics import LiveMetricsCollector
+from bsllmner2.schema import CliExtractArgs, RunMetadata
+from bsllmner2.utils import (dump_result, evaluate_output, get_now_str,
+                             load_bs_entries, load_mapping, load_prompt_file,
+                             to_result)
 
 
-class Args(BaseModel):
-    """
-    Command-line arguments for the bsllmner2 CLI extract mode.
-    """
-    bs_entries: Path
-    prompt: Path
-    model: str = OLLAMA_MODELS[0]
-    max_entries: Optional[int] = None
-    with_metrics: bool = False
-
-
-def parse_args(args: List[str]) -> Tuple[Config, Args]:
+def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
     """
     Parse command-line arguments for the bsllmner2 CLI extract mode.
 
@@ -45,6 +30,12 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
         help="Path to the input JSON or JSONL file containing BioSample entries.",
     )
     parser.add_argument(
+        "--mapping",
+        type=Path,
+        required=True,
+        help="Path to the mapping file in TSV format.",
+    )
+    parser.add_argument(
         "--prompt",
         type=Path,
         default=PROMPT_EXTRACT_FILE_PATH,
@@ -56,9 +47,8 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
     parser.add_argument(
         "--model",
         type=str,
-        choices=OLLAMA_MODELS,
-        default=OLLAMA_MODELS[0],
-        help=f"LLM model to use for NER. Available models: {', '.join(OLLAMA_MODELS)}"
+        default="llama3.1:70b",
+        help="LLM model to use for NER.",
     )
     parser.add_argument(
         "--max-entries",
@@ -92,47 +82,22 @@ def parse_args(args: List[str]) -> Tuple[Config, Args]:
     config = get_config()
     if not parsed_args.bs_entries.exists():
         raise FileNotFoundError(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
+    if not parsed_args.mapping.exists():
+        raise FileNotFoundError(f"Mapping file {parsed_args.mapping} does not exist.")
     if not parsed_args.prompt.exists():
         raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
     if parsed_args.ollama_host:
         config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
 
-    return config, Args(
+    return config, CliExtractArgs(
         bs_entries=parsed_args.bs_entries.resolve(),
+        mapping=parsed_args.mapping.resolve(),
         prompt=parsed_args.prompt.resolve(),
         model=parsed_args.model,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
         with_metrics=parsed_args.with_metrics,
     )
-
-
-def dump_results(
-    config: Config,
-    args: Args,
-    results: List[Tuple[ChatResponse, Output]],
-    metrics: Optional[List[Metrics]]
-) -> Path:
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    now = time.strftime("%Y%m%d_%H%M%S")
-    results_file = RESULT_DIR.joinpath(f"results_{args.model}_{now}.json")
-    outputs_only = [output.output for _, output in results]
-    with results_file.open("w", encoding="utf-8") as f:
-        f.write(json.dumps(
-            {
-                "config": config.model_dump(mode="json"),
-                "args": args.model_dump(mode="json"),
-                "metrics": [metric.model_dump() for metric in metrics] if metrics else None,
-                "outputs_only": outputs_only,
-                "results": [{
-                    "chat_response": response.model_dump(),
-                    "output": output.model_dump()
-                } for response, output in results]
-            },
-            indent=2, ensure_ascii=False,
-        ))
-
-    return results_file
 
 
 def run_cli_extract() -> None:
@@ -148,20 +113,45 @@ def run_cli_extract() -> None:
     bs_entries = load_bs_entries(args.bs_entries)
     if args.max_entries is not None:
         bs_entries = bs_entries[:args.max_entries]
-    prompts = load_prompt_file(args.prompt)
+    mapping = load_mapping(args.mapping)
+    prompt = load_prompt_file(args.prompt)
 
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
     try:
-        results = ner(config, bs_entries, prompts, args.model)
+        start_time = get_now_str()
+        output = ner(config, bs_entries, prompt, args.model)
+        end_time = get_now_str()
     finally:
         if args.with_metrics:
             metrics_collector.stop()
     metrics = metrics_collector.get_records() if args.with_metrics else None
 
-    results_file = dump_results(config, args, results, metrics)
-    LOGGER.info("Processing complete. Results saved to %s", results_file)
+    evaluation = evaluate_output(output, mapping)
+    run_name = f"extract_{args.model}_{start_time}"
+    run_metadata = RunMetadata(
+        run_name=run_name,
+        username=None,
+        start_time=start_time,
+        end_time=end_time,
+        status="completed"
+    )
+    result = to_result(
+        bs_entries=bs_entries,
+        mapping=mapping,
+        prompt=prompt,
+        model=args.model,
+        output=output,
+        evaluation=evaluation,
+        config=config,
+        args=args,
+        metrics=metrics,
+        run_metadata=run_metadata,
+    )
+
+    result_file = dump_result(result, run_name)
+    LOGGER.info("Processing complete. Result saved to %s", result_file)
 
 
 if __name__ == "__main__":

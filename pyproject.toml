@@ -42,7 +42,7 @@ bsllmner2_api = "bsllmner2.api:run_api"
 bsllmner2_metrics = "bsllmner2.metrics:main"
 
 [tool.setuptools]
-packages = ["bsllmner2", "bsllmner2.bs", "bsllmner2.client", "bsllmner2.prompt"]
+packages = ["bsllmner2", "bsllmner2.bs", "bsllmner2.client"]
 include-package-data = true
 
 [tool.setuptools.package-data]

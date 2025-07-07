@@ -23,6 +23,11 @@ export default defineConfig({
         changeOrigin: true,
         rewrite: (path) => path.replace(/^\/api/, ""),
       },
+      "/ollama": {
+        target: process.env.BSLLMNER2_OLLAMA_URL || "http://bsllmner-mk2-ollama:11434",
+        changeOrigin: true,
+        rewrite: (path) => path.replace(/^\/ollama/, ""),
+      },
     },
   },
   preview: {
@@ -35,7 +40,12 @@ export default defineConfig({
     BSLLMNER2_API_URL: JSON.stringify(
       process.env.BSLLMNER2_FRONT_EXTERNAL_URL ?
         `${process.env.BSLLMNER2_FRONT_EXTERNAL_URL}/api` :
-        "http://bsllmner-mk2-api:8000/api",
+        "http://localhost:3000/api",
+    ),
+    BSLLMNER2_OLLAMA_URL: JSON.stringify(
+      process.env.BSLLMNER2_FRONT_EXTERNAL_URL ?
+        `${process.env.BSLLMNER2_FRONT_EXTERNAL_URL}/ollama` :
+        "http://localhost:3000/ollama",
     ),
   },
   base: process.env.BSLLMNER2_FRONT_BASE || "/",

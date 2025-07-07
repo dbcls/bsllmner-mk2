@@ -34,6 +34,7 @@ services:
       - BSLLMNER2_FRONT_PORT=3000
       - BSLLMNER2_FRONT_EXTERNAL_URL=http://localhost:3000 # Front URL as seen from the browser
       - BSLLMNER2_API_INTERNAL_URL=http://bsllmner-mk2-api:8000 # API URL as seen from the front container
+      - BSLLMNER2_OLLAMA_URL=http://bsllmner-mk2-ollama:11434 # Ollama URL as seen from the front container
     ports:
       - 127.0.0.1:3000:3000
     working_dir: /app

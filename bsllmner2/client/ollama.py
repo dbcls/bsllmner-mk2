@@ -1,15 +1,14 @@
 import copy
 import json
 import re
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import ollama
 from ollama import ChatResponse, Message, Options
-from pydantic import BaseModel
 
 from bsllmner2.bs import construct_llm_input_json, is_ebi_format
 from bsllmner2.config import LOGGER, Config
-from bsllmner2.prompt import Prompt
+from bsllmner2.schema import BsEntries, LlmOutput, Prompt
 
 # === Paste from ollama.Options ===
 # class RuntimeOptions:
@@ -35,10 +34,16 @@ OLLAMA_OPTIONS = Options(
     seed=0,
     temperature=0.0,
 )
-OLLAMA_MODELS = [
-    "llama3.1:70b",
-    "deepseek-r1:70b",
-]
+
+
+def fetch_ollama_models(config: Config) -> List[str]:
+    """
+    Fetch the list of available models from the Ollama server.
+    """
+    client = ollama.Client(host=config.ollama_host)
+    models = client.list()
+    model_names = [model.name for model in models]  # type: ignore
+    return model_names
 
 
 def _construct_messages(prompts: List[Prompt]) -> List[Message]:
@@ -64,57 +69,53 @@ def _extract_last_json(text: str) -> Optional[str]:
     return None
 
 
-class Output(BaseModel):
-    accession: str
-    output: Optional[Any] = None
-    output_full: Optional[str] = None
-    characteristics: Optional[Dict[str, Any]] = None
-    taxId: Optional[Any] = None
-
-
-def _construct_output(bs_entry: Dict[str, Any], res_text: str) -> Output:
+def _construct_output(bs_entry: Dict[str, Any], res_text: str, chat_response: ChatResponse) -> LlmOutput:
     res_text_json = _extract_last_json(res_text)
-    output_json = Output(
+    output_obj = json.loads(res_text_json) if res_text_json else None
+    if output_obj is not None:
+        for k, v in output_obj.items():
+            if v in ("null", "None"):
+                output_obj[k] = None
+    output_ins = LlmOutput(
         accession=bs_entry["accession"],
-        output=json.loads(res_text_json) if res_text_json else None,
+        output=output_obj,
         output_full=res_text_json,
+        chat_response=chat_response,
     )
 
     # add "characteristics" and "taxId"
-    if isinstance(output_json.output, dict) and is_ebi_format(bs_entry):
-        output_json.characteristics = {
-            key: {"text": value} for key, value in output_json.output.items()
+    if isinstance(output_ins.output, dict) and is_ebi_format(bs_entry):
+        output_ins.characteristics = {
+            key: {"text": value} for key, value in output_ins.output.items()
         }
         if "taxId" in bs_entry:
-            output_json.taxId = bs_entry["taxId"]
+            output_ins.taxId = bs_entry["taxId"]
 
-    return output_json
+    return output_ins
 
 
 def ner(
     config: Config,
-    bs_entries: List[Dict[str, Any]],
-    prompts: List[Prompt],
+    bs_entries: BsEntries,
+    prompt: List[Prompt],
     model: str
-) -> List[Tuple[ChatResponse, Output]]:
+) -> List[LlmOutput]:
     client = ollama.Client(host=config.ollama_host)
-    messages = _construct_messages(prompts)
-    results = []
+    messages = _construct_messages(prompt)
+    outputs = []
     for entry in bs_entries:
         LOGGER.debug("Processing entry: %s", entry.get("accession", "Unknown"))
         entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
         messages_copy = copy.deepcopy(messages)
         if messages_copy[-1].content is not None:
             messages_copy[-1].content += "\n" + entry_str
-        LOGGER.debug("Messages: %s", [msg.model_dump() for msg in messages_copy])
         response: ChatResponse = client.chat(
             model=model,
             messages=messages_copy,
             options=OLLAMA_OPTIONS
         )
-        LOGGER.debug("Response: %s", response.model_dump())
         res_text = response["message"]["content"]
-        output = _construct_output(entry, res_text)
-        results.append((response, output))
+        output = _construct_output(entry, res_text, response)
+        outputs.append(output)
 
-    return results
+    return outputs

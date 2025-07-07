@@ -12,6 +12,8 @@ PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
 PROMPT_SELECT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_select.yml")
 RESULT_DIR = REPO_ROOT.joinpath("bsllmner2-results")
 
+OLLAMA_CONTAINER_NAME = "bsllmner2-ollama"
+
 
 class Config(BaseModel):
     """
