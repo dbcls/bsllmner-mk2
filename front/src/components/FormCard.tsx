@@ -30,9 +30,10 @@ interface FormCardProps {
   sx?: SxProps
   models: OllamaModels
   nowStr: string
+  setDetailRunName: (name: string | null) => void
 }
 
-export default function FormCard({ sx, models, nowStr }: FormCardProps) {
+export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormCardProps) {
   const { control, setValue, watch, handleSubmit, formState: { isValid } } = useFormContext<FormValues>()
 
   // === BioSample Entries Form ===
@@ -204,6 +205,8 @@ export default function FormCard({ sx, models, nowStr }: FormCardProps) {
       const data = await res.json()
       // TODO handle the response data
       console.log("Submission successful:", data)
+      setDetailRunName(values.runName)
+      queryClient.invalidateQueries({ queryKey: ["runs"] })
       setSubmitState("submitted")
       setTimeout(() => {
         setSubmitState("idle")

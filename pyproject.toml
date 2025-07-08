@@ -12,6 +12,7 @@ license = { text = "MIT" }
 dependencies = [
   "fastapi",
   "httpx",
+  "ijson",
   "ollama",
   "pydantic",
   "python-multipart",

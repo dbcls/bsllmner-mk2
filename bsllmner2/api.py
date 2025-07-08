@@ -2,20 +2,23 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from enum import Enum
 from pathlib import Path
-from typing import Callable, List, NoReturn, Optional, Tuple, TypeVar
+from typing import (Any, Callable, List, Literal, NoReturn, Optional, Tuple,
+                    TypeVar)
 
 import uvicorn
 import yaml
-from fastapi import (APIRouter, FastAPI, File, Form, HTTPException, UploadFile,
-                     status)
+from fastapi import (APIRouter, FastAPI, File, Form, HTTPException, Query,
+                     Response, UploadFile, status)
 
 from bsllmner2.config import (MODULE_ROOT, PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
-                              get_config, set_logging_level)
+                              RESULT_DIR, get_config, set_logging_level)
 from bsllmner2.schema import (API_VERSION, BsEntries, Mapping, Prompt, Result,
                               RunMetadata, ServiceInfo)
-from bsllmner2.utils import (dump_result, get_now_str, load_bs_entries,
-                             load_mapping, to_result)
+from bsllmner2.utils import (dump_result, get_now_str, list_run_metadata,
+                             load_bs_entries, load_mapping, load_result,
+                             to_result)
 
 SMALL_TEST_DATA = {
     "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.json"),
@@ -145,6 +148,7 @@ async def extract(
         config=get_config(),
         run_metadata=RunMetadata(
             run_name=run_name,
+            model=model,
             username=username,
             start_time=now,
             end_time=None,
@@ -169,6 +173,83 @@ async def extract(
     )
 
     return queue_obj
+
+
+class RunSortBy(str, Enum):
+    START_TIME = "start_time"
+    ACCURACY = "accuracy"
+    PROCESSING_TIME = "processing_time"
+
+
+class RunSortOrder(str, Enum):
+    ASC = "asc"
+    DESC = "desc"
+
+
+def make_none_safe_key(reverse: bool) -> Callable[[Any], Tuple[int, Any]]:
+    def _key(val: Any) -> Tuple[int, Any]:
+        if val is None:
+            return (0 if reverse else 1, None)
+        return (1 if reverse else 0, val)
+    return _key
+
+
+@router.get(
+    "/extract/runs",
+    response_model=List[RunMetadata],
+)
+async def list_extract_runs(
+    response: Response,
+    username: Optional[str] = Query(None),
+    model: Optional[str] = Query(None),
+    run_status: Literal["running", "completed", "failed"] = Query(None),
+    sort_by: RunSortBy = Query(RunSortBy.START_TIME),
+    sort_order: RunSortOrder = Query(RunSortOrder.DESC),
+    page: int = Query(1, desciption="1-based page number"),
+    page_size: int = Query(10, description="Number of results per page")
+) -> List[RunMetadata]:
+    metadata = list_run_metadata()
+
+    # Filtering
+    if username:
+        metadata = [m for m in metadata if m.username == username]
+    if model:
+        metadata = [m for m in metadata if m.model == model]
+    if run_status:
+        metadata = [m for m in metadata if m.status == run_status]
+
+    # Sorting
+    reverse = sort_order == RunSortOrder.DESC
+    key_fn = make_none_safe_key(reverse)
+    metadata.sort(
+        key=lambda m: key_fn(getattr(m, sort_by.value)),
+        reverse=reverse,
+    )
+
+    # Pagination
+    start = (page - 1) * page_size
+    end = start + page_size
+    response.headers["X-Total-Count"] = str(len(metadata))
+
+    return metadata[start:end]
+
+
+@router.get(
+    "/extract/runs/{run_name}",
+    response_model=Result,
+)
+async def get_extract_run(
+    run_name: str,
+) -> Result:
+    try:
+        result = load_result(RESULT_DIR.joinpath(f"{run_name}.json"))
+    except FileNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Run '{run_name}' not found.",
+        ) from exc
+    return result
+
 
 # === main application setup ===
 

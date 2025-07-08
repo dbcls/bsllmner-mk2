@@ -1,9 +1,10 @@
-import { useEffect, useMemo } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { FormProvider, useForm } from "react-hook-form"
 
 import FormCard from "@/components/FormCard"
 import Frame from "@/components/Frame"
 import Loading from "@/components/Loading"
+import RunCard from "@/components/RunCard"
 import { useDefaultExtractPrompt } from "@/hooks/useDefaultExtractPrompt"
 import { useOllamaModels } from "@/hooks/useOllamaModels"
 import { useServiceInfo } from "@/hooks/useServiceInfo"
@@ -28,6 +29,7 @@ export default function Home() {
     () => getNowStr(),
     [],
   )
+  const [detailRunName, setDetailRunName] = useState<string | null>(null)
 
   const methods = useForm<FormValues>({
     defaultValues: defaultFormValues(storedUsername),
@@ -57,7 +59,8 @@ export default function Home() {
   return (
     <Frame>
       <FormProvider {...methods}>
-        <FormCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} nowStr={nowStr} />
+        <FormCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} nowStr={nowStr} setDetailRunName={setDetailRunName} />
+        <RunCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} detailRunName={detailRunName} setDetailRunName={setDetailRunName} />
       </FormProvider>
     </Frame>
   )

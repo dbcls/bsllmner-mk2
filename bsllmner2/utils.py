@@ -4,6 +4,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
+import ijson
 import yaml
 
 from bsllmner2.config import RESULT_DIR, Config
@@ -160,6 +161,13 @@ def get_now_str() -> str:
     return datetime.now().strftime("%Y%m%d_%H%M%S")
 
 
+def compute_processing_time(start_time: str, end_time: str) -> float:
+    dt_format = "%Y%m%d_%H%M%S"
+    start_dt = datetime.strptime(start_time, dt_format)
+    end_dt = datetime.strptime(end_time, dt_format)
+    return (end_dt - start_dt).total_seconds()
+
+
 def build_error_log(
     exc: Exception,
 ) -> ErrorLog:
@@ -183,3 +191,41 @@ def dump_result(result: Result, run_name: Optional[str] = None) -> Path:
         f.write(result.model_dump_json(indent=2))
 
     return result_file
+
+
+def load_result(path: Path) -> Result:
+    if not path.exists():
+        raise FileNotFoundError(f"Result file {path} does not exist.")
+
+    with path.open("r", encoding="utf-8") as f:
+        content = f.read()
+    return Result.model_validate_json(content)
+
+
+def load_run_metadata(path: Path) -> RunMetadata:
+    if not path.exists():
+        raise FileNotFoundError(f"Run metadata file {path} does not exist.")
+
+    with path.open("rb") as f:
+        iterator = ijson.items(f, "run_metadata")
+        try:
+            data: Any = next(iterator)
+        except StopIteration as exc:
+            raise ValueError(f"No run metadata found in file {path}") from exc
+
+    return RunMetadata.model_validate(data)
+
+
+def list_run_metadata() -> List[RunMetadata]:
+    if not RESULT_DIR.exists():
+        return []
+
+    run_metadata_list = []
+    for file in RESULT_DIR.glob("*.json"):
+        try:
+            run_metadata = load_run_metadata(file)
+            run_metadata_list.append(run_metadata)
+        except (FileNotFoundError, ValueError) as e:
+            print(f"Skipping file {file}: {e}")
+
+    return run_metadata_list

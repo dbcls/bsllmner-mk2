@@ -95,10 +95,15 @@ class Evaluation(BaseModel):
 
 class RunMetadata(BaseModel):
     run_name: str
+    model: str
     username: Optional[str] = None
     start_time: str
     end_time: Optional[str] = None
     status: Literal["running", "completed", "failed"] = "running"
+    processing_time: Optional[float] = None
+    matched_entries: Optional[int] = None
+    total_entries: Optional[int] = None
+    accuracy: Optional[float] = None
 
 
 class ErrorInfo(BaseModel):
