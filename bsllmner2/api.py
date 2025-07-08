@@ -18,11 +18,11 @@ from bsllmner2.utils import (dump_result, get_now_str, load_bs_entries,
                              load_mapping, to_result)
 
 SMALL_TEST_DATA = {
-    "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.jsonl"),
+    "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.json"),
     "mapping": REPO_ROOT.joinpath("tests/test-data/cell_line_example.mapping.tsv"),
 }
 LARGE_TEST_DATA = {
-    "bs_entries": REPO_ROOT.joinpath("tests/zenodo-data/biosample_cellosaurus_mapping_testset.json"),
+    "bs_entries": REPO_ROOT.joinpath("tests/zenodo-data/biosample_gene_extraction_testset.json"),
     "mapping": REPO_ROOT.joinpath("tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv"),
 }
 
@@ -129,7 +129,7 @@ async def extract(
         bs_entries,
         mapping,
     )
-    if max_entries:
+    if max_entries and (1 <= max_entries < len(bs_entries_data)):
         bs_entries_data = bs_entries_data[:max_entries]
     prompt_data = [Prompt(**item) for item in yaml.safe_load(prompt)]
 

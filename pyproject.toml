@@ -14,6 +14,7 @@ dependencies = [
   "httpx",
   "ollama",
   "pydantic",
+  "python-multipart",
   "pyyaml",
   "uvicorn[standard]",
 ]

@@ -34,17 +34,27 @@ export const serviceInfoSchema = z.object({
 export type ServiceInfo = z.infer<typeof serviceInfoSchema>
 
 export interface FormValues {
-  useDefaultBsEntries: boolean
+  useSmallTestData: boolean
+  useLargeTestData: boolean
   bsEntries?: string | null
+  mapping?: string | null
   prompt: Prompt[]
   model: string
   maxEntries: number
+  username: string
+  runName: string
 }
 
-export const defaultFormValues: FormValues = {
-  useDefaultBsEntries: true,
-  bsEntries: null,
-  prompt: [],
-  model: "",
-  maxEntries: -1,
+export const defaultFormValues = (username: string): FormValues => {
+  return {
+    useSmallTestData: true,
+    useLargeTestData: false,
+    bsEntries: null,
+    mapping: null,
+    prompt: [],
+    model: "",
+    maxEntries: -1,
+    username,
+    runName: "",
+  }
 }
