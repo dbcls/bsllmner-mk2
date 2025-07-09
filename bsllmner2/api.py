@@ -1,3 +1,4 @@
+import json
 import shutil
 import subprocess
 import sys
@@ -122,7 +123,8 @@ async def extract(
     mapping: Optional[UploadFile] = File(None),
     prompt: str = Form(...),
     model: str = Form(...),
-    thinking: bool = Form(False),
+    thinking: Optional[bool] = Form(None),
+    format_: Optional[str] = Form(None),
     max_entries: Optional[int] = Form(None),
     username: Optional[str] = Form(None),
     run_name: Optional[str] = Form(None),
@@ -136,6 +138,7 @@ async def extract(
     if max_entries and (1 <= max_entries < len(bs_entries_data)):
         bs_entries_data = bs_entries_data[:max_entries]
     prompt_data = [Prompt(**item) for item in yaml.safe_load(prompt)]
+    format_data = json.loads(format_) if format_ else None
 
     now = get_now_str()
     run_name = run_name or f"{model}_{now}"
@@ -145,6 +148,7 @@ async def extract(
         prompt=prompt_data,
         model=model,
         thinking=thinking,
+        format_=format_data,
         output=[],
         evaluation=[],
         config=get_config(),

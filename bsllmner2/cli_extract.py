@@ -51,9 +51,9 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         help="LLM model to use for NER.",
     )
     parser.add_argument(
-        "--enable-thinking",
-        action="store_true",
-        help="Enable 'thinking' mode for the LLM.",
+        "--thinking",
+        choices=["true", "false"],
+        help="Enable or disable thinking mode for the LLM. Use 'true' to enable thinking, 'false' to disable it.",
     )
     parser.add_argument(
         "--max-entries",
@@ -100,7 +100,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         mapping=parsed_args.mapping.resolve(),
         prompt=parsed_args.prompt.resolve(),
         model=parsed_args.model,
-        thinking=parsed_args.enable_thinking,
+        thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
         with_metrics=parsed_args.with_metrics,
     )

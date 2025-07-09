@@ -47,6 +47,7 @@ export const wfInputSchema = z.object({
   prompt: z.array(promptSchema),
   model: z.string(),
   thinking: z.boolean().nullable().optional(),
+  format: z.record(z.any()).nullable().optional(),
   config: z.any(),
   cli_args: z.any().nullable().optional(),
 })
@@ -145,7 +146,8 @@ export interface FormValues {
   mapping?: string | null
   prompt: Prompt[]
   model: string
-  thinking: boolean
+  thinking: boolean | null
+  format?: string | null
   maxEntries: string | number
   username: string
   runName: string
@@ -159,7 +161,8 @@ export const defaultFormValues = (username: string): FormValues => {
     mapping: null,
     prompt: [],
     model: "",
-    thinking: false,
+    thinking: null,
+    format: null,
     maxEntries: -1,
     username,
     runName: "",

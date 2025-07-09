@@ -6,6 +6,7 @@ from typing import Any, Dict, List, Optional
 
 import ijson
 import yaml
+from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import RESULT_DIR, Config
 from bsllmner2.metrics import Metrics
@@ -138,7 +139,8 @@ def to_result(
     evaluation: List[Evaluation],
     config: Config,
     run_metadata: RunMetadata,
-    thinking: bool = False,
+    format_: Optional[JsonSchemaValue] = None,
+    thinking: Optional[bool] = None,
     args: Optional[CliExtractArgs] = None,
     metrics: Optional[List[Metrics]] = None,
 ) -> Result:
@@ -149,6 +151,7 @@ def to_result(
             prompt=prompt,
             model=model,
             thinking=thinking,
+            format=format_,
             config=config,
             cli_args=args,
         ),

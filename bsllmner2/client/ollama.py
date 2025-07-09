@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional
 
 import ollama
 from ollama import ChatResponse, Message, Options
+from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.bs import construct_llm_input_json, is_ebi_format
 from bsllmner2.config import LOGGER, Config
@@ -70,12 +71,24 @@ def _extract_last_json(text: str) -> Optional[str]:
 
 
 def _construct_output(bs_entry: Dict[str, Any], res_text: str, chat_response: ChatResponse) -> LlmOutput:
-    res_text_json = _extract_last_json(res_text)
-    output_obj = json.loads(res_text_json) if res_text_json else None
-    if output_obj is not None:
-        for k, v in output_obj.items():
-            if v in ("null", "None"):
-                output_obj[k] = None
+    try:
+        res_text_json = _extract_last_json(res_text)
+    except Exception as e:  # pylint: disable=broad-except
+        LOGGER.error("Error extracting JSON from response text: %s", e)
+        res_text_json = None
+    if res_text_json is not None:
+        try:
+            output_obj = json.loads(res_text_json) if res_text_json else None
+            if output_obj is not None:
+                for k, v in output_obj.items():
+                    if v in ("null", "None"):
+                        output_obj[k] = None
+        except Exception as e:  # pylint: disable=broad-except
+            LOGGER.error("Error parsing JSON response: %s", e)
+            output_obj = None
+    else:
+        output_obj = None
+
     output_ins = LlmOutput(
         accession=bs_entry["accession"],
         output=output_obj,
@@ -99,7 +112,8 @@ def ner(
     bs_entries: BsEntries,
     prompt: List[Prompt],
     model: str,
-    thinking: bool = False
+    thinking: Optional[bool] = None,
+    format_: Optional[JsonSchemaValue] = None,
 ) -> List[LlmOutput]:
     client = ollama.Client(host=config.ollama_host)
     messages = _construct_messages(prompt)
@@ -115,6 +129,7 @@ def ner(
             messages=messages_copy,
             options=OLLAMA_OPTIONS,
             think=thinking,
+            format=format_,
         )
         res_text = response["message"]["content"]
         output = _construct_output(entry, res_text, response)

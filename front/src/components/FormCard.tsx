@@ -13,7 +13,6 @@ import {
   Divider,
   Snackbar,
   Alert,
-  Checkbox,
 } from "@mui/material"
 import { type SxProps } from "@mui/system"
 import { useQueryClient } from "@tanstack/react-query"
@@ -163,6 +162,25 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName, runName
     control,
     name: "prompt",
   })
+  const { field: formatField, fieldState: formatFieldState } = useController({
+    name: "format",
+    control,
+    rules: {
+      validate: (value) => {
+        if (value) {
+          try {
+            const obj = JSON.parse(value)
+            if (typeof obj !== "object" || Array.isArray(obj)) {
+              return "Format must be a valid JSON schema object"
+            }
+          } catch {
+            return "Format must be a valid JSON schema object"
+          }
+        }
+        return true
+      },
+    },
+  })
 
   // === Other Metadata Form ===
   const { field: usernameField, fieldState: usernameState } = useController({
@@ -211,7 +229,12 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName, runName
       }
       fd.append("prompt", JSON.stringify(values.prompt))
       fd.append("model", values.model)
-      fd.append("thinking", values.thinking.toString())
+      if (values.thinking !== null) {
+        fd.append("thinking", values.thinking.toString())
+      }
+      if (values.format) {
+        fd.append("format", values.format)
+      }
       if (values.maxEntries !== null || values.maxEntries !== "") {
         fd.append("max_entries", values.maxEntries.toString())
       }
@@ -387,17 +410,31 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName, runName
               ))}
             </Select>
           </FormControl>
-          <FormControlLabel
-            sx={{ mt: "0.5rem" }}
-            control={
-              <Checkbox
-                {...thinkingField}
-                checked={thinkingField.value}
-                onChange={(e) => thinkingField.onChange(e.target.checked)}
-              />
-            }
-            label="Enable LLM thinking mode (Probably only works with deepseek and qwen models)"
-          />
+          <FormControl fullWidth sx={{ maxWidth: "20rem", mt: "1rem" }}>
+            <InputLabel id="thinking-select-label">
+              {"LLM Thinking Mode"}
+            </InputLabel>
+            <Select
+              labelId="thinking-select-label"
+              id="thinking-select"
+              label="LLM Thinking Mode"
+              {...thinkingField}
+              value={String(thinkingField.value)}
+              onChange={(e) => {
+                const val = e.target.value
+                if (val === "null") {
+                  thinkingField.onChange(null)
+                } else {
+                  thinkingField.onChange(val === "true")
+                }
+              }}
+            >
+              <MenuItem value="null">None</MenuItem>
+              <MenuItem value="true">True</MenuItem>
+              <MenuItem value="false">False</MenuItem>
+            </Select>
+          </FormControl>
+
           <Box sx={{ mt: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             <Typography>
               {"To add a new model, please select from the "}
@@ -521,6 +558,32 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName, runName
           >
             {"Add Prompt"}
           </Button>
+        </Box>
+        <Divider sx={{ my: "1.5rem" }} />
+        <Box sx={{ mx: "1.5rem" }}>
+          <Typography sx={{ fontWeight: "bold" }}>
+            {"Format:"}
+          </Typography>
+          <TextField
+            {...formatField}
+            value={formatField.value ?? ""}
+            onChange={(e) => formatField.onChange(e.target.value)}
+            placeholder="Please enter a JSON schema object for the output format"
+            error={!!formatFieldState.error}
+            helperText={formatFieldState.error?.message ??
+              "Specify the output format as a JSON schema object. Leave empty for default format."
+            }
+            multiline
+            minRows={5}
+            maxRows={10}
+            fullWidth
+            sx={{ mt: "0.5rem" }}
+            slotProps={{
+              input: {
+                sx: { fontFamily: "monospace" },
+              },
+            }}
+          />
         </Box>
       </Box>
 

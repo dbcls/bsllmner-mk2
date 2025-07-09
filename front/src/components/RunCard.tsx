@@ -158,6 +158,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
     setValue("prompt", detail.input.prompt)
     setValue("model", detail.run_metadata.model)
     setValue("thinking", detail.run_metadata.thinking ?? false)
+    setValue("format", detail.input.format ? JSON.stringify(detail.input.format, null, 2) : null)
   }
 
   const processed: MetricPoint[] = (detail?.metrics ?? []).map((m) => {
@@ -411,6 +412,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                 <Tab label="Input" value={1} sx={{ textTransform: "none" }} />
                 <Tab label="Result" value={2} sx={{ textTransform: "none" }} />
                 <Tab label="Metrics" value={3} sx={{ textTransform: "none" }} />
+                <Tab label="Error" value={4} sx={{ textTransform: "none" }} />
               </Tabs>
             </Box>
 
@@ -459,6 +461,13 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
               </Typography>
               <AdvancedCodeBlock
                 codeString={JSON.stringify(detail.input.prompt, null, 2)}
+                language="json"
+              />
+              <Typography sx={{ fontWeight: "bold", mt: "1rem", mb: "0.5rem" }}>
+                {"Format:"}
+              </Typography>
+              <AdvancedCodeBlock
+                codeString={JSON.stringify(detail.input.format, null, 2)}
                 language="json"
               />
             </Box>
@@ -581,6 +590,16 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                   </Box>
                 ))}
               </Box>
+            </Box>
+
+            <Box hidden={tab !== 4} sx={{ p: "1rem" }}>
+              <Typography sx={{ fontWeight: "bold", mb: "0.5rem" }}>
+                {"Error Log:"}
+              </Typography>
+              <AdvancedCodeBlock
+                codeString={JSON.stringify(detail.error_log, null, 2)}
+                language="json"
+              />
             </Box>
           </Box>
         </>)
