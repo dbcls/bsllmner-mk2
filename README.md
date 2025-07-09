@@ -16,6 +16,8 @@ docker compose up -d --build
 docker compose exec ollama ollama pull llama3.1:70b
 docker compose exec app bsllmner2_extract --debug --bs-entries ./tests/test-data/cell_line_example.biosample.json --mapping ./tests/test-data/cell_line_example.mapping.tsv --with-metrics
 docker compose exec app bsllmner2_extract --debug --model deepseek-r1:70b --bs-entries ./tests/test-data/cell_line_example.biosample.json --mapping ./tests/test-data/cell_line_example.mapping.tsv
+
+docker compose exec app bsllmner2_extract --debug --model deepseek-r1:70b --bs-entries ./tests/test-data/cell_line_example.biosample.json --mapping ./tests/test-data/cell_line_example.mapping.tsv --enable-thinking
 ```
 
 - Test data

@@ -13,6 +13,7 @@ import {
   Divider,
   Snackbar,
   Alert,
+  Checkbox,
 } from "@mui/material"
 import { type SxProps } from "@mui/system"
 import { useQueryClient } from "@tanstack/react-query"
@@ -31,9 +32,10 @@ interface FormCardProps {
   models: OllamaModels
   nowStr: string
   setDetailRunName: (name: string | null) => void
+  runNames: string[]
 }
 
-export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormCardProps) {
+export default function FormCard({ sx, models, nowStr, setDetailRunName, runNames }: FormCardProps) {
   const { control, setValue, watch, handleSubmit, formState: { isValid } } = useFormContext<FormValues>()
 
   // === BioSample Entries Form ===
@@ -73,9 +75,19 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
       },
     },
   })
-  const { field: maxEntriesField } = useController({
+  const { field: maxEntriesField, fieldState: maxEntriesFieldState } = useController({
     name: "maxEntries",
     control,
+    rules: {
+      validate: (value) => {
+        if (value === "") return true
+        const num = Number(value)
+        if (Number.isNaN(num)) return "Max entries must be a number"
+        if (!Number.isInteger(num)) return "Max entries must be an integer"
+        if (num < -1) return "Max entries cannot be less than -1"
+        return true
+      },
+    },
   })
 
   // === Model Selection Form ===
@@ -87,7 +99,7 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
   const handleModelChange = (event: SelectChangeEvent<string>) => {
     const newModel = event.target.value
     modelField.onChange(newModel)
-    runNameField.onChange(`extract_${newModel}_${nowStr}`)
+    runNameField.onChange(`${newModel}_${nowStr}`)
   }
 
   const queryClient = useQueryClient()
@@ -136,6 +148,11 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
     })
   }
 
+  const { field: thinkingField } = useController({
+    name: "thinking",
+    control,
+  })
+
   // === Prompt Form ===
   const {
     fields: promptFields,
@@ -160,6 +177,11 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
     control,
     rules: {
       required: "Run name is required",
+      validate: (value) => {
+        if (value.trim() === "") return "Run name cannot be empty"
+        if (runNames.includes(value)) return `Run name "${value}" already exists`
+        return true
+      },
     },
   })
   const [submitState, setSubmitState] = useState<"idle" | "submitting" | "submitted" | "error">("idle")
@@ -189,7 +211,8 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
       }
       fd.append("prompt", JSON.stringify(values.prompt))
       fd.append("model", values.model)
-      if (values.maxEntries != null) {
+      fd.append("thinking", values.thinking.toString())
+      if (values.maxEntries !== null || values.maxEntries !== "") {
         fd.append("max_entries", values.maxEntries.toString())
       }
       fd.append("username", values.username)
@@ -207,6 +230,7 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
       console.log("Submission successful:", data)
       setDetailRunName(values.runName)
       queryClient.invalidateQueries({ queryKey: ["runs"] })
+      queryClient.invalidateQueries({ queryKey: ["run-names"] })
       setSubmitState("submitted")
       setTimeout(() => {
         setSubmitState("idle")
@@ -255,7 +279,7 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
               label={<>
                 {"Use Large Test Data (600 entries, "}
                 <OurLink
-                  href={"https://github.com/dbcls/bsllmner-mk2/blob/main/tests/test-data/biosample_gene_extraction_testset.json"}
+                  href={"https://github.com/dbcls/bsllmner-mk2/blob/main/tests/zenodo-data/biosample_cellosaurus_mapping_testset.json"}
                   text={"bsEntries.json"}
                 />
                 {", "}
@@ -319,13 +343,13 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
           <TextField
             {...maxEntriesField}
             label="Max Entries"
-            type="number"
             value={maxEntriesField.value}
-            onChange={(e) => {
-              const value = parseInt(e.target.value, 10)
-              maxEntriesField.onChange(isNaN(value) ? -1 : value)
-            }}
-            helperText="Specify how many entries to process from the beginning (use -1 for no limit)"
+            onChange={(e) => maxEntriesField.onChange(e.target.value)}
+            error={!!maxEntriesFieldState.error}
+            helperText={
+              maxEntriesFieldState.error?.message ??
+              "Specify how many entries to process from the beginning (use -1 for no limit)"
+            }
             fullWidth
             sx={{
               mt: "1rem",
@@ -363,6 +387,17 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
               ))}
             </Select>
           </FormControl>
+          <FormControlLabel
+            sx={{ mt: "0.5rem" }}
+            control={
+              <Checkbox
+                {...thinkingField}
+                checked={thinkingField.value}
+                onChange={(e) => thinkingField.onChange(e.target.checked)}
+              />
+            }
+            label="Enable LLM thinking mode (Probably only works with deepseek and qwen models)"
+          />
           <Box sx={{ mt: "1rem", display: "flex", flexDirection: "column", gap: "0.5rem" }}>
             <Typography>
               {"To add a new model, please select from the "}
@@ -548,6 +583,6 @@ export default function FormCard({ sx, models, nowStr, setDetailRunName }: FormC
           {errorMessage ?? "An error occurred."}
         </Alert>
       </Snackbar>
-    </OurCard>
+    </OurCard >
   )
 }

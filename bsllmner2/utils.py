@@ -138,6 +138,7 @@ def to_result(
     evaluation: List[Evaluation],
     config: Config,
     run_metadata: RunMetadata,
+    thinking: bool = False,
     args: Optional[CliExtractArgs] = None,
     metrics: Optional[List[Metrics]] = None,
 ) -> Result:
@@ -147,6 +148,7 @@ def to_result(
             mapping=mapping,
             prompt=prompt,
             model=model,
+            thinking=thinking,
             config=config,
             cli_args=args,
         ),
@@ -229,3 +231,15 @@ def list_run_metadata() -> List[RunMetadata]:
             print(f"Skipping file {file}: {e}")
 
     return run_metadata_list
+
+
+def list_run_names() -> List[str]:
+    """
+    List all run names from the result directory.
+    Returns:
+        A list of run names (without file extensions).
+    """
+    if not RESULT_DIR.exists():
+        return []
+
+    return [file.name.removesuffix(".json") for file in RESULT_DIR.glob("*.json") if file.is_file()]

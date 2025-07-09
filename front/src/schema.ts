@@ -46,6 +46,7 @@ export const wfInputSchema = z.object({
   mapping: z.record(mappingValueSchema),
   prompt: z.array(promptSchema),
   model: z.string(),
+  thinking: z.boolean().nullable().optional(),
   config: z.any(),
   cli_args: z.any().nullable().optional(),
 })
@@ -74,6 +75,7 @@ export const runMetadataSchema = z.object({
   run_name: z.string(),
   username: z.string().nullable().optional(),
   model: z.string(),
+  thinking: z.boolean().nullable().optional(),
   start_time: z.string(),
   end_time: z.string().nullable().optional(),
   status: z.enum(RUN_STATUS),
@@ -143,7 +145,8 @@ export interface FormValues {
   mapping?: string | null
   prompt: Prompt[]
   model: string
-  maxEntries: number
+  thinking: boolean
+  maxEntries: string | number
   username: string
   runName: string
 }
@@ -156,6 +159,7 @@ export const defaultFormValues = (username: string): FormValues => {
     mapping: null,
     prompt: [],
     model: "",
+    thinking: false,
     maxEntries: -1,
     username,
     runName: "",

@@ -7,6 +7,7 @@ import Loading from "@/components/Loading"
 import RunCard from "@/components/RunCard"
 import { useDefaultExtractPrompt } from "@/hooks/useDefaultExtractPrompt"
 import { useOllamaModels } from "@/hooks/useOllamaModels"
+import { useRunNames } from "@/hooks/useRunNames"
 import { useServiceInfo } from "@/hooks/useServiceInfo"
 import { type FormValues, defaultFormValues } from "@/schema"
 import { getNowStr } from "@/utils"
@@ -17,9 +18,11 @@ export default function Home() {
   const serviceInfoQuery = useServiceInfo()
   const ollamaModelsQuery = useOllamaModels()
   const defaultExtractPromptQuery = useDefaultExtractPrompt()
+  const runNamesQuery = useRunNames()
   const loading = serviceInfoQuery.isLoading ||
     ollamaModelsQuery.isLoading ||
-    defaultExtractPromptQuery.isLoading
+    defaultExtractPromptQuery.isLoading ||
+    runNamesQuery.isLoading
 
   const storedUsername = useMemo(
     () => localStorage.getItem(USERNAME_LS_KEY) ?? "triceratops",
@@ -46,7 +49,7 @@ export default function Home() {
   useEffect(() => {
     if (ollamaModelsQuery.data) {
       const modelName = ollamaModelsQuery.data.models[0].name
-      const runName = `extract_${modelName}_${nowStr}`
+      const runName = `${modelName}_${nowStr}`
       methods.setValue("model", modelName, { shouldValidate: true })
       methods.setValue("runName", runName, { shouldValidate: true })
     }
@@ -59,7 +62,7 @@ export default function Home() {
   return (
     <Frame>
       <FormProvider {...methods}>
-        <FormCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} nowStr={nowStr} setDetailRunName={setDetailRunName} />
+        <FormCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} nowStr={nowStr} setDetailRunName={setDetailRunName} runNames={runNamesQuery.data!} />
         <RunCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} detailRunName={detailRunName} setDetailRunName={setDetailRunName} />
       </FormProvider>
     </Frame>

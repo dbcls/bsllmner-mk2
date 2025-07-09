@@ -14,7 +14,7 @@ services:
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
     working_dir: /app
     entrypoint: [""]
-    command: ["bsllmner2_api"]
+    command: ["sleep", "infinity"]
     restart: unless-stopped
     init: true
     networks:
@@ -38,8 +38,7 @@ services:
       - 127.0.0.1:3000:3000
     working_dir: /app
     entrypoint: [""]
-    command: ["npm", "run", "dev"]
-    # command: ["npm", "run", "preview"]
+    command: ["sleep", "infinity"]
     restart: unless-stopped
     init: true
     networks:

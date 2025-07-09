@@ -48,16 +48,26 @@ interface MetricPoint {
 }
 
 function formatTimestamp(ts: string): string {
-  if (!/^\d{8}_\d{6}$/.test(ts)) return ts // フォーマットが違えばそのまま返す
+  if (!/^\d{8}_\d{6}$/.test(ts)) return ts
 
-  const year = ts.slice(0, 4)
-  const month = ts.slice(4, 6)
-  const day = ts.slice(6, 8)
-  const hour = ts.slice(9, 11)
-  const minute = ts.slice(11, 13)
-  const second = ts.slice(13, 15)
+  const year = parseInt(ts.slice(0, 4), 10)
+  const month = parseInt(ts.slice(4, 6), 10) - 1 // JSでは0-indexed
+  const day = parseInt(ts.slice(6, 8), 10)
+  const hour = parseInt(ts.slice(9, 11), 10)
+  const minute = parseInt(ts.slice(11, 13), 10)
+  const second = parseInt(ts.slice(13, 15), 10)
 
-  return `${year}-${month}-${day} ${hour}:${minute}:${second}`
+  const date = new Date(Date.UTC(year, month, day, hour, minute, second))
+
+  return date.toLocaleString(undefined, {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
 }
 
 const toMappingTsv = (mapping: Record<string, MappingValue>): string => {
@@ -123,11 +133,19 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
   const [tab, setTab] = useState(0)
   const [bsEntry, setBsEntry] = useState<string | null>(null)
   const selectedEntry = detail?.input.bs_entries.find((entry) => entry.accession === bsEntry)
-  const handleOpen = (accession: string) => {
+  const handleBsEntryOpen = (accession: string) => {
     setBsEntry(accession)
   }
-  const handleClose = () => {
+  const handleBsEntryClose = () => {
     setBsEntry(null)
+  }
+  const [chatResponseBsEntry, setChatResponseBsEntry] = useState<string | null>(null)
+  const selectedChatResponse = detail?.output.find((output) => output.accession === chatResponseBsEntry)?.chat_response
+  const handleChatResponseOpen = (accession: string) => {
+    setChatResponseBsEntry(accession)
+  }
+  const handleChatResponseClose = () => {
+    setChatResponseBsEntry(null)
   }
 
   const { setValue } = useFormContext<FormValues>()
@@ -139,6 +157,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
     setValue("mapping", toMappingTsv(detail.input.mapping))
     setValue("prompt", detail.input.prompt)
     setValue("model", detail.run_metadata.model)
+    setValue("thinking", detail.run_metadata.thinking ?? false)
   }
 
   const processed: MetricPoint[] = (detail?.metrics ?? []).map((m) => {
@@ -183,6 +202,8 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
               <TableCell>RunName</TableCell>
               <TableCell>Username</TableCell>
               <TableCell>Model</TableCell>
+              <TableCell>Thinking</TableCell>
+              <TableCell>Entries Num</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>
                 <TableSortLabel
@@ -240,6 +261,8 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                 <TableCell>{run.run_name}</TableCell>
                 <TableCell>{run.username ?? "NA"}</TableCell>
                 <TableCell>{run.model}</TableCell>
+                <TableCell>{run.thinking ? "Yes" : "No"}</TableCell>
+                <TableCell>{run.total_entries ?? "NA"}</TableCell>
                 <TableCell>{run.status}</TableCell>
                 <TableCell>{formatTimestamp(run.start_time)}</TableCell>
                 <TableCell>
@@ -396,6 +419,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                 {[
                   ["Run Name", detail.run_metadata.run_name],
                   ["Model", detail.run_metadata.model],
+                  ["Thinking", detail.run_metadata.thinking ? "Yes" : "No"],
                   ["Username", detail.run_metadata.username ?? "NA"],
                   ["Start Time", formatTimestamp(detail.run_metadata.start_time)],
                   ["End Time", detail.run_metadata.end_time ? formatTimestamp(detail.run_metadata.end_time) : "NA"],
@@ -450,9 +474,10 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                     <TableHead>
                       <TableRow>
                         <TableCell sx={{ fontWeight: "bold" }}>Accession</TableCell>
-                        <TableCell sx={{ fontWeight: "bold" }}>Expected</TableCell>
-                        <TableCell sx={{ fontWeight: "bold" }}>Actual</TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>Ground Truth (Expected)</TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>Predicted (Actual)</TableCell>
                         <TableCell sx={{ fontWeight: "bold" }}>Show BS Entry</TableCell>
+                        <TableCell sx={{ fontWeight: "bold" }}>Show ChatResponse</TableCell>
                       </TableRow>
                     </TableHead>
 
@@ -471,13 +496,26 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                             <Button
                               variant="outlined"
                               size="small"
-                              onClick={() => handleOpen(row.accession)}
+                              onClick={() => handleBsEntryOpen(row.accession)}
                               sx={{
                                 textTransform: "none",
                                 minWidth: "7rem",
                               }}
                             >
                               {"View BS Entry"}
+                            </Button>
+                          </TableCell>
+                          <TableCell>
+                            <Button
+                              variant="outlined"
+                              size="small"
+                              onClick={() => handleChatResponseOpen(row.accession)}
+                              sx={{
+                                textTransform: "none",
+                                minWidth: "7rem",
+                              }}
+                            >
+                              {"View ChatResponse"}
                             </Button>
                           </TableCell>
                         </TableRow>
@@ -488,7 +526,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
 
                 <Dialog
                   open={!!bsEntry}
-                  onClose={handleClose}
+                  onClose={handleBsEntryClose}
                   maxWidth="md"
                   fullWidth
                 >
@@ -496,6 +534,21 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                   <DialogContent >
                     <AdvancedCodeBlock
                       codeString={JSON.stringify(selectedEntry, null, 2)}
+                      language="json"
+                    />
+                  </DialogContent>
+                </Dialog>
+
+                <Dialog
+                  open={!!chatResponseBsEntry}
+                  onClose={handleChatResponseClose}
+                  maxWidth="md"
+                  fullWidth
+                >
+                  <DialogTitle>ChatResponse: {chatResponseBsEntry ?? "NA"}</DialogTitle>
+                  <DialogContent >
+                    <AdvancedCodeBlock
+                      codeString={JSON.stringify(selectedChatResponse, null, 2)}
                       language="json"
                     />
                   </DialogContent>

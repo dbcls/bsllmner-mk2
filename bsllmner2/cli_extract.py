@@ -51,6 +51,11 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         help="LLM model to use for NER.",
     )
     parser.add_argument(
+        "--enable-thinking",
+        action="store_true",
+        help="Enable 'thinking' mode for the LLM.",
+    )
+    parser.add_argument(
         "--max-entries",
         type=int,
         default=-1,
@@ -95,6 +100,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         mapping=parsed_args.mapping.resolve(),
         prompt=parsed_args.prompt.resolve(),
         model=parsed_args.model,
+        thinking=parsed_args.enable_thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
         with_metrics=parsed_args.with_metrics,
     )
@@ -121,7 +127,7 @@ def run_cli_extract() -> None:
         metrics_collector.start()
     try:
         start_time = get_now_str()
-        output = ner(config, bs_entries, prompt, args.model)
+        output = ner(config, bs_entries, prompt, args.model, args.thinking)
         end_time = get_now_str()
     finally:
         if args.with_metrics:
@@ -133,6 +139,8 @@ def run_cli_extract() -> None:
     run_metadata = RunMetadata(
         run_name=run_name,
         username=None,
+        model=args.model,
+        thinking=args.thinking,
         start_time=start_time,
         end_time=end_time,
         status="completed"
@@ -142,6 +150,7 @@ def run_cli_extract() -> None:
         mapping=mapping,
         prompt=prompt,
         model=args.model,
+        thinking=args.thinking,
         output=output,
         evaluation=evaluation,
         config=config,

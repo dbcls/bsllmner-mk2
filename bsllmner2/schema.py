@@ -30,6 +30,7 @@ class CliExtractArgs(BaseModel):
         examples=["prompt/prompt_extract.yml"],
     )
     model: str = "llama3.1:70b"
+    thinking: bool = False
     max_entries: Optional[int] = None
     with_metrics: bool = False
 
@@ -73,6 +74,7 @@ class WfInput(BaseModel):
     mapping: Mapping
     prompt: List[Prompt]
     model: str
+    thinking: bool = False
     config: Config
     cli_args: Optional[CliExtractArgs] = None
 
@@ -96,6 +98,7 @@ class Evaluation(BaseModel):
 class RunMetadata(BaseModel):
     run_name: str
     model: str
+    thinking: bool = False
     username: Optional[str] = None
     start_time: str
     end_time: Optional[str] = None

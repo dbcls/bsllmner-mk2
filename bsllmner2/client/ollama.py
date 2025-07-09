@@ -98,7 +98,8 @@ def ner(
     config: Config,
     bs_entries: BsEntries,
     prompt: List[Prompt],
-    model: str
+    model: str,
+    thinking: bool = False
 ) -> List[LlmOutput]:
     client = ollama.Client(host=config.ollama_host)
     messages = _construct_messages(prompt)
@@ -112,7 +113,8 @@ def ner(
         response: ChatResponse = client.chat(
             model=model,
             messages=messages_copy,
-            options=OLLAMA_OPTIONS
+            options=OLLAMA_OPTIONS,
+            think=thinking,
         )
         res_text = response["message"]["content"]
         output = _construct_output(entry, res_text, response)

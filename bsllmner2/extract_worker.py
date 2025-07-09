@@ -24,12 +24,13 @@ def main() -> None:
         bs_entries = queue_obj.input.bs_entries
         mapping = queue_obj.input.mapping
         model = queue_obj.input.model
+        thinking = queue_obj.input.thinking
         prompt = queue_obj.input.prompt
 
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
         try:
-            output = ner(config, bs_entries, prompt, model)
+            output = ner(config, bs_entries, prompt, model, thinking)
             end_time = get_now_str()
         finally:
             metrics_collector.stop()

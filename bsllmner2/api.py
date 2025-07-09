@@ -17,15 +17,15 @@ from bsllmner2.config import (MODULE_ROOT, PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
 from bsllmner2.schema import (API_VERSION, BsEntries, Mapping, Prompt, Result,
                               RunMetadata, ServiceInfo)
 from bsllmner2.utils import (dump_result, get_now_str, list_run_metadata,
-                             load_bs_entries, load_mapping, load_result,
-                             to_result)
+                             list_run_names, load_bs_entries, load_mapping,
+                             load_result, to_result)
 
 SMALL_TEST_DATA = {
     "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.json"),
     "mapping": REPO_ROOT.joinpath("tests/test-data/cell_line_example.mapping.tsv"),
 }
 LARGE_TEST_DATA = {
-    "bs_entries": REPO_ROOT.joinpath("tests/zenodo-data/biosample_gene_extraction_testset.json"),
+    "bs_entries": REPO_ROOT.joinpath("tests/zenodo-data/biosample_cellosaurus_mapping_testset.json"),
     "mapping": REPO_ROOT.joinpath("tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv"),
 }
 
@@ -122,6 +122,7 @@ async def extract(
     mapping: Optional[UploadFile] = File(None),
     prompt: str = Form(...),
     model: str = Form(...),
+    thinking: bool = Form(False),
     max_entries: Optional[int] = Form(None),
     username: Optional[str] = Form(None),
     run_name: Optional[str] = Form(None),
@@ -137,18 +138,20 @@ async def extract(
     prompt_data = [Prompt(**item) for item in yaml.safe_load(prompt)]
 
     now = get_now_str()
-    run_name = run_name or f"extract_{model}_{now}"
+    run_name = run_name or f"{model}_{now}"
     queue_obj = to_result(
         bs_entries=bs_entries_data,
         mapping=mapping_data,
         prompt=prompt_data,
         model=model,
+        thinking=thinking,
         output=[],
         evaluation=[],
         config=get_config(),
         run_metadata=RunMetadata(
             run_name=run_name,
             model=model,
+            thinking=thinking,
             username=username,
             start_time=now,
             end_time=None,
@@ -249,6 +252,14 @@ async def get_extract_run(
             detail=f"Run '{run_name}' not found.",
         ) from exc
     return result
+
+
+@router.get(
+    "/extract/run-names",
+    response_model=List[str],
+)
+async def list_extract_run_names() -> List[str]:
+    return list_run_names()
 
 
 # === main application setup ===
