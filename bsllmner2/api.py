@@ -124,7 +124,7 @@ async def extract(
     prompt: str = Form(...),
     model: str = Form(...),
     thinking: Optional[bool] = Form(None),
-    format_: Optional[str] = Form(None),
+    format_: Optional[str] = Form(None, alias="format"),
     max_entries: Optional[int] = Form(None),
     username: Optional[str] = Form(None),
     run_name: Optional[str] = Form(None),
