@@ -1,7 +1,8 @@
 import copy
 import json
 import re
-from typing import Any, Dict, List, Optional
+from pathlib import Path
+from typing import IO, Any, Dict, List, Optional
 
 import ollama
 from ollama import ChatResponse, Message, Options
@@ -114,25 +115,40 @@ def ner(
     model: str,
     thinking: Optional[bool] = None,
     format_: Optional[JsonSchemaValue] = None,
+    progress_file_path: Optional[Path] = None,
 ) -> List[LlmOutput]:
     client = ollama.Client(host=config.ollama_host)
     messages = _construct_messages(prompt)
     outputs = []
-    for entry in bs_entries:
-        LOGGER.debug("Processing entry: %s", entry.get("accession", "Unknown"))
-        entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
-        messages_copy = copy.deepcopy(messages)
-        if messages_copy[-1].content is not None:
-            messages_copy[-1].content += "\n" + entry_str
-        response: ChatResponse = client.chat(
-            model=model,
-            messages=messages_copy,
-            options=OLLAMA_OPTIONS,
-            think=thinking,
-            format=format_,
-        )
-        res_text = response["message"]["content"]
-        output = _construct_output(entry, res_text, response)
-        outputs.append(output)
+
+    progress_file: Optional[IO[str]] = None
+    if progress_file_path:
+        progress_file = progress_file_path.open("w", encoding="utf-8")
+
+    try:
+        for entry in bs_entries:
+            accession = entry.get("accession", "Unknown")
+            LOGGER.debug("Processing entry: %s", accession)
+            entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
+            messages_copy = copy.deepcopy(messages)
+            if messages_copy[-1].content is not None:
+                messages_copy[-1].content += "\n" + entry_str
+            response: ChatResponse = client.chat(
+                model=model,
+                messages=messages_copy,
+                options=OLLAMA_OPTIONS,
+                think=thinking,
+                format=format_,
+            )
+            res_text = response["message"]["content"]
+            output = _construct_output(entry, res_text, response)
+            outputs.append(output)
+
+            if progress_file:
+                progress_file.write(f"{accession}\n")
+                progress_file.flush()
+    finally:
+        if progress_file:
+            progress_file.close()
 
     return outputs

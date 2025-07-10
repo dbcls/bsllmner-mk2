@@ -92,6 +92,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
   const [filters, setFilters] = useState<Filters>({
     username: null, model: "all", runStatus: "all",
   })
+  const [filterUsername, setFilterUsername] = useState<string>("")
   const [sortBy, setSortBy] = useState<"start_time" | "accuracy" | "processing_time" | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc" | null>(null)
   const [page, setPage] = useState(0)
@@ -205,6 +206,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
               <TableCell>Model</TableCell>
               <TableCell>Thinking</TableCell>
               <TableCell>Entries Num</TableCell>
+              <TableCell>Completed Num</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>
                 <TableSortLabel
@@ -264,6 +266,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                 <TableCell>{run.model}</TableCell>
                 <TableCell>{run.thinking ? "Yes" : "No"}</TableCell>
                 <TableCell>{run.total_entries ?? "NA"}</TableCell>
+                <TableCell>{run.completed_count ?? "NA"}</TableCell>
                 <TableCell>{run.status}</TableCell>
                 <TableCell>{formatTimestamp(run.start_time)}</TableCell>
                 <TableCell>
@@ -295,9 +298,12 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
         <TextField
           label="Username"
           size="small"
-          value={filters.username}
+          value={filterUsername}
           onChange={(e) => {
-            setFilters((prev) => ({ ...prev, username: e.target.value }))
+            setFilterUsername(e.target.value)
+          }}
+          onBlur={() => {
+            setFilters((prev) => ({ ...prev, username: filterUsername }))
             setPage(0)
           }}
           sx={{ minWidth: "16rem" }}
@@ -429,6 +435,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                   ["Processing Time", detail.run_metadata.processing_time?.toFixed(1) ?? "NA"],
                   ["Matched Entries Num", detail.run_metadata.matched_entries ?? "NA"],
                   ["Total Entries Num", detail.run_metadata.total_entries ?? "NA"],
+                  ["Completed Entries Num", detail.run_metadata.completed_count ?? "NA"],
                   ["Accuracy", detail.run_metadata.accuracy != null ? `${detail.run_metadata.accuracy.toFixed(2)}%` : "NA"],
                 ].map(([key, value]) => (
                   <Box key={key} sx={{ display: "flex" }}>

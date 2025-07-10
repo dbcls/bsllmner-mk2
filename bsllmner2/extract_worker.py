@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 
 from bsllmner2.client.ollama import ner
+from bsllmner2.config import PROGRESS_DIR
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import Result
 from bsllmner2.utils import (build_error_log, compute_processing_time,
@@ -28,10 +29,12 @@ def main() -> None:
         format_ = queue_obj.input.format
         prompt = queue_obj.input.prompt
 
+        progress_file_path = PROGRESS_DIR.joinpath(f"{queue_obj.run_metadata.run_name}.txt")
+
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
         try:
-            output = ner(config, bs_entries, prompt, model, thinking, format_)
+            output = ner(config, bs_entries, prompt, model, thinking, format_, progress_file_path)
             end_time = get_now_str()
         finally:
             metrics_collector.stop()
@@ -51,8 +54,7 @@ def main() -> None:
         queue_obj.run_metadata.matched_entries = sum(
             1 for eval_item in evaluation if eval_item.match
         )
-        queue_obj.run_metadata.total_entries = len(bs_entries)
-        if queue_obj.run_metadata.total_entries > 0:
+        if queue_obj.run_metadata.total_entries != None and queue_obj.run_metadata.total_entries > 0:
             queue_obj.run_metadata.accuracy = (
                 queue_obj.run_metadata.matched_entries
                 / queue_obj.run_metadata.total_entries

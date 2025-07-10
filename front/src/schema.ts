@@ -84,6 +84,7 @@ export const runMetadataSchema = z.object({
   matched_entries: z.number().nullable().optional(),
   total_entries: z.number().nullable().optional(),
   accuracy: z.number().nullable().optional(),
+  completed_count: z.number().nullable().optional(),
 })
 export type RunMetadata = z.infer<typeof runMetadataSchema>
 

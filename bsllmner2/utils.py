@@ -8,7 +8,7 @@ import ijson
 import yaml
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import RESULT_DIR, Config
+from bsllmner2.config import PROGRESS_DIR, RESULT_DIR, Config
 from bsllmner2.metrics import Metrics
 from bsllmner2.schema import (BsEntries, CliExtractArgs, ErrorInfo, ErrorLog,
                               Evaluation, LlmOutput, Mapping, MappingValue,
@@ -204,7 +204,10 @@ def load_result(path: Path) -> Result:
 
     with path.open("r", encoding="utf-8") as f:
         content = f.read()
-    return Result.model_validate_json(content)
+    result = Result.model_validate_json(content)
+    result.run_metadata.completed_count = load_progress_count(result.run_metadata.run_name)
+
+    return result
 
 
 def load_run_metadata(path: Path) -> RunMetadata:
@@ -228,7 +231,9 @@ def list_run_metadata() -> List[RunMetadata]:
     run_metadata_list = []
     for file in RESULT_DIR.glob("*.json"):
         try:
+            run_name = file.name.removesuffix(".json")
             run_metadata = load_run_metadata(file)
+            run_metadata.completed_count = load_progress_count(run_name)
             run_metadata_list.append(run_metadata)
         except (FileNotFoundError, ValueError) as e:
             print(f"Skipping file {file}: {e}")
@@ -246,3 +251,18 @@ def list_run_names() -> List[str]:
         return []
 
     return [file.name.removesuffix(".json") for file in RESULT_DIR.glob("*.json") if file.is_file()]
+
+
+def load_progress_count(run_name: str) -> Optional[int]:
+    """
+    Load the progress count from a file in the PROGRESS_DIR.
+    The file is named after the run_name and contains one accession per line.
+    Returns:
+        The number of processed entries.
+    """
+    progress_file = PROGRESS_DIR.joinpath(f"{run_name}.txt")
+    if not progress_file.exists():
+        return None
+
+    with progress_file.open("r", encoding="utf-8") as f:
+        return sum(1 for _ in f)

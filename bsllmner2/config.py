@@ -11,6 +11,9 @@ FILTER_KEYS_PATH = MODULE_ROOT.joinpath("bs", "filter_keys.json")
 PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
 PROMPT_SELECT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_select.yml")
 RESULT_DIR = REPO_ROOT.joinpath("bsllmner2-results")
+TMP_DIR = Path("/tmp/bsllmner2")
+PROGRESS_DIR = TMP_DIR.joinpath("progress")
+PROGRESS_DIR.mkdir(parents=True, exist_ok=True)
 
 OLLAMA_CONTAINER_NAME = "bsllmner2-ollama"
 

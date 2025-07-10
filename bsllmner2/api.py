@@ -160,6 +160,7 @@ async def extract(
             start_time=now,
             end_time=None,
             status="running",
+            total_entries=len(bs_entries_data),
         ),
         args=None,  # CLI args are not used in API
         metrics=None,  # Metrics are collected in the worker

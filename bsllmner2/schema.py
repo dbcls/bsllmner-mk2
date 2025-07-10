@@ -109,6 +109,7 @@ class RunMetadata(BaseModel):
     matched_entries: Optional[int] = None
     total_entries: Optional[int] = None
     accuracy: Optional[float] = None
+    completed_count: Optional[int] = None
 
 
 class ErrorInfo(BaseModel):
