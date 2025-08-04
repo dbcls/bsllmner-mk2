@@ -7,7 +7,7 @@ export interface RunsQueryParams {
   username?: string | null
   model?: string | null
   runStatus?: "running" | "completed" | "failed" | "all" | null
-  sortBy?: "start_time" | "accuracy" | "processing_time" | null
+  sortBy?: "start_time" | "accuracy" | "processing_time" | "total_entries" | null
   sortOrder?: "asc" | "desc" | null
   page: number // 0-based in the hook
   pageSize: number

@@ -1,5 +1,5 @@
-import { InputOutlined, RefreshOutlined } from "@mui/icons-material"
-import { Typography, Box, CircularProgress, TableContainer, Table, TableHead, TableRow, TableCell, TableBody, TablePagination, TableSortLabel, TextField, FormControl, Select, MenuItem, InputLabel, Divider, Button, Tabs, Tab, Stack, Dialog, DialogTitle, DialogContent } from "@mui/material"
+import { InputOutlined, RefreshOutlined, InsertChartOutlined } from "@mui/icons-material"
+import { Typography, Box, CircularProgress, TableContainer, Table, TableHead, TableRow, TableCell, TableBody, TablePagination, TableSortLabel, TextField, FormControl, Select, MenuItem, InputLabel, Divider, Button, Tabs, Tab, Stack, Dialog, DialogTitle, DialogContent, Checkbox, Paper } from "@mui/material"
 import { alpha } from "@mui/material/styles"
 import { type SxProps } from "@mui/system"
 import { useState } from "react"
@@ -13,13 +13,16 @@ import {
   Legend,
   ResponsiveContainer,
   CartesianGrid,
+  ScatterChart,
+  Scatter,
+  LabelList,
 } from "recharts"
 
 import AdvancedCodeBlock from "@/components/AdvancedCodeBlock"
 import OurCard from "@/components/OurCard"
 import { useRunDetail } from "@/hooks/useRunDetail"
 import { useRuns } from "@/hooks/useRuns"
-import { type FormValues, type MappingValue, type OllamaModels } from "@/schema"
+import { type FormValues, type MappingValue, type OllamaModels, type RunMetadata } from "@/schema"
 import { theme } from "@/theme"
 
 interface RunCardProps {
@@ -45,6 +48,53 @@ interface MetricPoint {
   gpu2_utilization_percentage: number
   gpu2_memory_percentage: number
   gpu2_power_draw: number
+}
+
+interface PlotData {
+  runName: string
+  model: string
+  thinking: boolean | null
+  time: number | null
+  timePerEntry: number | null
+  totalEntries: number | null
+  accuracy: number | null
+}
+
+const CustomTooltip = ({ active, payload }: { active?: boolean; payload?: { payload: PlotData }[] }) => {
+  if (!active || !payload || payload.length === 0) return null
+
+  const point = payload[0].payload
+
+  return (
+    <Paper
+      elevation={0}
+      sx={{
+        p: "1rem",
+        border: `1px solid ${theme.palette.divider}`,
+        borderRadius: 2,
+        backgroundColor: "white",
+      }}
+    >
+      <Stack>
+        {[
+          ["Run Name", point.runName],
+          ["Model", point.model],
+          ["Thinking", String(point.thinking)],
+          ["Processing Time", point.time != null ? `${point.time}s` : "NA"],
+          ["Time per Entry", point.timePerEntry != null ? `${point.timePerEntry.toFixed(2)}s` : "NA"],
+          ["Total Entries Num", point.totalEntries ?? "NA"],
+          ["Accuracy", point.accuracy != null ? `${point.accuracy.toFixed(2)}%` : "NA"],
+        ].map(([label, value]) => (
+          <Box key={label} sx={{ display: "flex" }}>
+            <Typography sx={{ fontWeight: "bold", minWidth: "10rem" }}>
+              {label}:
+            </Typography>
+            <Typography>{value}</Typography>
+          </Box>
+        ))}
+      </Stack>
+    </Paper>
+  )
 }
 
 function formatTimestamp(ts: string): string {
@@ -93,7 +143,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
     username: null, model: "all", runStatus: "all",
   })
   const [filterUsername, setFilterUsername] = useState<string>("")
-  const [sortBy, setSortBy] = useState<"start_time" | "accuracy" | "processing_time" | null>(null)
+  const [sortBy, setSortBy] = useState<"start_time" | "accuracy" | "processing_time" | "total_entries" | null>(null)
   const [sortOrder, setSortOrder] = useState<"asc" | "desc" | null>(null)
   const [page, setPage] = useState(0)
   const [rowsPerPage, setRowsPerPage] = useState(10)
@@ -186,6 +236,29 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
     { key: "gpu2_power_draw", label: "GPU2 Power Draw (W)" },
   ]
 
+  // Plot
+  const [plottedRuns, setPlottedRuns] = useState<RunMetadata[]>([])
+  const togglePlot = (runMetadata: RunMetadata) => {
+    setPlottedRuns((prev) => {
+      const isPlotted = prev.some((run) => run.run_name === runMetadata.run_name)
+      if (isPlotted) {
+        return prev.filter((run) => run.run_name !== runMetadata.run_name)
+      } else {
+        return [...prev, runMetadata]
+      }
+    })
+  }
+  const [plotDialogOpen, setPlotDialogOpen] = useState(false)
+  const plotData: PlotData[] = plottedRuns.map((run) => ({
+    runName: run.run_name,
+    model: run.model,
+    thinking: run.thinking ?? null,
+    time: run.processing_time ?? null,
+    totalEntries: run.total_entries ?? null,
+    timePerEntry: run.processing_time != null && run.total_entries != null ? (run.processing_time / run.total_entries) : null,
+    accuracy: run.accuracy != null ? run.accuracy : 0,
+  }))
+
   if (isLoading) {
     return (
       <OurCard sx={sx}>
@@ -200,12 +273,21 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
         <Table size="small">
           <TableHead>
             <TableRow>
+              <TableCell>Plot</TableCell>
               <TableCell>Set Detail</TableCell>
               <TableCell>RunName</TableCell>
               <TableCell>Username</TableCell>
               <TableCell>Model</TableCell>
               <TableCell>Thinking</TableCell>
-              <TableCell>Entries Num</TableCell>
+              <TableCell>
+                <TableSortLabel
+                  active={sortBy === "total_entries"}
+                  direction={sortBy === "total_entries" ? sortOrder ?? "asc" : "asc"}
+                  onClick={createSortHandler("total_entries")}
+                >
+                  {"Entries Num"}
+                </TableSortLabel>
+              </TableCell>
               <TableCell>Completed Num</TableCell>
               <TableCell>Status</TableCell>
               <TableCell>
@@ -241,6 +323,12 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
             {data?.data.map((run) => (
               <TableRow key={run.run_name}>
                 <TableCell>
+                  <Checkbox
+                    checked={plottedRuns.some((r) => r.run_name === run.run_name)}
+                    onChange={() => togglePlot(run)}
+                  />
+                </TableCell>
+                <TableCell>
                   <Button
                     variant="outlined"
                     size="small"
@@ -264,7 +352,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                 <TableCell>{run.run_name}</TableCell>
                 <TableCell>{run.username ?? "NA"}</TableCell>
                 <TableCell>{run.model}</TableCell>
-                <TableCell>{run.thinking ? "Yes" : "No"}</TableCell>
+                <TableCell>{String(run.thinking)}</TableCell>
                 <TableCell>{run.total_entries ?? "NA"}</TableCell>
                 <TableCell>{run.completed_count ?? "NA"}</TableCell>
                 <TableCell>{run.status}</TableCell>
@@ -374,6 +462,62 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
       >
         {"Reload Table"}
       </Button>
+      <Button
+        variant="outlined"
+        sx={{
+          textTransform: "none",
+          width: "10rem",
+          mt: "1rem",
+          ml: "1.5rem",
+        }}
+        startIcon={<InsertChartOutlined
+        />}
+        size="small"
+        onClick={() => {
+          setPlotDialogOpen(true)
+        }}
+      >
+        {"Plot Runs"}
+      </Button>
+
+      <Dialog
+        open={plotDialogOpen}
+        onClose={() => setPlotDialogOpen(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>
+          {"Runs Time / Accuracy Plot"}
+        </DialogTitle>
+        <DialogContent >
+          <ResponsiveContainer width="100%" height={400}>
+            <ScatterChart margin={{ top: 20, right: 30, bottom: 40, left: 40 }}>
+              <CartesianGrid />
+              <XAxis
+                type="number"
+                dataKey="accuracy"
+                name="Accuracy"
+                domain={[0, 100]}
+                tickFormatter={(v) => `${v}%`}
+                label={{ value: "Accuracy (%)", position: "bottom", offset: 0 }}
+              />
+              <YAxis
+                type="number"
+                dataKey="timePerEntry"
+                name="Time per Entry"
+                unit="s"
+                label={{ value: "Time per Entry (s)", angle: -90, position: "insideLeft" }}
+              />
+              <Tooltip
+                content={<CustomTooltip />}
+              />
+              <Scatter name="Runs" data={plotData} fill={theme.palette.primary.main}>
+                <LabelList dataKey="runName" position="top" />
+              </Scatter>
+            </ScatterChart>
+          </ResponsiveContainer>
+        </DialogContent>
+      </Dialog>
 
       <Divider sx={{ my: "1.5rem" }} />
       {
@@ -427,7 +571,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                 {[
                   ["Run Name", detail.run_metadata.run_name],
                   ["Model", detail.run_metadata.model],
-                  ["Thinking", detail.run_metadata.thinking ? "Yes" : "No"],
+                  ["Thinking", String(detail.run_metadata.thinking)],
                   ["Username", detail.run_metadata.username ?? "NA"],
                   ["Start Time", formatTimestamp(detail.run_metadata.start_time)],
                   ["End Time", detail.run_metadata.end_time ? formatTimestamp(detail.run_metadata.end_time) : "NA"],
@@ -589,7 +733,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
                         <Line
                           type="monotone"
                           dataKey={key}
-                          stroke="#8884d8"
+                          stroke={theme.palette.primary.main}
                           dot={false}
                         />
                       </LineChart>

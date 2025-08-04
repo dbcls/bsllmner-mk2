@@ -187,6 +187,7 @@ class RunSortBy(str, Enum):
     START_TIME = "start_time"
     ACCURACY = "accuracy"
     PROCESSING_TIME = "processing_time"
+    TOTAL_ENTRIES = "total_entries"
 
 
 class RunSortOrder(str, Enum):
@@ -213,7 +214,7 @@ async def list_extract_runs(
     run_status: Literal["running", "completed", "failed"] = Query(None),
     sort_by: RunSortBy = Query(RunSortBy.START_TIME),
     sort_order: RunSortOrder = Query(RunSortOrder.DESC),
-    page: int = Query(1, desciption="1-based page number"),
+    page: int = Query(1, description="1-based page number"),
     page_size: int = Query(10, description="Number of results per page")
 ) -> List[RunMetadata]:
     metadata = list_run_metadata()
