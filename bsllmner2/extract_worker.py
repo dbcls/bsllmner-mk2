@@ -1,3 +1,4 @@
+import asyncio
 import sys
 from pathlib import Path
 
@@ -9,7 +10,7 @@ from bsllmner2.utils import (build_error_log, compute_processing_time,
                              dump_result, evaluate_output, get_now_str)
 
 
-def main() -> None:
+async def main() -> None:
     try:
         if len(sys.argv) != 2:
             raise ValueError("Expected exactly one argument: the path to the queue file.")
@@ -34,7 +35,7 @@ def main() -> None:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
         try:
-            output = ner(config, bs_entries, prompt, model, thinking, format_, progress_file_path)
+            output = await ner(config, bs_entries, prompt, model, thinking, format_, progress_file_path)
             end_time = get_now_str()
         finally:
             metrics_collector.stop()
@@ -54,7 +55,7 @@ def main() -> None:
         queue_obj.run_metadata.matched_entries = sum(
             1 for eval_item in evaluation if eval_item.match
         )
-        if queue_obj.run_metadata.total_entries != None and queue_obj.run_metadata.total_entries > 0:
+        if queue_obj.run_metadata.total_entries is not None and queue_obj.run_metadata.total_entries > 0:
             queue_obj.run_metadata.accuracy = (
                 queue_obj.run_metadata.matched_entries
                 / queue_obj.run_metadata.total_entries
@@ -70,4 +71,4 @@ def main() -> None:
 
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())

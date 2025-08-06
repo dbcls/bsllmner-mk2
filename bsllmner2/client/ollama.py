@@ -1,3 +1,4 @@
+import asyncio
 import copy
 import json
 import re
@@ -108,7 +109,7 @@ def _construct_output(bs_entry: Dict[str, Any], res_text: str, chat_response: Ch
     return output_ins
 
 
-def ner(
+async def ner(
     config: Config,
     bs_entries: BsEntries,
     prompt: List[Prompt],
@@ -117,36 +118,50 @@ def ner(
     format_: Optional[JsonSchemaValue] = None,
     progress_file_path: Optional[Path] = None,
 ) -> List[LlmOutput]:
-    client = ollama.Client(host=config.ollama_host)
+    client = ollama.AsyncClient(host=config.ollama_host)
     messages = _construct_messages(prompt)
-    outputs = []
+    outputs: List[LlmOutput] = []
 
     progress_file: Optional[IO[str]] = None
     if progress_file_path:
         progress_file = progress_file_path.open("w", encoding="utf-8")
 
-    try:
-        for entry in bs_entries:
+    sem = asyncio.Semaphore(256)
+
+    async def _process_entry(entry: Dict[str, Any]) -> Optional[LlmOutput]:
+        async with sem:
             accession = entry.get("accession", "Unknown")
             LOGGER.debug("Processing entry: %s", accession)
             entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
             messages_copy = copy.deepcopy(messages)
             if messages_copy[-1].content is not None:
                 messages_copy[-1].content += "\n" + entry_str
-            response: ChatResponse = client.chat(
-                model=model,
-                messages=messages_copy,
-                options=OLLAMA_OPTIONS,
-                think=thinking,
-                format=format_,
-            )
+            try:
+                response: ChatResponse = await client.chat(
+                    model=model,
+                    messages=messages_copy,
+                    options=OLLAMA_OPTIONS,
+                    think=thinking,
+                    format=format_,
+                )
+            except Exception as e:  # pylint: disable=broad-except
+                LOGGER.error("Error processing entry %s: %s", accession, e)
+                return None
+
             res_text = response["message"]["content"]
             output = _construct_output(entry, res_text, response)
-            outputs.append(output)
 
             if progress_file:
                 progress_file.write(f"{accession}\n")
                 progress_file.flush()
+
+            return output
+
+    try:
+        results = await asyncio.gather(
+            *(_process_entry(entry) for entry in bs_entries)
+        )
+        outputs.extend([res for res in results if res is not None])
     finally:
         if progress_file:
             progress_file.close()

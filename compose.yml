@@ -24,6 +24,12 @@ services:
       - ${PWD}/ollama-data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_NUM_PARALLEL=16
+      - OLLAMA_MAX_QUEUE=1024
+      - CUDA_VISIBLE_DEVICES=0,1
+      - OLLAMA_SCHED_SPREAD=1
     entrypoint: ["/bin/ollama"]
     command: ["serve"]
     restart: unless-stopped

@@ -1,4 +1,5 @@
 import argparse
+import asyncio
 import sys
 from pathlib import Path
 from typing import List, Tuple
@@ -106,7 +107,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
     )
 
 
-def run_cli_extract() -> None:
+async def run_cli_extract_async() -> None:
     """
     Run the CLI for bsllmner2 extract mode.
     """
@@ -127,7 +128,7 @@ def run_cli_extract() -> None:
         metrics_collector.start()
     try:
         start_time = get_now_str()
-        output = ner(config, bs_entries, prompt, args.model, args.thinking)
+        output = await ner(config, bs_entries, prompt, args.model, args.thinking)
         end_time = get_now_str()
     finally:
         if args.with_metrics:
@@ -161,6 +162,13 @@ def run_cli_extract() -> None:
 
     result_file = dump_result(result, run_name)
     LOGGER.info("Processing complete. Result saved to %s", result_file)
+
+
+def run_cli_extract() -> None:
+    """
+    Run the CLI for bsllmner2 extract mode in an event loop.
+    """
+    asyncio.run(run_cli_extract_async())
 
 
 if __name__ == "__main__":
