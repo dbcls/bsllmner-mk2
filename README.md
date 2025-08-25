@@ -34,6 +34,10 @@ docker compose exec api bsllmner2_extract --debug --model phi4:14b --bs-entries 
 docker compose exec api bsllmner2_extract --debug --model llama3.1:70b --bs-entries ./tests/zenodo-data/biosample_cellosaurus_mapping_testset.json --mapping ./tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv
 ```
 
+```
+bsllmner2_extract --debug --model llama3.1:70b --bs-entries ./tests/test-data/cell_line_example.biosample.json --mapping ./tests/test-data/cell_line_example.mapping.tsv --prompt ./bsllmner2/prompt/prompt_extract_multi.yml
+```
+
 - Test data
   - <https://zenodo.org/records/14881142>
   - <https://zenodo.org/records/14643285>

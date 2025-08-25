@@ -5,13 +5,14 @@ from pathlib import Path
 from typing import List, Tuple
 
 from bsllmner2.client.ollama import ner
-from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
+from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH,
+                              SCHEMA_CELL_LINE_FILE_PATH, Config,
                               default_config, get_config, set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import CliExtractArgs, RunMetadata
 from bsllmner2.utils import (dump_result, evaluate_output, get_now_str,
-                             load_bs_entries, load_mapping, load_prompt_file,
-                             to_result)
+                             load_bs_entries, load_format_schema, load_mapping,
+                             load_prompt_file, to_result)
 
 
 def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
@@ -43,6 +44,15 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         help="""\
             Path to the prompt file in YAML format.
             Default is 'prompt/prompt_extract.yml' relative to the project root.
+        """,
+    )
+    parser.add_argument(
+        "--format",
+        type=Path,
+        default=SCHEMA_CELL_LINE_FILE_PATH,
+        help="""\
+            Path to the JSON schema file for the output format.
+            Default is 'format/cell_line.schema.json' relative to the project root.
         """,
     )
     parser.add_argument(
@@ -92,6 +102,8 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         raise FileNotFoundError(f"Mapping file {parsed_args.mapping} does not exist.")
     if not parsed_args.prompt.exists():
         raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
+    if not parsed_args.format.exists():
+        raise FileNotFoundError(f"Format schema file {parsed_args.format} does not exist.")
     if parsed_args.ollama_host:
         config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
@@ -100,6 +112,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         bs_entries=parsed_args.bs_entries.resolve(),
         mapping=parsed_args.mapping.resolve(),
         prompt=parsed_args.prompt.resolve(),
+        format=parsed_args.format.resolve(),
         model=parsed_args.model,
         thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
@@ -122,13 +135,14 @@ async def run_cli_extract_async() -> None:
         bs_entries = bs_entries[:args.max_entries]
     mapping = load_mapping(args.mapping)
     prompt = load_prompt_file(args.prompt)
+    format_ = load_format_schema(args.format)
 
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
     try:
         start_time = get_now_str()
-        output = await ner(config, bs_entries, prompt, args.model, args.thinking)
+        output = await ner(config, bs_entries, prompt, format_, args.model, args.thinking)
         end_time = get_now_str()
     finally:
         if args.with_metrics:
@@ -136,7 +150,7 @@ async def run_cli_extract_async() -> None:
     metrics = metrics_collector.get_records() if args.with_metrics else None
 
     evaluation = evaluate_output(output, mapping)
-    run_name = f"extract_{args.model}_{start_time}"
+    run_name = f"{args.model}_{start_time}"
     run_metadata = RunMetadata(
         run_name=run_name,
         username=None,

@@ -12,10 +12,5 @@
 
     When input sample data is not of a cell line, you are not supposed to extract any text from input.
     If you can not find a cell line name in input, your output is like {"cell_line": "None"} .
-    Are you ready?
-- role: assistant
-  content: |-
-    I'm ready! Please provide the JSON formatted metadata of the sample for the biological experiment.
-- role: user
-  content: |-
-    Here is the JSON metadata:
+
+    Here is the input metadata:

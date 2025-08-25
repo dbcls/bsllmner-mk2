@@ -30,6 +30,11 @@ class CliExtractArgs(BaseModel):
         description="Path to the prompt file in YAML format.",
         examples=["prompt/prompt_extract.yml"],
     )
+    format: Path = Field(
+        ...,
+        description="Path to the JSON schema file for the output format.",
+        examples=["format/cell_line.schema.json"],
+    )
     model: str = "llama3.1:70b"
     thinking: Optional[bool] = None
     max_entries: Optional[int] = None

@@ -10,6 +10,7 @@ REPO_ROOT = MODULE_ROOT.parent
 FILTER_KEYS_PATH = MODULE_ROOT.joinpath("bs", "filter_keys.json")
 PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
 PROMPT_SELECT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_select.yml")
+SCHEMA_CELL_LINE_FILE_PATH = MODULE_ROOT.joinpath("format", "cell_line.schema.json")
 RESULT_DIR = REPO_ROOT.joinpath("bsllmner2-results")
 TMP_DIR = Path("/tmp/bsllmner2")
 PROGRESS_DIR = TMP_DIR.joinpath("progress")

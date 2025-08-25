@@ -48,11 +48,7 @@ packages = ["bsllmner2", "bsllmner2.bs", "bsllmner2.client"]
 include-package-data = true
 
 [tool.setuptools.package-data]
-bsllmner2 = [
-  "bs/filter_keys.json",
-  "prompt/prompt_extract.yml",
-  "prompt/prompt_select.yml",
-]
+bsllmner2 = ["bs/filter_keys.json", "prompt/*", "format/*"]
 
 [tool.pytest.ini_options]
 addopts = "--cov=bsllmner2 --cov-report=html:tests/htmlcov"

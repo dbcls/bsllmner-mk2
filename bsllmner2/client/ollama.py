@@ -13,26 +13,6 @@ from bsllmner2.bs import construct_llm_input_json, is_ebi_format
 from bsllmner2.config import LOGGER, Config
 from bsllmner2.schema import BsEntries, LlmOutput, Prompt
 
-# === Paste from ollama.Options ===
-# class RuntimeOptions:
-#     num_keep: Optional[int] = None            # Number of past tokens to keep cached (used for context continuation)
-#     seed: Optional[int] = None                # Random seed for reproducible outputs
-#     num_predict: Optional[int] = None         # Maximum number of tokens to generate (-1 = no limit)
-#     top_k: Optional[int] = None               # Sample from top K most probable tokens (conservative/diverse control)
-#     top_p: Optional[float] = None             # Nucleus sampling: cumulative probability threshold p
-#     tfs_z: Optional[float] = None             # Tail-free sampling z-cutoff to trim low‑prob tokens
-#     typical_p: Optional[float] = None         # Typical sampling threshold balancing quality vs frequency
-#     repeat_last_n: Optional[int] = None       # Penalize repeating tokens in last N outputs (0 = disabled)
-#     temperature: Optional[float] = None       # Sampling temperature (0 = deterministic, higher = more random)
-#     repeat_penalty: Optional[float] = None    # Penalty factor for token repetition (>1 reduces repeats)
-#     presence_penalty: Optional[float] = None  # Penalize based on whether token has appeared before
-#     frequency_penalty: Optional[float] = None # Penalize based on token frequency in output
-#     mirostat: Optional[int] = None            # Enable Mirostat sampling (0 = off, 1 = Mirostat, 2 = Mirostat 2.0)
-#     mirostat_tau: Optional[float] = None      # Target entropy for Mirostat
-#     mirostat_eta: Optional[float] = None      # Learning rate for Mirostat parameter adjustments
-#     penalize_newline: Optional[bool] = None   # Apply penalty to newline tokens (to discourage blank lines)
-#     stop: Optional[Sequence[str]] = None      # List of stop-sequences; generation halts when any is encountered
-
 OLLAMA_OPTIONS = Options(
     seed=0,
     temperature=0.0,
@@ -72,8 +52,9 @@ def _extract_last_json(text: str) -> Optional[str]:
     return None
 
 
-def _construct_output(bs_entry: Dict[str, Any], res_text: str, chat_response: ChatResponse) -> LlmOutput:
+def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> LlmOutput:
     try:
+        res_text = chat_response["message"]["content"]
         res_text_json = _extract_last_json(res_text)
     except Exception as e:  # pylint: disable=broad-except
         LOGGER.error("Error extracting JSON from response text: %s", e)
@@ -113,9 +94,9 @@ async def ner(
     config: Config,
     bs_entries: BsEntries,
     prompt: List[Prompt],
+    format_: JsonSchemaValue,
     model: str,
     thinking: Optional[bool] = None,
-    format_: Optional[JsonSchemaValue] = None,
     progress_file_path: Optional[Path] = None,
 ) -> List[LlmOutput]:
     client = ollama.AsyncClient(host=config.ollama_host)
@@ -148,8 +129,7 @@ async def ner(
                 LOGGER.error("Error processing entry %s: %s", accession, e)
                 return None
 
-            res_text = response["message"]["content"]
-            output = _construct_output(entry, res_text, response)
+            output = _construct_output(entry, response)
 
             if progress_file:
                 progress_file.write(f"{accession}\n")

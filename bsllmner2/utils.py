@@ -103,6 +103,23 @@ def load_mapping(path: Path) -> Mapping:
     return mapping
 
 
+def load_format_schema(path: Path) -> JsonSchemaValue:
+    """
+    Load a JSON schema file from the given path.
+    The file should contain a valid JSON schema.
+    """
+    if not path.exists():
+        raise FileNotFoundError(f"Format schema file {path} does not exist.")
+
+    with path.open("r", encoding="utf-8") as f:
+        try:
+            schema = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON schema in file {path}: {e}") from e
+
+    return schema  # type: ignore
+
+
 def evaluate_output(output: List[LlmOutput], mapping: Mapping) -> List[Evaluation]:
     """
     Evaluate the LLM outputs against the mapping.
