@@ -12,14 +12,17 @@ import uvicorn
 import yaml
 from fastapi import (APIRouter, FastAPI, File, Form, HTTPException, Query,
                      Response, UploadFile, status)
+from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import (MODULE_ROOT, PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
-                              RESULT_DIR, get_config, set_logging_level)
+                              RESULT_DIR, SCHEMA_CELL_LINE_FILE_PATH,
+                              get_config, set_logging_level)
 from bsllmner2.schema import (API_VERSION, BsEntries, Mapping, Prompt, Result,
                               RunMetadata, ServiceInfo)
 from bsllmner2.utils import (dump_result, get_now_str, list_run_metadata,
-                             list_run_names, load_bs_entries, load_mapping,
-                             load_result, to_result)
+                             list_run_names, load_bs_entries,
+                             load_format_schema, load_mapping, load_result,
+                             to_result)
 
 SMALL_TEST_DATA = {
     "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.json"),
@@ -28,6 +31,11 @@ SMALL_TEST_DATA = {
 LARGE_TEST_DATA = {
     "bs_entries": REPO_ROOT.joinpath("tests/zenodo-data/biosample_cellosaurus_mapping_testset.json"),
     "mapping": REPO_ROOT.joinpath("tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv"),
+}
+OPTIONAL_FORMAT_SCHEMA = {
+    "$schema": "http://json-schema.org/draft-07/schema#",
+    "type": "object",
+    "additionalProperties": True,
 }
 
 
@@ -59,6 +67,21 @@ async def read_default_extract_prompt() -> List[Prompt]:
         raw_obj = yaml.safe_load(f)
 
     return [Prompt(**item) for item in raw_obj]
+
+
+@router.get(
+    "/default-extract-format",
+    response_model=JsonSchemaValue,
+)
+async def read_default_extract_format() -> JsonSchemaValue:
+    if not SCHEMA_CELL_LINE_FILE_PATH.exists():
+        raise HTTPException(
+            status_code=404,
+            detail="Default extract format file not found.",
+        )
+
+    return load_format_schema(SCHEMA_CELL_LINE_FILE_PATH)
+
 
 T = TypeVar("T")
 
@@ -123,8 +146,8 @@ async def extract(
     mapping: Optional[UploadFile] = File(None),
     prompt: str = Form(...),
     model: str = Form(...),
-    thinking: Optional[bool] = Form(None),
     format_: Optional[str] = Form(None, alias="format"),
+    thinking: Optional[bool] = Form(None),
     max_entries: Optional[int] = Form(None),
     username: Optional[str] = Form(None),
     run_name: Optional[str] = Form(None),
@@ -138,7 +161,7 @@ async def extract(
     if max_entries and (1 <= max_entries < len(bs_entries_data)):
         bs_entries_data = bs_entries_data[:max_entries]
     prompt_data = [Prompt(**item) for item in yaml.safe_load(prompt)]
-    format_data = json.loads(format_) if format_ else None
+    format_data = json.loads(format_) if format_ else OPTIONAL_FORMAT_SCHEMA
 
     now = get_now_str()
     run_name = run_name or f"{model}_{now}"

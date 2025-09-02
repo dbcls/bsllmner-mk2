@@ -5,6 +5,7 @@ import FormCard from "@/components/FormCard"
 import Frame from "@/components/Frame"
 import Loading from "@/components/Loading"
 import RunCard from "@/components/RunCard"
+import { useDefaultExtractFormat } from "@/hooks/useDefaultExtractFormat"
 import { useDefaultExtractPrompt } from "@/hooks/useDefaultExtractPrompt"
 import { useOllamaModels } from "@/hooks/useOllamaModels"
 import { useRunNames } from "@/hooks/useRunNames"
@@ -18,10 +19,12 @@ export default function Home() {
   const serviceInfoQuery = useServiceInfo()
   const ollamaModelsQuery = useOllamaModels()
   const defaultExtractPromptQuery = useDefaultExtractPrompt()
+  const defaultExtractFormatQuery = useDefaultExtractFormat()
   const runNamesQuery = useRunNames()
   const loading = serviceInfoQuery.isLoading ||
     ollamaModelsQuery.isLoading ||
     defaultExtractPromptQuery.isLoading ||
+    defaultExtractFormatQuery.isLoading ||
     runNamesQuery.isLoading
 
   const storedUsername = useMemo(
@@ -46,6 +49,11 @@ export default function Home() {
       methods.setValue("prompt", defaultExtractPromptQuery.data, { shouldValidate: true })
     }
   }, [methods, defaultExtractPromptQuery.data])
+  useEffect(() => {
+    if (defaultExtractFormatQuery.data) {
+      methods.setValue("format", JSON.stringify(defaultExtractFormatQuery.data, null, 2), { shouldValidate: true })
+    }
+  }, [methods, defaultExtractFormatQuery.data])
   useEffect(() => {
     if (ollamaModelsQuery.data) {
       const modelName = ollamaModelsQuery.data.models[0].name

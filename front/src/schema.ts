@@ -33,6 +33,9 @@ export const promptSchema = z.object({
 })
 export type Prompt = z.infer<typeof promptSchema>
 
+export const formatSchema = z.record(z.any())
+export type Format = z.infer<typeof formatSchema>
+
 export const mappingValueSchema = z.object({
   experiment_type: z.string(),
   extraction_answer: z.string().nullable().optional(),

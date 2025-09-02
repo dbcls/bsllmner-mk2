@@ -35,7 +35,7 @@ async def main() -> None:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
         try:
-            output = await ner(config, bs_entries, prompt, model, thinking, format_, progress_file_path)
+            output = await ner(config, bs_entries, prompt, format_, model, thinking, progress_file_path)
             end_time = get_now_str()
         finally:
             metrics_collector.stop()

@@ -81,7 +81,7 @@ class WfInput(BaseModel):
     prompt: List[Prompt]
     model: str
     thinking: Optional[bool] = None
-    format: Optional[JsonSchemaValue] = None
+    format: JsonSchemaValue
     config: Config
     cli_args: Optional[CliExtractArgs] = None
 
