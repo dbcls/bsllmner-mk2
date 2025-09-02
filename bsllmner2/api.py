@@ -161,7 +161,7 @@ async def extract(
     if max_entries and (1 <= max_entries < len(bs_entries_data)):
         bs_entries_data = bs_entries_data[:max_entries]
     prompt_data = [Prompt(**item) for item in yaml.safe_load(prompt)]
-    format_data = json.loads(format_) if format_ else OPTIONAL_FORMAT_SCHEMA
+    format_data = json.loads(format_) if format_ else None
 
     now = get_now_str()
     run_name = run_name or f"{model}_{now}"

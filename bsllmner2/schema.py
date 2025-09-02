@@ -30,7 +30,7 @@ class CliExtractArgs(BaseModel):
         description="Path to the prompt file in YAML format.",
         examples=["prompt/prompt_extract.yml"],
     )
-    format: Path = Field(
+    format: Optional[Path] = Field(
         ...,
         description="Path to the JSON schema file for the output format.",
         examples=["format/cell_line.schema.json"],
@@ -81,7 +81,7 @@ class WfInput(BaseModel):
     prompt: List[Prompt]
     model: str
     thinking: Optional[bool] = None
-    format: JsonSchemaValue
+    format: Optional[JsonSchemaValue] = None
     config: Config
     cli_args: Optional[CliExtractArgs] = None
 

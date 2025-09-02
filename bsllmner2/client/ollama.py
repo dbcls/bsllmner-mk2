@@ -94,7 +94,7 @@ async def ner(
     config: Config,
     bs_entries: BsEntries,
     prompt: List[Prompt],
-    format_: JsonSchemaValue,
+    format_: Optional[JsonSchemaValue],
     model: str,
     thinking: Optional[bool] = None,
     progress_file_path: Optional[Path] = None,

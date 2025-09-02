@@ -5,8 +5,7 @@ from pathlib import Path
 from typing import List, Tuple
 
 from bsllmner2.client.ollama import ner
-from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH,
-                              SCHEMA_CELL_LINE_FILE_PATH, Config,
+from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
                               default_config, get_config, set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import CliExtractArgs, RunMetadata
@@ -48,11 +47,9 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
     )
     parser.add_argument(
         "--format",
-        type=Path,
-        default=SCHEMA_CELL_LINE_FILE_PATH,
+        default=None,
         help="""\
             Path to the JSON schema file for the output format.
-            Default is 'format/cell_line.schema.json' relative to the project root.
         """,
     )
     parser.add_argument(
@@ -102,8 +99,9 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         raise FileNotFoundError(f"Mapping file {parsed_args.mapping} does not exist.")
     if not parsed_args.prompt.exists():
         raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
-    if not parsed_args.format.exists():
-        raise FileNotFoundError(f"Format schema file {parsed_args.format} does not exist.")
+    if parsed_args is not None:
+        if not parsed_args.format.exists():
+            raise FileNotFoundError(f"Format schema file {parsed_args.format} does not exist.")
     if parsed_args.ollama_host:
         config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
@@ -112,7 +110,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         bs_entries=parsed_args.bs_entries.resolve(),
         mapping=parsed_args.mapping.resolve(),
         prompt=parsed_args.prompt.resolve(),
-        format=parsed_args.format.resolve(),
+        format=parsed_args.format.resolve() if parsed_args.format is not None else None,
         model=parsed_args.model,
         thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
@@ -135,7 +133,7 @@ async def run_cli_extract_async() -> None:
         bs_entries = bs_entries[:args.max_entries]
     mapping = load_mapping(args.mapping)
     prompt = load_prompt_file(args.prompt)
-    format_ = load_format_schema(args.format)
+    format_ = load_format_schema(args.format) if args.format else None
 
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()

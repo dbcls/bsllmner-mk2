@@ -18,9 +18,6 @@
     - "organism":
       - An organism is a living entity that can function independently
       - e.g., Homo sapiens, Mus musculus, Escherichia coli
-    - "strain":
-      - A strain is a genetic variant or subtype within a species, often established by inbreeding or specific selection.
-      - e.g., C57BL/6J, BALB/c (mouse), K-12 MG1655 (E. coli), W303, BY4741 (yeast)
 
     ---
 

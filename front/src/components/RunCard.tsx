@@ -208,7 +208,7 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
     setValue("mapping", toMappingTsv(detail.input.mapping))
     setValue("prompt", detail.input.prompt)
     setValue("model", detail.run_metadata.model)
-    setValue("thinking", detail.run_metadata.thinking ?? false)
+    setValue("thinking", detail.run_metadata.thinking ?? null)
     setValue("format", detail.input.format ? JSON.stringify(detail.input.format, null, 2) : null)
   }
 
