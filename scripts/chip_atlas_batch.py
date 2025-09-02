@@ -2,6 +2,7 @@ import argparse
 import asyncio
 import json
 import sys
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple
 
@@ -552,7 +553,11 @@ EXPERIMENTS_CACHE_PATH = DATA_DIR.joinpath("experiments.json")
 
 
 def main() -> None:
+    start_time = datetime.now()
+    print(f"[{start_time:%Y-%m-%d %H:%M:%S}] Start chip_atlas_batch", file=sys.stderr)
+
     args = parse_args(sys.argv[1:])
+    print(f"Argument: {args}", file=sys.stderr)
 
     # === Pre-processing to prepare experiments with biosample_id ===
 
@@ -635,6 +640,12 @@ def main() -> None:
     print(f"Number of matches: {match_num}", file=sys.stderr)
     print(f"Accuracy: {accuracy:.4f}", file=sys.stderr)
 
+    end_time = datetime.now()
+    print(f"[{end_time:%Y-%m-%d %H:%M:%S}] Finished chip_atlas_batch", file=sys.stderr)
+    print(f"Elapsed: {end_time - start_time}", file=sys.stderr)
+
 
 if __name__ == "__main__":
+    # nohup docker compose -f compose.front.yml exec api python3 ./scripts/chip_atlas_batch.py > chip_atlas_batch.log 2>&1 &
+    # python3 ./scripts/chip_atlas_batch.py > chip_atlas_batch.log 2>&1 &
     main()
