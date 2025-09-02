@@ -101,6 +101,16 @@ class ChipAtlasExperiment(BaseModel):
     )
 
 
+CHIP_ATLAS_KEYS = [
+    "genome_assembly",
+    "track_type_class",
+    "track_type",
+    "cell_type_class",
+    "cell_type",
+    "cell_type_description",
+]
+
+
 async def download_chip_atlas_experiment_list(
     url: str = CHIP_ATLAS_EXPERIMENT_LIST_URL,
     path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH,
@@ -354,20 +364,11 @@ def load_or_download_bs_entry(accession: str, force: bool = False) -> Optional[A
 # === utils for call bsllmner2 ===
 
 
-def find_actual_value(
+def get_human_curated_value(
     experiment: ChipAtlasExperiment,
     field: str,
-    case_sensitive: bool = False,
 ) -> Optional[str]:
-    if case_sensitive:
-        return experiment.meta_fields.get(field, None)
-    else:
-        norm_field = field.casefold()
-        for key, value in experiment.meta_fields.items():
-            if key.casefold() == norm_field:
-                return value
-
-    return None
+    return getattr(experiment, field, None)
 
 
 def generate_prompt(predict_field: str) -> List[Prompt]:
@@ -418,8 +419,8 @@ def generate_format_schema(predict_field: str) -> Dict[str, Any]:
 
 
 class Evaluation(BaseModel):
-    actual: str
-    expected: Optional[str]
+    human_curated: Optional[str]
+    llm_predicted: Optional[str]
     match: bool
 
 
@@ -432,24 +433,24 @@ class Result(BaseModel):
 
 def evaluate_output(
     outputs: List[LlmOutput],
-    bp_mapping: Dict[str, Tuple[str, str]],  # Key: biosample_id, Value: (actual_value, srx)
+    bp_mapping: Dict[str, Tuple[Optional[str], str]],  # Key: biosample_id, Value: (human_curated, srx)
     predict_field: str,
 ) -> List[Result]:
     results = []
     for output in outputs:
         biosample_id = output.accession
         if biosample_id not in bp_mapping:
-            print(f"Warning: No actual value found for {biosample_id}", file=sys.stderr)
+            print(f"Warning: No human-curated value found for BioSample ID {biosample_id}", file=sys.stderr)
             continue
-        actual_value, srx = bp_mapping[biosample_id]
+        human_curated, srx = bp_mapping[biosample_id]
         if output.output is None or not isinstance(output.output, dict):
-            expected_value = None
+            llm_predicted = None
         else:
-            expected_value = output.output.get(predict_field, None)
+            llm_predicted = output.output.get(predict_field, None)
         evaluation = Evaluation(
-            actual=actual_value,
-            expected=expected_value,
-            match=(actual_value == expected_value),
+            human_curated=human_curated,
+            llm_predicted=llm_predicted,
+            match=(human_curated == llm_predicted),
         )
         results.append(Result(
             srx=srx,
@@ -474,8 +475,8 @@ class Args(BaseModel):
         description="Path to the SRA accessions file.",
     )
     predict_field: str = Field(
-        "cell_line",
-        description="The metadata field to predict (e.g., cell_type, tissue, antibody)"
+        "cell_type",
+        description="The metadata field to predict (e.g., cell_type, cell_type_class)"
     )
     model: str = Field(
         "llama3.1:70b",
@@ -509,7 +510,7 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
     parser.add_argument(
         "--predict-field",
         type=str,
-        default="cell_line",
+        default="cell_type",
         help="The metadata field to predict (e.g., cell_type, tissue, antibody)",
     )
     parser.add_argument(
@@ -534,6 +535,9 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
         raw_args = sys.argv[1:]
     parsed_args = parser.parse_args(raw_args)
 
+    if parsed_args.predict_field not in CHIP_ATLAS_KEYS:
+        raise ValueError(f"Invalid predict_field '{parsed_args.predict_field}'. Must be one of {CHIP_ATLAS_KEYS}.")
+
     return Args(
         chip_atlas_experiment_list=parsed_args.chip_atlas_experiment_list,
         sra_accessions_file=parsed_args.sra_accessions_file,
@@ -549,7 +553,6 @@ EXPERIMENTS_CACHE_PATH = DATA_DIR.joinpath("experiments.json")
 
 def main() -> None:
     args = parse_args(sys.argv[1:])
-    print(f"Arguments: {args.model_dump_json(indent=2)}", file=sys.stderr)
 
     # === Pre-processing to prepare experiments with biosample_id ===
 
@@ -586,20 +589,21 @@ def main() -> None:
             json.dump([ex.model_dump() for ex in experiments], file, indent=2)
 
     # === Main processing ===
-    bp_mapping: Dict[str, Tuple[str, str]] = {}  # Key: biosample_id
+    bp_mapping: Dict[str, Tuple[Optional[str], str]] = {}  # Key: biosample_id
     bp_entries: List[Any] = []
     for experiment in experiments:
+        if experiment.genome_assembly != "hg38":  # Hard-coded filter
+            continue
+
         if experiment.biosample_id is None:
             print(f"Skipping {experiment.srx} because biosample_id is None", file=sys.stderr)
             continue
-        actual_value = find_actual_value(experiment, args.predict_field, case_sensitive=False)
-        if actual_value is None:  # TODO: None?
-            continue
+        human_curated_value = get_human_curated_value(experiment, args.predict_field)
         bs_entry = load_or_download_bs_entry(experiment.biosample_id, force=args.force)
         if bs_entry is None:
             continue
 
-        bp_mapping[experiment.biosample_id] = (actual_value, experiment.srx)
+        bp_mapping[experiment.biosample_id] = (human_curated_value, experiment.srx)
         bp_entries.append(bs_entry)
 
         if args.num_lines is not None and len(bp_entries) >= args.num_lines:
@@ -619,6 +623,10 @@ def main() -> None:
     results = evaluate_output(ner_output, bp_mapping, args.predict_field)
     with DATA_DIR.joinpath(f"chip_atlas_ner_results_{args.model}_{args.predict_field}.json").open("w", encoding="utf-8") as file:
         json.dump([res.model_dump() for res in results], file, indent=2)
+    with DATA_DIR.joinpath(f"chip_atlas_ner_results_{args.model}_{args.predict_field}.tsv").open("w", encoding="utf-8") as file:
+        file.write("srx\tbiosample_id\thuman_curated\tllm_predicted\tmatch\n")
+        for res in results:
+            file.write(f"{res.srx}\t{res.biosample_id}\t{res.evaluation.human_curated}\t{res.evaluation.llm_predicted}\t{res.evaluation.match}\n")
 
     all_num = len(results)
     match_num = sum(1 for res in results if res.evaluation.match)
