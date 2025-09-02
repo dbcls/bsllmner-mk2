@@ -73,7 +73,7 @@ def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> 
         output_obj = None
 
     output_ins = LlmOutput(
-        accession=bs_entry["accession"],
+        accession=bs_entry.get("accession", "Unknown"),
         output=output_obj,
         output_full=res_text_json,
         chat_response=chat_response,
