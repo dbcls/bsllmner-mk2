@@ -1,3 +1,5 @@
-# Tests for bsllmner-mk2
+# Test data for bsllmner-mk2
 
-- not yet
+- Test data
+  - <https://zenodo.org/records/14881142>
+  - <https://zenodo.org/records/14643285>

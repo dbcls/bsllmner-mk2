@@ -99,7 +99,8 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         raise FileNotFoundError(f"Mapping file {parsed_args.mapping} does not exist.")
     if not parsed_args.prompt.exists():
         raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
-    if parsed_args is not None:
+    if parsed_args.format is not None:
+        parsed_args.format = Path(parsed_args.format)
         if not parsed_args.format.exists():
             raise FileNotFoundError(f"Format schema file {parsed_args.format} does not exist.")
     if parsed_args.ollama_host:
