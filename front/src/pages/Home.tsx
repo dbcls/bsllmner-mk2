@@ -43,6 +43,12 @@ export default function Home() {
     reValidateMode: "onBlur",
   })
 
+  const models = ollamaModelsQuery.data?.models ?? []
+  const firstModelName = models[0]?.name ?? null
+  const serviceMetrics = serviceInfoQuery.data?.metrics ?? false
+  const runNames = runNamesQuery.data ?? []
+  const modelsForChild = ollamaModelsQuery.data ?? { models: [] }
+
   // Initialize default values based on the fetched data
   useEffect(() => {
     if (defaultExtractPromptQuery.data) {
@@ -55,13 +61,12 @@ export default function Home() {
     }
   }, [methods, defaultExtractFormatQuery.data])
   useEffect(() => {
-    if (ollamaModelsQuery.data) {
-      const modelName = ollamaModelsQuery.data.models[0].name
-      const runName = `${modelName}_${nowStr}`
-      methods.setValue("model", modelName, { shouldValidate: true })
+    if (firstModelName) {
+      const runName = `${firstModelName}_${nowStr}`
+      methods.setValue("model", firstModelName, { shouldValidate: true })
       methods.setValue("runName", runName, { shouldValidate: true })
     }
-  }, [methods, ollamaModelsQuery.data, nowStr])
+  }, [methods, firstModelName, nowStr])
 
   if (loading) {
     return <Frame><Loading msg="Loading..." /></Frame>
@@ -70,8 +75,20 @@ export default function Home() {
   return (
     <Frame>
       <FormProvider {...methods}>
-        <FormCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} nowStr={nowStr} setDetailRunName={setDetailRunName} runNames={runNamesQuery.data!} />
-        <RunCard sx={{ my: "1.5rem" }} models={ollamaModelsQuery.data!} detailRunName={detailRunName} setDetailRunName={setDetailRunName} />
+        <FormCard
+          sx={{ my: "1.5rem" }}
+          models={modelsForChild}
+          nowStr={nowStr}
+          setDetailRunName={setDetailRunName}
+          runNames={runNames}
+        />
+        <RunCard
+          sx={{ my: "1.5rem" }}
+          serviceMetrics={serviceMetrics}
+          models={modelsForChild}
+          detailRunName={detailRunName}
+          setDetailRunName={setDetailRunName}
+        />
       </FormProvider>
     </Frame>
   )

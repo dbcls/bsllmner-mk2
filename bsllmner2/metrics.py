@@ -6,6 +6,7 @@ import sys
 import threading
 import time
 from datetime import datetime, timezone
+from functools import lru_cache
 from pathlib import Path
 from typing import List, Literal, Optional
 
@@ -49,6 +50,21 @@ def parse_percentage(perc_str: str) -> float:
     if perc_str.endswith('%'):
         return float(perc_str[:-1])
     raise ValueError(f"Invalid percentage format: {perc_str}")
+
+
+@lru_cache(maxsize=1)
+def check_ollama_container_exists(container_name: str = OLLAMA_CONTAINER_NAME) -> bool:
+    try:
+        result = subprocess.check_output([
+            "docker",
+            "ps",
+            "-q",
+            "-f",
+            f"name={container_name}"
+        ])
+        return bool(result.strip())
+    except subprocess.CalledProcessError:
+        return False
 
 
 class DockerStatsResponse(BaseModel):
@@ -177,13 +193,16 @@ class LiveMetricsCollector:
         self.records: List[Metrics] = []
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._collect_loop)
+        self._enabled = check_ollama_container_exists(container_name)
 
     def start(self) -> None:
-        self._thread.start()
+        if self._enabled:
+            self._thread.start()
 
     def stop(self) -> None:
-        self._stop_event.set()
-        self._thread.join()
+        if self._enabled:
+            self._stop_event.set()
+            self._thread.join()
 
     def _collect_loop(self) -> None:
         next_time = time.time()
@@ -198,6 +217,8 @@ class LiveMetricsCollector:
             self.count += 1
 
     def get_records(self) -> List[Metrics]:
+        if not self._enabled:
+            return []
         return self.records
 
 

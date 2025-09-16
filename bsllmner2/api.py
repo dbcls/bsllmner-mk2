@@ -17,6 +17,7 @@ from pydantic.json_schema import JsonSchemaValue
 from bsllmner2.config import (MODULE_ROOT, PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
                               RESULT_DIR, SCHEMA_CELL_LINE_FILE_PATH,
                               get_config, set_logging_level)
+from bsllmner2.metrics import check_ollama_container_exists
 from bsllmner2.schema import (API_VERSION, BsEntries, Mapping, Prompt, Result,
                               RunMetadata, ServiceInfo)
 from bsllmner2.utils import (dump_result, get_now_str, list_run_metadata,
@@ -49,7 +50,11 @@ router = APIRouter()
     response_model=ServiceInfo,
 )
 async def service_info() -> ServiceInfo:
-    return ServiceInfo(api_version=API_VERSION)
+    metrics = check_ollama_container_exists()
+    return ServiceInfo(
+        api_version=API_VERSION,
+        metrics=metrics,
+    )
 
 
 @router.get(

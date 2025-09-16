@@ -30,6 +30,7 @@ interface RunCardProps {
   models: OllamaModels
   detailRunName: string | null
   setDetailRunName: (name: string | null) => void
+  serviceMetrics: boolean
 }
 
 interface Filters {
@@ -137,7 +138,7 @@ const toMappingTsv = (mapping: Record<string, MappingValue>): string => {
   return rows.join("\n")
 }
 
-export default function RunCard({ sx, models, detailRunName, setDetailRunName }: RunCardProps) {
+export default function RunCard({ sx, models, detailRunName, setDetailRunName, serviceMetrics }: RunCardProps) {
   const modelNames = models.models.map((model) => model.name)
   const [filters, setFilters] = useState<Filters>({
     username: null, model: "all", runStatus: "all",
@@ -717,30 +718,36 @@ export default function RunCard({ sx, models, detailRunName, setDetailRunName }:
             </Box>
 
             <Box hidden={tab !== 3} sx={{ p: "1rem" }}>
-              <Box sx={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
-                {charts.map(({ key, label }) => (
-                  <Box key={key}>
-                    <Typography sx={{ fontWeight: "bold", mb: "0.5rem" }}>
-                      {label}
-                    </Typography>
-                    <ResponsiveContainer width="100%" height={200}>
-                      <LineChart data={processed}>
-                        <CartesianGrid strokeDasharray="3 3" />
-                        <XAxis dataKey="timestamp" hide />
-                        <YAxis />
-                        <Tooltip />
-                        <Legend />
-                        <Line
-                          type="monotone"
-                          dataKey={key}
-                          stroke={theme.palette.primary.main}
-                          dot={false}
-                        />
-                      </LineChart>
-                    </ResponsiveContainer>
-                  </Box>
-                ))}
-              </Box>
+              {serviceMetrics === false ? (
+                <Typography>
+                  {"Metrics collection is disabled. Enable it from the server settings to see the metrics data."}
+                </Typography>
+              ) : (
+                <Box sx={{ display: "flex", flexDirection: "column", gap: "0.5rem" }}>
+                  {charts.map(({ key, label }) => (
+                    <Box key={key}>
+                      <Typography sx={{ fontWeight: "bold", mb: "0.5rem" }}>
+                        {label}
+                      </Typography>
+                      <ResponsiveContainer width="100%" height={200}>
+                        <LineChart data={processed}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="timestamp" hide />
+                          <YAxis />
+                          <Tooltip />
+                          <Legend />
+                          <Line
+                            type="monotone"
+                            dataKey={key}
+                            stroke={theme.palette.primary.main}
+                            dot={false}
+                          />
+                        </LineChart>
+                      </ResponsiveContainer>
+                    </Box>
+                  ))}
+                </Box>
+              )}
             </Box>
 
             <Box hidden={tab !== 4} sx={{ p: "1rem" }}>

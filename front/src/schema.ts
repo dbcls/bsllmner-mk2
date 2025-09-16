@@ -23,6 +23,7 @@ export type OllamaModels = z.infer<typeof ollamaModelsSchema>
 
 export const serviceInfoSchema = z.object({
   api_version: z.string(),
+  metrics: z.boolean(),
 })
 export type ServiceInfo = z.infer<typeof serviceInfoSchema>
 

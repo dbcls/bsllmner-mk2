@@ -47,6 +47,11 @@ class ServiceInfo(BaseModel):
         description="API version of this api service",
         examples=[API_VERSION],
     )
+    metrics: bool = Field(
+        ...,
+        description="Whether the service supports metrics collection",
+        examples=[True],
+    )
 
 
 class Prompt(BaseModel):
