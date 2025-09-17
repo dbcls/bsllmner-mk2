@@ -2,7 +2,6 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
 from bsllmner2.client.ollama import ner
 from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
@@ -14,7 +13,7 @@ from bsllmner2.utils import (dump_result, evaluate_output, get_now_str,
                              load_prompt_file, to_result)
 
 
-def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
+def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
     """
     Parse command-line arguments for the bsllmner2 CLI extract mode.
 
@@ -33,8 +32,9 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
     parser.add_argument(
         "--mapping",
         type=Path,
-        required=True,
+        required=False,
         help="Path to the mapping file in TSV format.",
+        default = Path.cwd()
     )
     parser.add_argument(
         "--prompt",
