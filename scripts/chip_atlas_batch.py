@@ -1,8 +1,9 @@
 import argparse
 import asyncio
 import json
+import logging
+import math
 import sys
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple
 
@@ -14,8 +15,19 @@ from bsllmner2.config import get_config
 from bsllmner2.schema import LlmOutput, Prompt
 
 HERE = Path(__file__).parent.resolve()
-DATA_DIR = HERE.parent.joinpath("tmp-data")
-DATA_DIR.mkdir(exist_ok=True, parents=True)
+DATA_DIR = HERE.parent.joinpath("chip-atlas-data")
+RESULTS_DIR = DATA_DIR.joinpath("results")
+RESULTS_DIR.mkdir(exist_ok=True, parents=True)
+
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s [%(levelname)s] %(message)s",
+    datefmt="%Y-%m-%d %H:%M:%S",
+    handlers=[logging.StreamHandler(sys.stderr)],  # stderrに出す
+)
+
+LOGGER = logging.getLogger(__name__)
 
 
 # === Parse experimentList.tab from ChIP-Atlas ===
@@ -118,10 +130,10 @@ async def download_chip_atlas_experiment_list(
     force: bool = False
 ) -> None:
     if path.exists() and not force:
-        print(f"{path.name} already exists. Skipping download.", file=sys.stderr)
+        LOGGER.info("%s already exists. Skipping download.", path.name)
         return None
 
-    print(f"Downloading {path.name} from {url}...", file=sys.stderr)
+    LOGGER.info("Downloading %s from %s...", path.name, url)
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         async with client.stream("GET", url) as response:
@@ -174,7 +186,7 @@ def parse_experiment_list(
     path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH,
     num_lines: Optional[int] = None
 ) -> List[ChipAtlasExperiment]:
-    print(f"Parsing {path}...", file=sys.stderr)
+    LOGGER.info("Parsing %s...", path)
 
     experiments = []
     for i, line in enumerate(iterate_tsv(path)):
@@ -239,10 +251,10 @@ async def download_sra_accessions_file(
     force: bool = False
 ) -> None:
     if path.exists() and not force:
-        print(f"{path.name} already exists. Skipping download.", file=sys.stderr)
+        LOGGER.info("%s already exists. Skipping download.", path.name)
         return None
 
-    print(f"Downloading {path.name} from {url}...", file=sys.stderr)
+    LOGGER.info("Downloading %s from %s...", path.name, url)
 
     async with httpx.AsyncClient(timeout=60.0) as client:
         async with client.stream("GET", url) as response:
@@ -258,7 +270,7 @@ def parse_sra_accessions_file(
     path: Path = SRA_ACCESSIONS_FILE_PATH,
     num_lines: Optional[int] = None,
 ) -> Dict[str, List[str]]:
-    print(f"Parsing {path}...", file=sys.stderr)
+    LOGGER.info("Parsing %s...", path)
 
     if from_type not in TYPE_FILTERS[to_type]:
         raise ValueError(f"Invalid from_type '{from_type}' for to_type '{to_type}'")
@@ -337,7 +349,7 @@ async def download_bs_entry(accession: str) -> Optional[Any]:
         if response.status_code == 200:
             return response.json()
         elif response.status_code == 404:
-            print(f"BioSample entry not found for {accession}", file=sys.stderr)
+            LOGGER.info("BioSample entry not found for %s", accession)
             return None
         else:
             response.raise_for_status()
@@ -382,7 +394,7 @@ def generate_prompt(predict_field: str) -> List[Prompt]:
             role="user",
             content=f"""
 I will input JSON formatted metadata of a sample for a biological experiment.
-Your task is to extract relevant biological information (if present) from the input data 
+Your task is to extract relevant biological information (if present) from the input data
 and format it according to the specified schema.
 
 ---
@@ -441,7 +453,7 @@ def evaluate_output(
     for output in outputs:
         biosample_id = output.accession
         if biosample_id not in bp_mapping:
-            print(f"Warning: No human-curated value found for BioSample ID {biosample_id}", file=sys.stderr)
+            LOGGER.info("Warning: No human-curated value found for BioSample ID %s", biosample_id)
             continue
         human_curated, srx = bp_mapping[biosample_id]
         if output.output is None or not isinstance(output.output, dict):
@@ -461,6 +473,69 @@ def evaluate_output(
         ))
 
     return results
+
+
+# === for large batch processing ===
+
+
+def json_dumps(obj: Any) -> str:
+    return json.dumps(obj, ensure_ascii=False)
+
+
+def load_processed_biosample_ids_from_jsonl(jsonl_path: Path) -> Set[str]:
+    done: Set[str] = set()
+    if not jsonl_path.exists():
+        return done
+    with jsonl_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                obj = json.loads(line)
+                bs_id = obj.get("biosample_id")
+                if bs_id:
+                    done.add(bs_id)
+            except Exception:  # pylint: disable=broad-except
+                continue
+    return done
+
+
+def append_results_jsonl(jsonl_path: Path, results: List["Result"]) -> None:
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
+    with jsonl_path.open("a", encoding="utf-8") as f:
+        for r in results:
+            f.write(json_dumps(r.model_dump()) + "\n")
+
+
+def append_results_tsv(tsv_path: Path, results: List["Result"]) -> None:
+    tsv_path.parent.mkdir(parents=True, exist_ok=True)
+    header_needed = not tsv_path.exists()
+    with tsv_path.open("a", encoding="utf-8") as f:
+        if header_needed:
+            f.write("srx\tbiosample_id\thuman_curated\tllm_predicted\tmatch\n")
+        for res in results:
+            f.write(f"{res.srx}\t{res.biosample_id}\t{res.evaluation.human_curated}\t{res.evaluation.llm_predicted}\t{res.evaluation.match}\n")
+
+
+def summarize_from_jsonl(jsonl_path: Path) -> Tuple[int, int, float]:
+    total = 0
+    matches = 0
+    with jsonl_path.open("r", encoding="utf-8") as f:
+        for line in f:
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                rec = json.loads(line)
+                total += 1
+                ev = rec.get("evaluation", {})
+                if ev.get("match") is True:
+                    matches += 1
+            except Exception:  # pylint: disable=broad-except
+                continue
+    acc = (matches / total) if total else 0.0
+    return total, matches, acc
 
 
 # === Main ====
@@ -490,6 +565,14 @@ class Args(BaseModel):
     force: bool = Field(
         False,
         description="Force re-download of files even if they already exist.",
+    )
+    batch_size: int = Field(
+        128,
+        description="Batch size for NER calls.",
+    )
+    resume: bool = Field(
+        False,
+        description="Resume from the last processed entry if output file exists.",
     )
 
 
@@ -531,6 +614,17 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
         action="store_true",
         help="Force re-download of files even if they already exist.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=128,
+        help="Batch size for NER calls.",
+    )
+    parser.add_argument(
+        "--resume",
+        action="store_true",
+        help="Resume from the last processed entry if output file exists.",
+    )
 
     if raw_args is None:
         raw_args = sys.argv[1:]
@@ -546,6 +640,8 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
         model=parsed_args.model,
         num_lines=parsed_args.num_lines,
         force=parsed_args.force,
+        batch_size=parsed_args.batch_size,
+        resume=parsed_args.resume,
     )
 
 
@@ -553,11 +649,10 @@ EXPERIMENTS_CACHE_PATH = DATA_DIR.joinpath("experiments.json")
 
 
 def main() -> None:
-    start_time = datetime.now()
-    print(f"[{start_time:%Y-%m-%d %H:%M:%S}] Start chip_atlas_batch", file=sys.stderr)
+    LOGGER.info("Start chip_atlas_batch")
 
     args = parse_args(sys.argv[1:])
-    print(f"Argument: {args}", file=sys.stderr)
+    LOGGER.info("Argument: %s", args.model_dump())
 
     # === Pre-processing to prepare experiments with biosample_id ===
 
@@ -585,67 +680,98 @@ def main() -> None:
             if experiment.srx in srx_to_biosample:
                 biosample_ids = srx_to_biosample[experiment.srx]
                 if len(biosample_ids) > 1:
-                    print(
-                        f"Warning: Multiple BioSample IDs found for {experiment.srx}: {biosample_ids}",
-                        file=sys.stderr
-                    )
+                    LOGGER.info("Warning: Multiple BioSample IDs found for %s: %s", experiment.srx, biosample_ids)
                 experiment.biosample_id = biosample_ids[0]
         with EXPERIMENTS_CACHE_PATH.open("w", encoding="utf-8") as file:
             json.dump([ex.model_dump() for ex in experiments], file, indent=2)
 
     # === Main processing ===
-    bp_mapping: Dict[str, Tuple[Optional[str], str]] = {}  # Key: biosample_id
-    bp_entries: List[Any] = []
+    bsllmner2_config = get_config()
+    prompt = generate_prompt(args.predict_field)
+    format_schema = generate_format_schema(args.predict_field)
+
+    if args.resume:
+        output_stem = f"chip_atlas_ner_results_{args.model}_{args.predict_field}_resume"
+    else:
+        output_stem = f"chip_atlas_ner_results_{args.model}_{args.predict_field}"
+    output_json_path = RESULTS_DIR.joinpath(f"{output_stem}.json")
+    output_tsv_path = RESULTS_DIR.joinpath(f"{output_stem}.tsv")
+
+    processed: Set[str] = load_processed_biosample_ids_from_jsonl(output_json_path) if args.resume else set()
+    if processed:
+        LOGGER.info("[resume] Already processed: %d entries", len(processed))
+
+    work_items: List[Tuple[str, str, Any, Optional[str]]] = []  # List of (biosample_id, srx, bs_entry, human_curated_value)
     for experiment in experiments:
         if experiment.genome_assembly != "hg38":  # Hard-coded filter
             continue
-
         if experiment.biosample_id is None:
-            print(f"Skipping {experiment.srx} because biosample_id is None", file=sys.stderr)
+            LOGGER.info("Skipping %s because biosample_id is None", experiment.srx)
             continue
         human_curated_value = get_human_curated_value(experiment, args.predict_field)
         bs_entry = load_or_download_bs_entry(experiment.biosample_id, force=args.force)
         if bs_entry is None:
             continue
-
-        bp_mapping[experiment.biosample_id] = (human_curated_value, experiment.srx)
-        bp_entries.append(bs_entry)
-
-        if args.num_lines is not None and len(bp_entries) >= args.num_lines:
+        biosample_id = experiment.biosample_id
+        if biosample_id in processed:
+            continue
+        work_items.append((biosample_id, experiment.srx, bs_entry, human_curated_value))
+        if args.num_lines is not None and len(work_items) >= args.num_lines:
             break
 
-    bsllmner2_config = get_config()
-    prompt = generate_prompt(args.predict_field)
-    format_schema = generate_format_schema(args.predict_field)
-    ner_output = asyncio.run(ner(
-        config=bsllmner2_config,
-        bs_entries=bp_entries,
-        prompt=prompt,
-        format_=format_schema,
-        model=args.model,
-        thinking=False,
-    ))
-    results = evaluate_output(ner_output, bp_mapping, args.predict_field)
-    with DATA_DIR.joinpath(f"chip_atlas_ner_results_{args.model}_{args.predict_field}.json").open("w", encoding="utf-8") as file:
-        json.dump([res.model_dump() for res in results], file, indent=2)
-    with DATA_DIR.joinpath(f"chip_atlas_ner_results_{args.model}_{args.predict_field}.tsv").open("w", encoding="utf-8") as file:
-        file.write("srx\tbiosample_id\thuman_curated\tllm_predicted\tmatch\n")
-        for res in results:
-            file.write(f"{res.srx}\t{res.biosample_id}\t{res.evaluation.human_curated}\t{res.evaluation.llm_predicted}\t{res.evaluation.match}\n")
+    total_num = len(work_items) + len(processed)
+    done_num = len(processed)
+    todo_num = len(work_items)
+    if todo_num == 0:
+        LOGGER.info("No remaining items to process. (All done or filtered)")
+        return None
 
-    all_num = len(results)
-    match_num = sum(1 for res in results if res.evaluation.match)
-    accuracy = match_num / all_num if all_num > 0 else 0.0
-    print(f"Total entries evaluated: {all_num}", file=sys.stderr)
-    print(f"Number of matches: {match_num}", file=sys.stderr)
-    print(f"Accuracy: {accuracy:.4f}", file=sys.stderr)
+    LOGGER.info("Total items: %d, Processed items: %d, To-do items: %d", total_num, done_num, todo_num)
 
-    end_time = datetime.now()
-    print(f"[{end_time:%Y-%m-%d %H:%M:%S}] Finished chip_atlas_batch", file=sys.stderr)
-    print(f"Elapsed: {end_time - start_time}", file=sys.stderr)
+    batch_size = max(1, args.batch_size)
+    batches = math.ceil(todo_num / batch_size)
+
+    for batch_idx in range(batches):
+        start_idx = batch_idx * batch_size
+        end_idx = min(start_idx + batch_size, todo_num)
+        current_batch = work_items[start_idx:end_idx]
+
+        bs_entries = [item[2] for item in current_batch]
+        ner_output = asyncio.run(ner(
+            config=bsllmner2_config,
+            bs_entries=bs_entries,
+            prompt=prompt,
+            format_=format_schema,
+            model=args.model,
+            thinking=False,
+        ))
+        # biosample_id -> (human_curated_value, srx)
+        bp_mappings = {item[0]: (item[3], item[1]) for item in current_batch}
+        results = evaluate_output(ner_output, bp_mappings, args.predict_field)
+
+        # for resume
+        append_results_jsonl(output_json_path, results)
+        append_results_tsv(output_tsv_path, results)
+
+        # progress
+        batch_num = len(results)
+        done_num += batch_num
+        LOGGER.info("[batch %d/%d] done %d/%d (+%d)", batch_idx + 1, batches, done_num, total_num, batch_num)
+
+    if args.resume:
+        final_output_stem = f"chip_atlas_ner_results_{args.model}_{args.predict_field}"
+        final_output_json_path = RESULTS_DIR.joinpath(f"{final_output_stem}.json")
+        final_output_tsv_path = RESULTS_DIR.joinpath(f"{final_output_stem}.tsv")
+        output_json_path.rename(final_output_json_path)
+        output_tsv_path.rename(final_output_tsv_path)
+
+    total, matches, acc = summarize_from_jsonl(output_json_path)
+    LOGGER.info("Number of entries evaluated: %d", total)
+    LOGGER.info("Number of matches: %d", matches)
+    LOGGER.info("Accuracy: %.4f", acc)
 
 
 if __name__ == "__main__":
-    # nohup docker compose -f compose.front.yml exec api python3 ./scripts/chip_atlas_batch.py > chip_atlas_batch.log 2>&1 &
-    # python3 ./scripts/chip_atlas_batch.py > chip_atlas_batch.log 2>&1 &
+    # nohup docker compose -f compose.front.yml exec api python3 ./scripts/chip_atlas_batch.py --resume > chip_atlas_batch.log 2>&1 &
+    # nohup python3 ./scripts/chip_atlas_batch.py --resume --num-lines 5000 > chip_atlas_batch.log 2>&1 &
     main()
