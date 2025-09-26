@@ -271,6 +271,17 @@ Among these, the main result files are:
 
 These files contain the LLM-predicted and human-curated values for each entry, and can be used for downstream analysis or benchmarking.
 
+## Download Ontology Files for Searching
+
+You can download ontology files in OBO format file from [Cellosaurus](https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo).
+
+```sh
+mkdir -p ontology
+cd ontology
+curl -O https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo
+docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert -i ./cellosaurus.obo -o ./cellosaurus.owl --format owl
+```
+
 ## License
 
 This repository is released under the MIT License.

@@ -203,3 +203,4 @@ cython_debug/
 ollama-data/
 bsllmner2-results/
 chip-atlas-data/
+ontology/
