@@ -76,10 +76,13 @@ def load_mapping(path: Path) -> Mapping:
 
     mapping: Mapping = {}
 
-    with path.open("r", encoding="utf-8") as f:
-        lines = [line.rstrip("\n") for line in f if line.strip()]
-    if not lines:
-        return {}
+    if path.is_file():
+        with path.open("rt", encoding="utf-8") as f:
+            lines = [line.rstrip("\n") for line in f if line.strip()]
+            if not lines:
+                return mapping
+    else:
+        return mapping
 
     header_fields = lines[0].split("\t")
     if header_fields != HEADERS:
