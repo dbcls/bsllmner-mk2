@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal, Optional
 
 from ollama import ChatResponse
 from pydantic import BaseModel, Field
@@ -10,7 +10,6 @@ from bsllmner2.metrics import Metrics
 from bsllmner2.ontology_search import SearchResult
 
 API_VERSION = "1.0.0"
-
 
 class CliExtractArgs(BaseModel):
     """
@@ -100,7 +99,7 @@ class Prompt(BaseModel):
     )
 
 
-BsEntries = List[Dict[str, Any]]
+BsEntries = list[dict[str, Any]]
 
 
 class MappingValue(BaseModel):
@@ -110,13 +109,13 @@ class MappingValue(BaseModel):
     mapping_answer_label: Optional[str]
 
 
-Mapping = Dict[str, MappingValue]  # key: bs_entry accession
+Mapping = dict[str, MappingValue]  # key: bs_entry accession
 
 
 class WfInput(BaseModel):
     bs_entries: BsEntries
     mapping: Mapping
-    prompt: List[Prompt]
+    prompt: list[Prompt]
     model: str
     thinking: Optional[bool] = None
     format: Optional[JsonSchemaValue] = None
@@ -128,7 +127,7 @@ class LlmOutput(BaseModel):
     accession: str
     output: Optional[Any] = None
     output_full: Optional[str] = None
-    characteristics: Optional[Dict[str, Any]] = None
+    characteristics: Optional[dict[str, Any]] = None
     taxId: Optional[Any] = None
     chat_response: ChatResponse
 
@@ -177,8 +176,8 @@ class ErrorLog(BaseModel):
 
 class Result(BaseModel):
     input: WfInput
-    output: List[LlmOutput] = []
-    evaluation: List[Evaluation] = []
-    metrics: Optional[List[Metrics]] = None
+    output: list[LlmOutput] = []
+    evaluation: list[Evaluation] = []
+    metrics: Optional[list[Metrics]] = None
     run_metadata: RunMetadata
     error_log: Optional[ErrorLog] = None
