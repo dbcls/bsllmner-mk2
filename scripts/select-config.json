@@ -1,0 +1,26 @@
+{
+  "fields": {
+    "cell_line": {
+      "ontology_file": "/app/ontology/cellosaurus.owl",
+      "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc.",
+      "ontology_filter": {
+        "hasDbXref": "NCBI_TaxID:9606"
+      }
+    },
+    "cell_type": {
+      "ontology_file": "/app/ontology/cell_ontology.owl",
+      "prompt_description": "Cell type is a classification of cells based on their structure and function, representing normal cells. e.g., neuron, hepatocyte, etc."
+    },
+    "tissue": {
+      "ontology_file": "/app/ontology/uberon.owl",
+      "prompt_description": "Tissue is a group of cells that work together to perform a specific function in an organism. e.g., lung, liver, heart, etc."
+    },
+    "disease": {
+      "ontology_file": "/app/ontology/mondo.owl",
+      "prompt_description": "Disease is an abnormal state of the body or its parts that impairs normal function. e.g., lung cancer, down syndrome, etc.",
+      "ontology_filter": {
+        "hasDbXref": "NCBITaxon:9606"
+      }
+    }
+  }
+}

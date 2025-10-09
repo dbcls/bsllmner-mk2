@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "properties": {
+    "cell_line": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "cell_type": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "tissue": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "disease": {
+      "type": [
+        "string",
+        "null"
+      ]
+    }
+  },
+  "required": [
+    "cell_line",
+    "cell_type",
+    "tissue",
+    "disease"
+  ],
+  "additionalProperties": true
+}

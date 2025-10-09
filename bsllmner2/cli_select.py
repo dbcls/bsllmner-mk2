@@ -4,19 +4,19 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from bsllmner2.client.ollama import ner
+from bsllmner2.client.ollama import ner, select
 from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
                               default_config, get_config, set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector
-from bsllmner2.schema import CliExtractArgs, RunMetadata
+from bsllmner2.schema import CliSelectArgs, Result, RunMetadata
 from bsllmner2.utils import (dump_result, evaluate_output, get_now_str,
                              load_bs_entries, load_format_schema, load_mapping,
-                             load_prompt_file, to_result)
+                             load_prompt_file, load_select_config, to_result)
 
 
-def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
+def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
     """
-    Parse command-line arguments for the bsllmner2 CLI extract mode.
+    Parse command-line arguments for the bsllmner2 CLI select mode.
 
     Returns:
         Args: Parsed command-line arguments.
@@ -89,6 +89,14 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         help="Enable debug mode for more verbose logging.",
     )
 
+    # Select mode specific arguments
+    parser.add_argument(
+        "--select-config",
+        type=Path,
+        required=True,
+        help="Path to the select configuration file in JSON format.",
+    )
+
     parsed_args = parser.parse_args(args)
 
     # Priority: CLI argument > Environment variable > Default config (from config.py)
@@ -107,7 +115,11 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
 
-    return config, CliExtractArgs(
+    # Select mode specific checks
+    if not parsed_args.select_config.exists():
+        raise FileNotFoundError(f"Select configuration file {parsed_args.select_config} does not exist.")
+
+    return config, CliSelectArgs(
         bs_entries=parsed_args.bs_entries.resolve(),
         mapping=parsed_args.mapping.resolve(),
         prompt=parsed_args.prompt.resolve(),
@@ -116,14 +128,15 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
         thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
         with_metrics=parsed_args.with_metrics,
+        select_config=parsed_args.select_config.resolve()
     )
 
 
-async def run_cli_extract_async() -> None:
+async def run_cli_select_async() -> None:
     """
-    Run the CLI for bsllmner2 extract mode.
+    Run the CLI for bsllmner2 select mode.
     """
-    LOGGER.info("Starting bsllmner2 CLI extract mode...")
+    LOGGER.info("Starting bsllmner2 CLI select mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
     LOGGER.debug("Config:\n%s", config.model_dump_json(indent=2))
@@ -136,20 +149,30 @@ async def run_cli_extract_async() -> None:
     prompt = load_prompt_file(args.prompt)
     format_ = load_format_schema(args.format) if args.format else None
 
+    # for Select mode
+    select_config = load_select_config(args.select_config)
+    LOGGER.debug("Select Config:\n%s", select_config.model_dump_json(indent=2))
+
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
     try:
         start_time = get_now_str()
-        output = await ner(config, bs_entries, prompt, format_, args.model, args.thinking)
+        # Debug
+        file = Path("/app/bsllmner2-results/select_llama3.1:70b_20251008_084112.json")
+        with file.open("r") as f:
+            extract_result = Result.model_validate_json(f.read())
+        extract_outputs = extract_result.output
+        # extract_outputs = await ner(config, bs_entries, prompt, format_, args.model, args.thinking)
+        await select(config, bs_entries, args.model, extract_outputs, select_config, args.thinking)
         end_time = get_now_str()
     finally:
         if args.with_metrics:
             metrics_collector.stop()
     metrics = metrics_collector.get_records() if args.with_metrics else None
 
-    evaluation = evaluate_output(output, mapping)
-    run_name = f"extract_{args.model}_{start_time}"
+    evaluation = evaluate_output(extract_outputs, mapping)
+    run_name = f"select_{args.model}_{start_time}"
     run_metadata = RunMetadata(
         run_name=run_name,
         username=None,
@@ -164,7 +187,7 @@ async def run_cli_extract_async() -> None:
         mapping=mapping,
         prompt=prompt,
         model=args.model,
-        output=output,
+        output=extract_outputs,
         evaluation=evaluation,
         config=config,
         run_metadata=run_metadata,
@@ -178,12 +201,12 @@ async def run_cli_extract_async() -> None:
     LOGGER.info("Processing complete. Result saved to %s", result_file)
 
 
-def run_cli_extract() -> None:
+def run_cli_select() -> None:
     """
-    Run the CLI for bsllmner2 extract mode in an event loop.
+    Run the CLI for bsllmner2 select mode in an event loop.
     """
-    asyncio.run(run_cli_extract_async())
+    asyncio.run(run_cli_select_async())
 
 
 if __name__ == "__main__":
-    run_cli_extract()
+    run_cli_select()

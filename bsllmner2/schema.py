@@ -7,6 +7,7 @@ from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import Config
 from bsllmner2.metrics import Metrics
+from bsllmner2.ontology_search import SearchResult
 
 API_VERSION = "1.0.0"
 
@@ -39,6 +40,38 @@ class CliExtractArgs(BaseModel):
     thinking: Optional[bool] = None
     max_entries: Optional[int] = None
     with_metrics: bool = False
+
+
+class SelectConfigField(BaseModel):
+    ontology_file: Path = Field(
+        ...,
+        description="Path to the ontology OWL file or TSV file.",
+        examples=["ontology/cellosaurus.owl", "ontology/cellosaurus.tsv"],
+    )
+    prompt_description: Optional[str] = Field(
+        None,
+        description="Description to be included in the prompt for select mode.",
+    )
+    ontology_filter: Optional[Dict[str, str]] = Field(
+        None,
+        description="Filter criteria for ontology terms, e.g., {'hasDbXref': 'NCBI_TaxID:9606'}.",
+        examples=[{"hasDbXref": "NCBI_TaxID:9606"}],
+    )
+
+
+class SelectConfig(BaseModel):
+    fields: Dict[str, SelectConfigField] = Field(
+        ...,
+        description="Configuration for each field to be selected using the ontology. The key is the field name to be extracted.",
+    )
+
+
+class CliSelectArgs(CliExtractArgs):
+    select_config: Path = Field(
+        ...,
+        description="Path to the select configuration file in JSON format.",
+        examples=["config/select_config.json"],
+    )
 
 
 class ServiceInfo(BaseModel):
@@ -98,6 +131,15 @@ class LlmOutput(BaseModel):
     characteristics: Optional[Dict[str, Any]] = None
     taxId: Optional[Any] = None
     chat_response: ChatResponse
+
+
+class SelectResult(BaseModel):
+    accession: str
+    extract_output: Optional[Any] = None
+    search_results: Dict[str, List[SearchResult]] = Field(default_factory=dict)
+    text2term_results: Dict[str, List[SearchResult]] = Field(default_factory=dict)
+    llm_chat_response: Dict[str, Optional[ChatResponse]] = Field(default_factory=dict)
+    results: Dict[str, Optional[SearchResult]] = Field(default_factory=dict)
 
 
 class Evaluation(BaseModel):

@@ -18,6 +18,8 @@ dependencies = [
   "pydantic",
   "python-multipart",
   "pyyaml",
+  "rdflib",
+  "text2term",
   "uvicorn[standard]",
 ]
 version = "0.1.0"

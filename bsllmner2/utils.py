@@ -12,7 +12,8 @@ from bsllmner2.config import PROGRESS_DIR, RESULT_DIR, Config
 from bsllmner2.metrics import Metrics
 from bsllmner2.schema import (BsEntries, CliExtractArgs, ErrorInfo, ErrorLog,
                               Evaluation, LlmOutput, Mapping, MappingValue,
-                              Prompt, Result, RunMetadata, WfInput)
+                              Prompt, Result, RunMetadata, SelectConfig,
+                              WfInput)
 
 
 def load_bs_entries(path: Path) -> BsEntries:
@@ -283,3 +284,53 @@ def load_progress_count(run_name: str) -> Optional[int]:
 
     with progress_file.open("r", encoding="utf-8") as f:
         return sum(1 for _ in f)
+    
+
+def load_select_config(path: Path) -> SelectConfig:
+    if not path.exists():
+        raise FileNotFoundError(f"Select configuration file {path} does not exist.")
+
+    with path.open("r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in select configuration file {path}: {e}") from e
+
+    return SelectConfig.model_validate(data)
+
+
+def build_select_schema(config: SelectConfig) -> JsonSchemaValue:
+    properties = {
+        field_name: {
+            "type": ["string", "null"],
+            "description": f"Selected term ID for {field_name}",
+        }
+        for field_name in config.fields.keys()
+    }
+
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": properties,
+        "required": list(config.fields.keys()),
+        "additionalProperties": False,
+    }
+
+
+def build_select_prompt(config: SelectConfig) -> List[Prompt]:
+    description = "\n".join(
+        f"- {field_name}: {field_config.prompt_description}"
+        for field_name, field_config in config.fields.items()
+        if field_config.prompt_description
+    )
+    system_content = (
+        "You are an expert in biomedical ontologies. "
+        "Based on the provided information, select the most appropriate term for each of the following fields:\n"
+        f"{description}\n"
+        "Provide your answers in JSON format with the field names as keys and the selected term IDs as values. "
+        "If no appropriate term is found, use null."
+    )
+    return [
+        Prompt(role="system", content=system_content),
+        Prompt(role="user", content="Here is the information: {{ner_extraction}}"),
+    ]
