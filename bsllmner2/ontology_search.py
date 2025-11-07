@@ -38,9 +38,8 @@ class TermAnnotation(BaseModel):
     value: str = Field(..., description="The property value")
 
 
-def _normalize_value(text: str) -> str:
-    t = unicodedata.normalize("NFKC", str(text)).strip()
-    return t
+def _normalize_key(text: str) -> str:
+    return unicodedata.normalize("NFKC", str(text)).strip().casefold()
 
 
 def _iter_prop_values(t: ThingClass, prop_name: str) -> Iterable[str]:
@@ -48,8 +47,8 @@ def _iter_prop_values(t: ThingClass, prop_name: str) -> Iterable[str]:
     if values is None:
         return ()
     if isinstance(values, (list, tuple, set)):
-        return (_normalize_value(v) for v in values)
-    return (_normalize_value(values),)
+        return (str(v) for v in values)
+    return (str(values),)
 
 
 def _term_uri_of(cls_: ThingClass) -> str:
@@ -122,10 +121,10 @@ def _normalize_term_id(term_id: str) -> str:
 def _match_additional_conditions(t: ThingClass, conditions: Dict[str, str]) -> bool:
     if not conditions:
         return True
-    for key, val in conditions.items():
+    for key, condition_val in conditions.items():
         found = False
-        for v in _iter_prop_values(t, key):
-            if _normalize_value(v).casefold() == _normalize_value(val).casefold():
+        for target_val in _iter_prop_values(t, key):
+            if _normalize_key(target_val) == _normalize_key(condition_val):
                 found = True
                 break
         if not found:
@@ -161,15 +160,15 @@ def iter_term_annotations(
             continue
 
         term_uri = _term_uri_of(cls_)
-        term_id = _term_id_of(cls_)
+        term_id = _normalize_term_id(_term_id_of(cls_))
 
         for prop_uri, prop in props.items():
             if prop is None:
                 continue
-            for value in _iter_prop_values(cls_, prop.name):  # value is already normalized inside _iter_prop_values
+            for value in _iter_prop_values(cls_, prop.name):
                 yield TermAnnotation(
                     term_uri=term_uri,
-                    term_id=_normalize_term_id(term_id),
+                    term_id=term_id,
                     prop_uri=prop_uri,
                     value=value,
                 )
@@ -177,7 +176,7 @@ def iter_term_annotations(
 
 class OntologyIndex(BaseModel):
     term_id_to_labels: Dict[str, List[str]] = Field(default_factory=dict)
-    value_to_annotations: Dict[str, List[TermAnnotation]] = Field(default_factory=dict)  # key: normalized value
+    value_to_annotations: Dict[str, List[TermAnnotation]] = Field(default_factory=dict)  # key is _normalize_key(value)
 
 
 LABEL_URI_PROPS = {
@@ -197,18 +196,19 @@ def build_index(
     additional_conditions: Optional[Dict[str, str]] = None,
 ) -> OntologyIndex:
     term_id_to_labels: Dict[str, List[str]] = {}
+    term_id_label_norms: Dict[str, Set[str]] = {}
     value_to_annotations: Dict[str, List[TermAnnotation]] = {}
 
     for ann in iter_term_annotations(ontology, additional_conditions):
+        key = _normalize_key(ann.value)
         if _is_label_prop(ann.prop_uri):
-            labels = term_id_to_labels.get(ann.term_id, None)
-            if labels is None:
-                term_id_to_labels[ann.term_id] = [ann.value]  # ann.value is already normalized
-            else:
-                if not labels or labels[-1] != ann.value:
-                    labels.append(ann.value)
+            labels = term_id_to_labels.setdefault(ann.term_id, [])
+            norms = term_id_label_norms.setdefault(ann.term_id, set())
+            if key not in norms:
+                labels.append(ann.value)
+                norms.add(key)
 
-        value_to_annotations.setdefault(ann.value, []).append(ann)
+        value_to_annotations.setdefault(key, []).append(ann)
 
     return OntologyIndex(
         term_id_to_labels=term_id_to_labels,
@@ -248,26 +248,26 @@ def build_index_from_table(
     file_path: Path,
 ) -> OntologyIndex:
     term_id_to_labels: Dict[str, List[str]] = {}
+    term_id_label_norms: Dict[str, Set[str]] = {}
     value_to_annotations: Dict[str, List[TermAnnotation]] = {}
 
     for term_id, prop_raw, raw_value in _iter_rows(file_path):
-        value = _normalize_value(raw_value)
         prop_uri = _expand_prop_uri(prop_raw)
         ann = TermAnnotation(
             term_uri=term_id,
             term_id=_normalize_term_id(term_id),
             prop_uri=prop_uri,
-            value=value,
+            value=raw_value,
         )
-        value_to_annotations.setdefault(value, []).append(ann)
+        key = _normalize_key(raw_value)
+        value_to_annotations.setdefault(key, []).append(ann)
 
         if _is_label_prop(prop_uri):
-            labels = term_id_to_labels.get(term_id, None)
-            if labels is None:
-                term_id_to_labels[term_id] = [value]
-            else:
-                if not labels or labels[-1] != value:
-                    labels.append(value)
+            labels = term_id_to_labels.setdefault(term_id, [])
+            norms = term_id_label_norms.setdefault(term_id, set())
+            if key not in norms:
+                labels.append(raw_value)
+                norms.add(key)
 
     return OntologyIndex(
         term_id_to_labels=term_id_to_labels,
@@ -282,6 +282,7 @@ class SearchResult(TermAnnotation):
     label: Optional[str] = None
     exact_match: bool
     text2term_score: Optional[float] = None
+    reasoning: Optional[str] = None
 
 
 WS_SPLIT_RE = re.compile(r"[ \t\n\r]+")
@@ -361,7 +362,7 @@ def build_word_combinations(
     if not query or not query.strip() or max_ngram <= 0:
         return []
 
-    q_norm = _normalize_value(query)
+    q_norm = _normalize_key(query)
 
     atoms = _split_ws(q_norm)
     tokens: List[str] = []
@@ -420,8 +421,7 @@ def search_terms(
         seen: Set[Tuple[str, Optional[str], str]] = set()  # (term_id, prop_uri, value)
 
         for comb in combinations:
-            norm_comb = _normalize_value(comb)
-            anns = index.value_to_annotations.get(norm_comb, [])
+            anns = index.value_to_annotations.get(comb, [])
             if not anns:
                 continue
 
@@ -440,7 +440,7 @@ def search_terms(
                     prop_uri=ann.prop_uri,
                     value=ann.value,
                     label=label,
-                    exact_match=(query == ann.value)
+                    exact_match=(_normalize_key(query) == _normalize_key(ann.value))
                 )
                 results.setdefault(query, []).append(result)
 
@@ -472,13 +472,13 @@ def search_terms_with_text2term(
         seen: Set[Tuple[str, str]] = set()
         for _, row in group.iterrows():
             raw_value = row["Mapped Term Label"]
-            value = _normalize_value(raw_value)
+            value_key = _normalize_key(raw_value)
             term_uri = row["Mapped Term IRI"]
             raw_term_id = row["Mapped Term CURIE"]
             term_id = _normalize_term_id(raw_term_id)
             text2term_score = row["Mapping Score"]
 
-            id_val = (term_id, value)
+            id_val = (term_id, value_key)
             if id_val in seen:
                 continue
             seen.add(id_val)
@@ -486,7 +486,7 @@ def search_terms_with_text2term(
             # Find the property URI from the index (owl file)
             prop_uri: Optional[str] = None
             candidates: List[TermAnnotation] = [
-                ann for ann in index.value_to_annotations.get(value, [])  # pylint: disable=E1101
+                ann for ann in index.value_to_annotations.get(value_key, [])  # pylint: disable=E1101
                 if ann.term_id == term_id
             ]
             if len(candidates) == 1:
@@ -507,9 +507,9 @@ def search_terms_with_text2term(
                 term_uri=term_uri,
                 term_id=term_id,
                 prop_uri=prop_uri,
-                value=value,
+                value=raw_value,
                 label=label,
-                exact_match=query == value,
+                exact_match=_normalize_key(query) == value_key,
                 text2term_score=text2term_score,
             )
             results[query].append(result)
