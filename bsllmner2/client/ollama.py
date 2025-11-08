@@ -197,6 +197,9 @@ def _ontology_search_wrapper(
         ontology_file_path = field_config.ontology_file
         if ontology_file_path.suffix == ".owl":
             index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
+            if field_name == "tissue":
+                with open("/app/index.json", "w", encoding="utf-8") as f:
+                    f.write(index.model_dump_json(indent=2))
         elif ontology_file_path.suffix in [".tsv", ".csv"]:
             index = build_index_from_table(ontology_file_path)
         else:
@@ -224,7 +227,7 @@ def _ontology_search_wrapper(
             if not isinstance(query_value, str):
                 continue
             results_for_query = search_results.get(query_value, [])
-            res.search_results[field_name] = results_for_query
+            res.search_results[field_name] = [r.model_copy(deep=True) for r in results_for_query]
 
             # If exactly one exact match is found, use it directly.
             exact_match_result = _pick_exact_match_search_result(results_for_query)
@@ -275,7 +278,7 @@ def _text2term_wrapper(
             if not isinstance(query_value, str):
                 continue
             results_for_query = text2term_results.get(query_value, [])
-            res.text2term_results[field_name] = results_for_query
+            res.text2term_results[field_name] = [r.model_copy(deep=True) for r in results_for_query]
 
             # If exactly one exact match is found, use it directly.
             exact_match_result = _pick_exact_match_search_result(results_for_query)
@@ -296,13 +299,26 @@ def _build_select_schema(candidates: List[SearchResult]) -> JsonSchemaValue:
                     {"type": "string", "enum": enum},
                     {"type": "null"},
                 ]
+            },
+            "reasoning": {
+                "anyOf": [
+                    {"type": "string"},
+                    {"type": "null"},
+                ]
             }
         },
-        "required": ["id"],
+        "required": ["id", "reasoning"],
         "additionalProperties": False,
     }
 
     return schema
+
+
+def _serialize_candidates_for_llm(candidates: List[SearchResult]) -> List[Dict[str, Any]]:
+    return [
+        c.model_dump(exclude={"exact_match", "text2term_score", "reasoning"})
+        for c in candidates
+    ]
 
 
 def _collect_candidates_for_field(
@@ -353,7 +369,8 @@ SELECT_SYSTEM_MESSAGE = Message(
         "- Be conservative: if multiple plausible candidates remain, return null.\n"
         "- Do NOT invent IDs. Choose only from the provided candidates.\n"
         "- Do NOT use outside knowledge; decide only from the provided context.\n"
-        "- Output ONLY valid JSON matching the schema. No extra text."
+        "- Output ONLY valid JSON matching the schema. No extra text.\n"
+        "- Also return a 'reasoning' that describes your decision process step by step: cite the exact evidence from the provided text, compare the top candidates, and state why others were rejected do not use outside knowledge."
     )
 )
 
@@ -403,8 +420,9 @@ def _build_select_prompt_and_schema(
                 f"Original extracted value: {extracted_value}\n\n"
                 f"BioSample metadata (context):\n{bs_ctx_json}\n\n"
                 f"Ontology candidates (JSON array):\n"
-                f"{json.dumps([candidate.model_dump() for candidate in candidates], ensure_ascii=False, indent=2)}\n\n"
+                f"{json.dumps(_serialize_candidates_for_llm(candidates), ensure_ascii=False, indent=2)}\n\n"
                 "Return ONLY JSON that matches the schema."
+                "For 'reasoning', provide: (1) exact evidence text, (2) a brief comparison of the top 2-3 candidates, (3) explicit rejection reasons for the others."
             ),
         )
 
@@ -521,6 +539,7 @@ async def select(
 
             output_obj = _parse_output_object(chat_response)
             chosen_id = output_obj.get("id", None) if output_obj else None
+            reasoning = output_obj.get("reasoning", None) if output_obj else None
             if not isinstance(chosen_id, str) or not chosen_id.strip():
                 continue
             chosen_id = chosen_id.strip()
@@ -528,7 +547,11 @@ async def select(
             if picked_result is None:
                 continue
 
-            select_result.results[field_name] = picked_result
+            picked_copy = picked_result.model_copy(deep=True)
+            if isinstance(reasoning, str):
+                picked_copy.reasoning = reasoning
+
+            select_result.results[field_name] = picked_copy
 
     # print intermediate results for debugging
     with open("/app/select.json", "w", encoding="utf-8") as f:

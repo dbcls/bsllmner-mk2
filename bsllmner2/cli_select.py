@@ -4,7 +4,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from bsllmner2.client.ollama import ner, select
+from bsllmner2.client.ollama import select
 from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
                               default_config, get_config, set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector

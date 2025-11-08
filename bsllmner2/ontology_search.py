@@ -6,7 +6,7 @@ from typing import Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 import text2term
-from owlready2 import Ontology, ThingClass, get_ontology
+from owlready2 import Ontology, ThingClass, World
 from pydantic import BaseModel, Field
 
 # === Build ontology index ===
@@ -220,7 +220,8 @@ def build_index_from_owl(
     owl_file: Path,
     additional_conditions: Optional[Dict[str, str]] = None,
 ) -> OntologyIndex:
-    ontology = get_ontology(owl_file.as_uri()).load()
+    world = World()
+    ontology = world.get_ontology(owl_file.as_uri()).load()
     return build_index(ontology, additional_conditions=additional_conditions)
 
 
@@ -518,14 +519,16 @@ def search_terms_with_text2term(
 
 
 if __name__ == "__main__":
-    TEST_QUERIES = {"HeLa", "MCF-7", "A549"}
-    OWL_FILE_PATH = Path("/app/ontology/cellosaurus.owl").resolve()
-    # index = build_index_from_owl(
-    #     OWL_FILE_PATH,
-    #     additional_conditions={"hasDbXref": "NCBI_TaxID:9606"}
-    # )
-    # results = search_terms(index, TEST_QUERIES)
-    results = search_terms_with_text2term(TEST_QUERIES, OWL_FILE_PATH)
+    # TEST_QUERIES = {"HeLa", "MCF-7", "A549"}
+    TEST_QUERIES = {"Blood"}
+    # OWL_FILE_PATH = Path("/app/ontology/cellosaurus.owl").resolve()
+    OWL_FILE_PATH = Path("/app/ontology/uberon.owl").resolve()
+    index = build_index_from_owl(
+        OWL_FILE_PATH,
+        # additional_conditions={"hasDbXref": "NCBI_TaxID:9606"}
+    )
+    results = search_terms(index, TEST_QUERIES)
+    # results = search_terms_with_text2term(TEST_QUERIES, OWL_FILE_PATH)
     serializable = {
         q: [r.model_dump() for r in rs]
         for q, rs in results.items()
