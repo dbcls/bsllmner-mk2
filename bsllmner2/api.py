@@ -14,16 +14,17 @@ from fastapi import (APIRouter, FastAPI, File, Form, HTTPException, Query,
                      Response, UploadFile, status)
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import (MODULE_ROOT, PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
-                              RESULT_DIR, SCHEMA_CELL_LINE_FILE_PATH,
-                              get_config, set_logging_level)
+from bsllmner2.config import (EXTRACT_RESULT_DIR, MODULE_ROOT,
+                              PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
+                              SCHEMA_CELL_LINE_FILE_PATH, get_config,
+                              set_logging_level)
 from bsllmner2.metrics import check_ollama_container_exists
 from bsllmner2.schema import (API_VERSION, BsEntries, Mapping, Prompt, Result,
                               RunMetadata, ServiceInfo)
-from bsllmner2.utils import (dump_result, get_now_str, list_run_metadata,
-                             list_run_names, load_bs_entries,
-                             load_format_schema, load_mapping, load_result,
-                             to_result)
+from bsllmner2.utils import (dump_extract_result, get_now_str,
+                             list_run_metadata, list_run_names,
+                             load_bs_entries, load_extract_result,
+                             load_format_schema, load_mapping, to_result)
 
 SMALL_TEST_DATA = {
     "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.json"),
@@ -195,7 +196,7 @@ async def extract(
     )
 
     # Save the initial state of the result
-    queue_file = dump_result(queue_obj, run_name)
+    queue_file = dump_extract_result(queue_obj, run_name)
 
     # pylint: disable=consider-using-with
     subprocess.Popen(
@@ -279,12 +280,13 @@ async def get_extract_run(
     run_name: str,
 ) -> Result:
     try:
-        result = load_result(RESULT_DIR.joinpath(f"{run_name}.json"))
+        result = load_extract_result(EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json"))
     except FileNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Run '{run_name}' not found.",
         ) from exc
+
     return result
 
 

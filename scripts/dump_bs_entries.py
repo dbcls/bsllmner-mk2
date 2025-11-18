@@ -2,20 +2,12 @@ import argparse
 import asyncio
 import json
 import logging
-import math
 import sys
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple
 
 import httpx
 from pydantic import BaseModel, Field
-
-from bsllmner2.client.ollama import ner, select
-from bsllmner2.config import get_config
-from bsllmner2.schema import LlmOutput, SelectResult
-from bsllmner2.utils import (build_extract_prompt_for_select,
-                             build_extract_schema_for_select,
-                             load_select_config)
 
 HERE = Path(__file__).parent.resolve()
 DATA_DIR = HERE.parent.joinpath("chip-atlas-data")
@@ -153,13 +145,8 @@ def iterate_tsv(path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH) -> Iterator[List[s
 
 
 def parse_meta_field(element: str) -> Optional[tuple[str, str]]:
-    """
-    Parse a metadata field in the format "key=value".
-    note: sometimes the value is "NA".
-    """
     if "=" not in element:
         return None
-
     key, value = element.split("=", 1)
     return key, value
 
@@ -217,7 +204,7 @@ def parse_experiment_list(
             processing_logs=fields[7],
             title=fields[8],
             meta_fields=meta_fields,
-            biosample_id=None,  # to be filled later
+            biosample_id=None,
         ))
 
         if num_lines is not None and i + 1 == num_lines:
@@ -237,11 +224,11 @@ SraEntityType = Literal["STUDY", "SAMPLE", "EXPERIMENT", "RUN"]
 SRX_TO_BIOSAMPLE_PATH = DATA_DIR.joinpath("srx_to_biosample.json")
 
 
-# ref.: https://github.com/linsalrob/SRA_Metadata/blob/master/README.md
 ID_INDEX = 0
 TYPE_INDEX = 6
 BIOSAMPLE_INDEX = 17
 BIOPROJECT_INDEX = 18
+
 TYPE_FILTERS: Dict[BioAccessionType, List[SraEntityType]] = {
     "bioproject": ["STUDY", "EXPERIMENT", "RUN"],
     "biosample": ["SAMPLE", "EXPERIMENT", "RUN"],
@@ -285,7 +272,6 @@ def parse_sra_accessions_file(
     for line in iterate_tsv(path):
         line_count += 1
         if line_count == 1:
-            # Skip header line
             continue
         if num_lines is not None and line_count >= num_lines:
             break
@@ -319,7 +305,7 @@ def load_srx_to_biosample_mapping() -> Dict[str, List[str]]:
         raise FileNotFoundError(f"{SRX_TO_BIOSAMPLE_PATH} does not exist.")
 
     with SRX_TO_BIOSAMPLE_PATH.open("r", encoding="utf-8") as file:
-        return json.load(file)  # type: ignore
+        return json.load(file)
 
 
 def use_cache_srx_to_biosample_mapping(
@@ -327,17 +313,16 @@ def use_cache_srx_to_biosample_mapping(
     force: bool = False
 ) -> Dict[str, List[str]]:
     if SRX_TO_BIOSAMPLE_PATH.exists() and not force:
-        srx_to_biosample = load_srx_to_biosample_mapping()
-    else:
-        srx_to_biosample = parse_sra_accessions_file(
-            from_type="EXPERIMENT",
-            to_type="biosample",
-            path=sra_accessions_path,
-            num_lines=None,
-        )
-        save_srx_to_biosample_mapping(srx_to_biosample)
+        return load_srx_to_biosample_mapping()
 
-    return srx_to_biosample
+    mapping = parse_sra_accessions_file(
+        from_type="EXPERIMENT",
+        to_type="biosample",
+        path=sra_accessions_path,
+        num_lines=None,
+    )
+    save_srx_to_biosample_mapping(mapping)
+    return mapping
 
 
 # === Prepare BP Entries and Mapping (for bsllmner2) ===
@@ -360,8 +345,14 @@ async def download_bs_entry(accession: str) -> Optional[Any]:
 
 
 def load_or_download_bs_entry(accession: str, force: bool = False) -> Optional[Any]:
-    cache_path = DATA_DIR.joinpath(f"bs_entries/{accession}.json")
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
+    digits = "".join([c for c in accession if c.isdigit()])
+    digits = digits.zfill(6)
+    prefix = digits[:3]
+
+    base_dir = DATA_DIR.joinpath("bs_entries", prefix)
+    base_dir.mkdir(parents=True, exist_ok=True)
+    cache_path = base_dir.joinpath(f"{accession}.json")
+
     if cache_path.exists() and not force:
         with cache_path.open("r", encoding="utf-8") as file:
             return json.load(file)
@@ -377,68 +368,14 @@ def load_or_download_bs_entry(accession: str, force: bool = False) -> Optional[A
     return entry
 
 
-# === utils for call bsllmner2 ===
-
-
-def get_human_curated_value(
-    experiment: ChipAtlasExperiment,
-    field: str,
-) -> Optional[str]:
-    return getattr(experiment, field, None)
-
-
-class Evaluation(BaseModel):
-    human_curated: Optional[str]
-    llm_predicted: Optional[str]
-    match: bool
-
-
-class Result(BaseModel):
-    srx: str
-    biosample_id: str
-    bs_entry: Any
-    extract: LlmOutput
-    select: SelectResult
-
-
-# === for large batch processing ===
-
-
 def json_dumps(obj: Any) -> str:
     return json.dumps(obj, ensure_ascii=False)
-
-
-def load_processed_biosample_ids_from_jsonl(jsonl_path: Path) -> Set[str]:
-    done: Set[str] = set()
-    if not jsonl_path.exists():
-        return done
-    with jsonl_path.open("r", encoding="utf-8") as f:
-        for line in f:
-            line = line.strip()
-            if not line:
-                continue
-            try:
-                obj = json.loads(line)
-                bs_id = obj.get("biosample_id")
-                if bs_id:
-                    done.add(bs_id)
-            except Exception:  # pylint: disable=broad-except
-                continue
-    return done
-
-
-def append_results_jsonl(jsonl_path: Path, results: List[Result]) -> None:
-    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-    with jsonl_path.open("a", encoding="utf-8") as f:
-        for r in results:
-            f.write(json_dumps(r.model_dump()) + "\n")
 
 
 # === Main ====
 
 
 class Args(BaseModel):
-    select_config: Path
     chip_atlas_experiment_list: Path = Field(
         CHIP_ATLAS_EXPERIMENT_LIST_PATH,
         description="Path to the ChIP-Atlas experiment list file.",
@@ -446,6 +383,10 @@ class Args(BaseModel):
     sra_accessions_file: Path = Field(
         SRA_ACCESSIONS_FILE_PATH,
         description="Path to the SRA accessions file.",
+    )
+    predict_field: str = Field(
+        "cell_type",
+        description="The metadata field to predict (e.g., cell_type, cell_type_class)"
     )
     model: str = Field(
         "llama3.1:70b",
@@ -473,12 +414,6 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
     parser = argparse.ArgumentParser(description="Process ChIP-Atlas accessions")
 
     parser.add_argument(
-        "--select-config",
-        type=Path,
-        required=True,
-        help="Path to the select configuration file in JSON format.",
-    )
-    parser.add_argument(
         "--chip-atlas-experiment-list",
         type=Path,
         default=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
@@ -489,6 +424,12 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
         type=Path,
         default=SRA_ACCESSIONS_FILE_PATH,
         help="Path to the SRA accessions file.",
+    )
+    parser.add_argument(
+        "--predict-field",
+        type=str,
+        default="cell_type",
+        help="The metadata field to predict (e.g., cell_type, tissue, antibody)",
     )
     parser.add_argument(
         "--model",
@@ -523,13 +464,13 @@ def parse_args(raw_args: Optional[List[str]] = None) -> Args:
         raw_args = sys.argv[1:]
     parsed_args = parser.parse_args(raw_args)
 
-    if not parsed_args.select_config.exists():
-        raise FileNotFoundError(f"Select configuration file {parsed_args.select_config} does not exist.")
+    if parsed_args.predict_field not in CHIP_ATLAS_KEYS:
+        raise ValueError(f"Invalid predict_field '{parsed_args.predict_field}'. Must be one of {CHIP_ATLAS_KEYS}.")
 
     return Args(
-        select_config=parsed_args.select_config.resolve(),
         chip_atlas_experiment_list=parsed_args.chip_atlas_experiment_list,
         sra_accessions_file=parsed_args.sra_accessions_file,
+        predict_field=parsed_args.predict_field,
         model=parsed_args.model,
         num_lines=parsed_args.num_lines,
         force=parsed_args.force,
@@ -547,7 +488,7 @@ def main() -> None:
     args = parse_args(sys.argv[1:])
     LOGGER.info("Argument: %s", args.model_dump())
 
-    # === Pre-processing to prepare experiments with biosample_id ===
+    # === Pre-processing ===
 
     if EXPERIMENTS_CACHE_PATH.exists() and not args.force:
         with EXPERIMENTS_CACHE_PATH.open("r", encoding="utf-8") as file:
@@ -559,7 +500,7 @@ def main() -> None:
         ))
         experiments = parse_experiment_list(
             path=args.chip_atlas_experiment_list,
-            num_lines=None,  # do all lines (because this is pre-processing step)
+            num_lines=None,
         )
         asyncio.run(download_sra_accessions_file(
             path=args.sra_accessions_file,
@@ -579,99 +520,63 @@ def main() -> None:
             json.dump([ex.model_dump() for ex in experiments], file, indent=2)
 
     # === Main processing ===
-    bsllmner2_config = get_config()
-    select_config = load_select_config(args.select_config)
-    prompt = build_extract_prompt_for_select(select_config)
-    format_schema = build_extract_schema_for_select(select_config)
 
-    if args.resume:
-        output_stem = f"chip_atlas_results_{args.model}_resume"
-    else:
-        output_stem = f"chip_atlas_results_{args.model}"
-    output_json_path = RESULTS_DIR.joinpath(f"{output_stem}.jsonl")
+    work_items: List[Tuple[str, str, Any, Optional[str]]] = []
 
-    processed: Set[str] = load_processed_biosample_ids_from_jsonl(output_json_path) if args.resume else set()
-    if processed:
-        LOGGER.info("[resume] Already processed: %d entries", len(processed))
-
-    work_items: List[Tuple[str, str, Any]] = []  # List of (biosample_id, srx, bs_entry)
     for experiment in experiments:
-        if experiment.genome_assembly != "hg38":  # Hard-coded filter
+        # もとの "hg38" フィルタは維持
+        if experiment.genome_assembly != "hg38":
             continue
         if experiment.biosample_id is None:
             LOGGER.info("Skipping %s because biosample_id is None", experiment.srx)
             continue
+
         bs_entry = load_or_download_bs_entry(experiment.biosample_id, force=args.force)
         if bs_entry is None:
             continue
-        biosample_id = experiment.biosample_id
-        if biosample_id in processed:
-            continue
-        work_items.append((biosample_id, experiment.srx, bs_entry))
+
+        work_items.append((
+            experiment.biosample_id,
+            experiment.srx,
+            bs_entry,
+            None
+        ))
         if args.num_lines is not None and len(work_items) >= args.num_lines:
             break
 
-    total_num = len(work_items) + len(processed)
-    done_num = len(processed)
-    todo_num = len(work_items)
-    if todo_num == 0:
-        LOGGER.info("No remaining items to process. (All done or filtered)")
-        return None
+    LOGGER.info("To-do items: %d", len(work_items))
 
-    LOGGER.info("Total items: %d, Processed items: %d, To-do items: %d", total_num, done_num, todo_num)
+    jsonl_path = RESULTS_DIR.joinpath("biosample_entries.jsonl")
+    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
 
-    batch_size = max(1, args.batch_size)
-    batches = math.ceil(todo_num / batch_size)
+    chunk_size = 5000
 
-    for batch_idx in range(batches):
-        start_idx = batch_idx * batch_size
-        end_idx = min(start_idx + batch_size, todo_num)
-        current_batch = work_items[start_idx:end_idx]
+    def flush_chunk(chunk: List[Tuple[str, str, Any, Optional[str]]]) -> None:
+        # chunk の内容を追記して、呼び出し側で chunk を空にする
+        with jsonl_path.open("a", encoding="utf-8") as f:
+            for biosample_id, srx, bs_entry, _ in chunk:
+                rec = {
+                    "biosample_id": biosample_id,
+                    "srx": srx,
+                    "entry": bs_entry,
+                }
+                f.write(json_dumps(rec) + "\n")
 
-        bs_entries = [item[2] for item in current_batch]
-        extract_outputs = asyncio.run(ner(
-            config=bsllmner2_config,
-            bs_entries=bs_entries,
-            prompt=prompt,
-            format_=format_schema,
-            model=args.model,
-            thinking=False,
-        ))
-        select_results = asyncio.run(select(
-            config=bsllmner2_config,
-            bs_entries=bs_entries,
-            model=args.model,
-            extract_outputs=extract_outputs,
-            select_config=select_config,
-            thinking=False,
-        ))
+    # === chunk flush 書き込み ===
+    buffer: List[Tuple[str, str, Any, Optional[str]]] = []
+    for item in work_items:
+        buffer.append(item)
+        if len(buffer) >= chunk_size:
+            flush_chunk(buffer)
+            buffer.clear()   # メモリ開放
 
-        # for resume
-        results: List[Result] = []
-        for (biosample_id, srx, bs_entry), extract_output, select_result in zip(current_batch, extract_outputs, select_results):
-            result = Result(
-                srx=srx,
-                biosample_id=biosample_id,
-                bs_entry=bs_entry,
-                extract=extract_output,
-                select=select_result,
-            )
-            results.append(result)
-        append_results_jsonl(output_json_path, results)
+    # 余りを flush
+    if buffer:
+        flush_chunk(buffer)
+        buffer.clear()
 
-        # progress
-        batch_num = len(results)
-        done_num += batch_num
-        LOGGER.info("[batch %d/%d] done %d/%d (+%d)", batch_idx + 1, batches, done_num, total_num, batch_num)
-
-    if args.resume:
-        final_output_stem = f"chip_atlas_ner_results_{args.model}"
-        final_output_json_path = RESULTS_DIR.joinpath(f"{final_output_stem}.json")
-        output_json_path.rename(final_output_json_path)
-
-    LOGGER.info("Processing complete. Result saved to %s", final_output_json_path)
+    LOGGER.info("JSONL generated: %s", jsonl_path)
 
 
 if __name__ == "__main__":
-    # nohup python3 ./scripts/chip_atlas_batch.py --select-config ./scripts/select-config.json --resume --num-lines 5000 > chip_atlas_batch.log 2>&1 &
     main()

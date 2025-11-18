@@ -8,12 +8,13 @@ import ijson
 import yaml
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import PROGRESS_DIR, RESULT_DIR, Config
+from bsllmner2.config import (EXTRACT_RESULT_DIR, PROGRESS_DIR,
+                              SELECT_RESULT_DIR, Config)
 from bsllmner2.metrics import Metrics
-from bsllmner2.schema import (BsEntries, CliExtractArgs, ErrorInfo, ErrorLog,
-                              Evaluation, LlmOutput, Mapping, MappingValue,
-                              Prompt, Result, RunMetadata, SelectConfig,
-                              WfInput)
+from bsllmner2.schema import (BsEntries, CliExtractArgs, CliSelectArgs,
+                              ErrorInfo, ErrorLog, Evaluation, LlmOutput,
+                              Mapping, MappingValue, Prompt, Result,
+                              RunMetadata, SelectConfig, SelectResult, WfInput)
 
 
 def load_bs_entries(path: Path) -> BsEntries:
@@ -150,7 +151,7 @@ def evaluate_output(output: List[LlmOutput], mapping: Mapping) -> List[Evaluatio
 
 def to_result(
     bs_entries: BsEntries,
-    mapping: Mapping,
+    mapping: Optional[Mapping],
     prompt: List[Prompt],
     model: str,
     output: List[LlmOutput],
@@ -159,7 +160,7 @@ def to_result(
     run_metadata: RunMetadata,
     format_: Optional[JsonSchemaValue] = None,
     thinking: Optional[bool] = None,
-    args: Optional[CliExtractArgs] = None,
+    args: Optional[CliExtractArgs | CliSelectArgs] = None,
     metrics: Optional[List[Metrics]] = None,
 ) -> Result:
     return Result(
@@ -204,19 +205,28 @@ def build_error_log(
     )
 
 
-def dump_result(result: Result, run_name: Optional[str] = None) -> Path:
+def dump_extract_result(result: Result, run_name: Optional[str] = None) -> Path:
     if run_name is None:
-        run_name = f"extract_{result.input.cli_args.model}_{get_now_str()}"  # type: ignore
+        run_name = f"{result.input.cli_args.model}_{get_now_str()}"  # type: ignore
 
-    RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    result_file = RESULT_DIR.joinpath(f"{run_name}.json")
+    EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
         f.write(result.model_dump_json(indent=2))
 
     return result_file
 
 
-def load_result(path: Path) -> Result:
+def dump_select_result(result: List[SelectResult], run_name: str) -> Path:
+    SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    result_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}.json")
+    with result_file.open("w", encoding="utf-8") as f:
+        f.write(json.dumps([res.model_dump() for res in result], ensure_ascii=False, indent=2))
+
+    return result_file
+
+
+def load_extract_result(path: Path) -> Result:
     if not path.exists():
         raise FileNotFoundError(f"Result file {path} does not exist.")
 
@@ -243,11 +253,11 @@ def load_run_metadata(path: Path) -> RunMetadata:
 
 
 def list_run_metadata() -> List[RunMetadata]:
-    if not RESULT_DIR.exists():
+    if not EXTRACT_RESULT_DIR.exists():
         return []
 
     run_metadata_list = []
-    for file in RESULT_DIR.glob("*.json"):
+    for file in EXTRACT_RESULT_DIR.glob("*.json"):
         try:
             run_name = file.name.removesuffix(".json")
             run_metadata = load_run_metadata(file)
@@ -265,10 +275,10 @@ def list_run_names() -> List[str]:
     Returns:
         A list of run names (without file extensions).
     """
-    if not RESULT_DIR.exists():
+    if not EXTRACT_RESULT_DIR.exists():
         return []
 
-    return [file.name.removesuffix(".json") for file in RESULT_DIR.glob("*.json") if file.is_file()]
+    return [file.name.removesuffix(".json") for file in EXTRACT_RESULT_DIR.glob("*.json") if file.is_file()]
 
 
 def load_progress_count(run_name: str) -> Optional[int]:
@@ -284,7 +294,7 @@ def load_progress_count(run_name: str) -> Optional[int]:
 
     with progress_file.open("r", encoding="utf-8") as f:
         return sum(1 for _ in f)
-    
+
 
 def load_select_config(path: Path) -> SelectConfig:
     if not path.exists():
@@ -333,4 +343,69 @@ def build_select_prompt(config: SelectConfig) -> List[Prompt]:
     return [
         Prompt(role="system", content=system_content),
         Prompt(role="user", content="Here is the information: {{ner_extraction}}"),
+    ]
+
+
+def build_extract_schema_for_select(config: SelectConfig) -> JsonSchemaValue:
+    properties = {
+        field_name: {
+            "type": ["string", "null"],
+        }
+        for field_name in config.fields.keys()
+    }
+
+    return {
+        "$schema": "http://json-schema.org/draft-07/schema#",
+        "type": "object",
+        "properties": properties,
+        "required": list(config.fields.keys()),
+        "additionalProperties": False,
+    }
+
+
+def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
+    category_lines: List[str] = []
+    for field_name, field_config in config.fields.items():
+        if field_config.prompt_description:
+            category_lines.append(
+                f'- "{field_name}":\n'
+                f'  - {field_config.prompt_description}'
+            )
+        else:
+            category_lines.append(
+                f'- "{field_name}":\n'
+                f'  - A biological attribute to be extracted from the metadata.'
+            )
+
+    categories_block = "\n".join(category_lines)
+
+    system_content = (
+        "You are a smart curator of biological data."
+    )
+
+    user_content = (
+        "I will input JSON formatted metadata of a sample for a biological experiment.\n"
+        "Your task is to extract relevant biological information (if present) from the input data and format it according to the specified schema.\n"
+        "\n"
+        "---\n"
+        "Categories to extract:\n"
+        f"{categories_block}\n"
+        "\n"
+        "---\n"
+        "Output rules:\n"
+        "  - Return only JSON, matching the provided schema (via the `format` option).\n"
+        "  - For each category: if you can identify a value, output a concise canonical name "
+        "(not a free-form description).\n"
+        "  - If a category cannot be found in the input, output null for that category.\n"
+        "  - Prefer exact mentions in the input; if multiple candidates exist, pick the most specific "
+        "and widely recognized.\n"
+        "  - Do not hallucinate or infer values that are absent from the input.\n"
+        "\n"
+        "---\n"
+        "Here is the input metadata:\n"
+    )
+
+    return [
+        Prompt(role="system", content=system_content),
+        Prompt(role="user", content=user_content),
     ]

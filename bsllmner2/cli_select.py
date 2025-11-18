@@ -4,14 +4,16 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from bsllmner2.client.ollama import select
-from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
-                              default_config, get_config, set_logging_level)
+from bsllmner2.client.ollama import ner, select
+from bsllmner2.config import (LOGGER, Config, default_config, get_config,
+                              set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector
-from bsllmner2.schema import CliSelectArgs, Result, RunMetadata
-from bsllmner2.utils import (dump_result, evaluate_output, get_now_str,
-                             load_bs_entries, load_format_schema, load_mapping,
-                             load_prompt_file, load_select_config, to_result)
+from bsllmner2.schema import CliSelectArgs, RunMetadata
+from bsllmner2.utils import (build_extract_prompt_for_select,
+                             build_extract_schema_for_select,
+                             dump_extract_result, dump_select_result,
+                             evaluate_output, get_now_str, load_bs_entries,
+                             load_mapping, load_select_config, to_result)
 
 
 def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
@@ -33,24 +35,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
     parser.add_argument(
         "--mapping",
         type=Path,
-        required=True,
         help="Path to the mapping file in TSV format.",
-    )
-    parser.add_argument(
-        "--prompt",
-        type=Path,
-        default=PROMPT_EXTRACT_FILE_PATH,
-        help="""\
-            Path to the prompt file in YAML format.
-            Default is 'prompt/prompt_extract.yml' relative to the project root.
-        """,
-    )
-    parser.add_argument(
-        "--format",
-        default=None,
-        help="""\
-            Path to the JSON schema file for the output format.
-        """,
     )
     parser.add_argument(
         "--model",
@@ -103,14 +88,6 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
     config = get_config()
     if not parsed_args.bs_entries.exists():
         raise FileNotFoundError(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
-    if not parsed_args.mapping.exists():
-        raise FileNotFoundError(f"Mapping file {parsed_args.mapping} does not exist.")
-    if not parsed_args.prompt.exists():
-        raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
-    if parsed_args.format is not None:
-        parsed_args.format = Path(parsed_args.format)
-        if not parsed_args.format.exists():
-            raise FileNotFoundError(f"Format schema file {parsed_args.format} does not exist.")
     if parsed_args.ollama_host:
         config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
@@ -121,9 +98,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
 
     return config, CliSelectArgs(
         bs_entries=parsed_args.bs_entries.resolve(),
-        mapping=parsed_args.mapping.resolve(),
-        prompt=parsed_args.prompt.resolve(),
-        format=parsed_args.format.resolve() if parsed_args.format is not None else None,
+        mapping=parsed_args.mapping.resolve() if parsed_args.mapping else None,
         model=parsed_args.model,
         thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
@@ -145,34 +120,33 @@ async def run_cli_select_async() -> None:
     bs_entries = load_bs_entries(args.bs_entries)
     if args.max_entries is not None:
         bs_entries = bs_entries[:args.max_entries]
-    mapping = load_mapping(args.mapping)
-    prompt = load_prompt_file(args.prompt)
-    format_ = load_format_schema(args.format) if args.format else None
+    mapping = load_mapping(args.mapping) if args.mapping else None
 
     # for Select mode
     select_config = load_select_config(args.select_config)
     LOGGER.debug("Select Config:\n%s", select_config.model_dump_json(indent=2))
+
+    format_ = build_extract_schema_for_select(select_config)
+    prompt = build_extract_prompt_for_select(select_config)
 
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
     try:
         start_time = get_now_str()
-        # Debug
-        file = Path("/app/bsllmner2-results/select_llama3.1:70b_20251008_084112.json")
-        with file.open("r") as f:
-            extract_result = Result.model_validate_json(f.read())
-        extract_outputs = extract_result.output
-        # extract_outputs = await ner(config, bs_entries, prompt, format_, args.model, args.thinking)
-        await select(config, bs_entries, args.model, extract_outputs, select_config, args.thinking)
+        extract_outputs = await ner(config, bs_entries, prompt, format_, args.model, args.thinking)
+        select_results = await select(config, bs_entries, args.model, extract_outputs, select_config, args.thinking)
         end_time = get_now_str()
     finally:
         if args.with_metrics:
             metrics_collector.stop()
     metrics = metrics_collector.get_records() if args.with_metrics else None
 
-    evaluation = evaluate_output(extract_outputs, mapping)
-    run_name = f"select_{args.model}_{start_time}"
+    if mapping is not None:
+        evaluation = evaluate_output(extract_outputs, mapping)
+    else:
+        evaluation = []
+    run_name = f"{args.model}_{start_time}"
     run_metadata = RunMetadata(
         run_name=run_name,
         username=None,
@@ -197,8 +171,9 @@ async def run_cli_select_async() -> None:
         metrics=metrics,
     )
 
-    result_file = dump_result(result, run_name)
-    LOGGER.info("Processing complete. Result saved to %s", result_file)
+    result_file = dump_extract_result(result, run_name)
+    select_result_file = dump_select_result(select_results, run_name)
+    LOGGER.info("Processing complete. Result saved to %s and %s", result_file, select_result_file)
 
 
 def run_cli_select() -> None:

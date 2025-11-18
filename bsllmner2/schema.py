@@ -66,7 +66,25 @@ class SelectConfig(BaseModel):
     )
 
 
-class CliSelectArgs(CliExtractArgs):
+class CliSelectArgs(BaseModel):
+    """
+    Command-line arguments for the bsllmner2 CLI select mode.
+    """
+    bs_entries: Path = Field(
+        ...,
+        description="Path to the input JSON or JSONL file containing BioSample entries.",
+        examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
+    )
+    mapping: Optional[Path] = Field(
+        ...,
+        description="Path to the mapping file in TSV format.",
+        examples=["mapping/mapping.tsv"],
+    )
+    model: str = "llama3.1:70b"
+    thinking: Optional[bool] = None
+    max_entries: Optional[int] = None
+    with_metrics: bool = False
+
     select_config: Path = Field(
         ...,
         description="Path to the select configuration file in JSON format.",

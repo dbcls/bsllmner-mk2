@@ -120,7 +120,7 @@ async def ner(
             if accession is None:
                 LOGGER.warning("Entry without accession found, skipping.")
                 return None
-            LOGGER.debug("Processing entry: %s", accession)
+            LOGGER.debug("[NER] Processing entry: %s", accession)
             entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
             messages_copy = copy.deepcopy(messages)
             if messages_copy[-1].content is not None:
@@ -462,7 +462,7 @@ async def select(
     extract_outputs: List[LlmOutput],
     select_config: SelectConfig,
     thinking: Optional[bool] = None,
-) -> None:
+) -> List[SelectResult]:
     fields = select_config.fields.keys()
 
     intermediate_results: List[SelectResult] = []
@@ -502,6 +502,7 @@ async def select(
     ) -> Tuple[str, str, Optional[ChatResponse]]:
         async with sem:
             try:
+                LOGGER.debug("[Select] Processing entry: %s, field: %s", accession, field_name)
                 response: Optional[ChatResponse] = await client.chat(
                     model=model,
                     messages=messages,
@@ -553,6 +554,4 @@ async def select(
 
             select_result.results[field_name] = picked_copy
 
-    # print intermediate results for debugging
-    with open("/app/select.json", "w", encoding="utf-8") as f:
-        f.write(json.dumps([res.model_dump() for res in intermediate_results], ensure_ascii=False, indent=2))
+    return intermediate_results

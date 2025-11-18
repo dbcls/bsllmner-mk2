@@ -9,7 +9,7 @@ from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
                               default_config, get_config, set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import CliExtractArgs, RunMetadata
-from bsllmner2.utils import (dump_result, evaluate_output, get_now_str,
+from bsllmner2.utils import (dump_extract_result, evaluate_output, get_now_str,
                              load_bs_entries, load_format_schema, load_mapping,
                              load_prompt_file, to_result)
 
@@ -149,7 +149,7 @@ async def run_cli_extract_async() -> None:
     metrics = metrics_collector.get_records() if args.with_metrics else None
 
     evaluation = evaluate_output(output, mapping)
-    run_name = f"extract_{args.model}_{start_time}"
+    run_name = f"{args.model}_{start_time}"
     run_metadata = RunMetadata(
         run_name=run_name,
         username=None,
@@ -174,7 +174,7 @@ async def run_cli_extract_async() -> None:
         metrics=metrics,
     )
 
-    result_file = dump_result(result, run_name)
+    result_file = dump_extract_result(result, run_name)
     LOGGER.info("Processing complete. Result saved to %s", result_file)
 
 

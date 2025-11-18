@@ -7,7 +7,7 @@ from bsllmner2.config import PROGRESS_DIR
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import Result
 from bsllmner2.utils import (build_error_log, compute_processing_time,
-                             dump_result, evaluate_output, get_now_str)
+                             dump_extract_result, evaluate_output, get_now_str)
 
 
 async def main() -> None:
@@ -61,12 +61,12 @@ async def main() -> None:
                 / queue_obj.run_metadata.total_entries
             ) * 100
 
-        dump_result(queue_obj, queue_obj.run_metadata.run_name)
+        dump_extract_result(queue_obj, queue_obj.run_metadata.run_name)
     except Exception as e:  # pylint: disable=broad-except
         if "queue_obj" in locals():
             queue_obj.run_metadata.status = "failed"
             queue_obj.error_log = build_error_log(e)
-            dump_result(queue_obj, queue_obj.run_metadata.run_name)
+            dump_extract_result(queue_obj, queue_obj.run_metadata.run_name)
         sys.exit(1)
 
 

@@ -220,6 +220,16 @@ Several environment variables are set to optimize LLM inference and resource usa
 All of these settings can be customized by editing the relevant Compose file.  
 For more details, refer directly to the configuration in [`compose.yml`](./compose.yml) or [`compose.front.yml`](./compose.front.yml).
 
+## Select
+
+```
+docker compose exec app bsllmner2_select \
+  --debug \
+  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --model llama3.1:70b \
+  --select-config ./scripts/select-config.json
+```
+
 ## bsllmner-mk2 with ChIP-Atlas
 
 [ChIP-Atlas](https://chip-atlas.org) is a data-mining suite for exploring epigenomic landscapes by fully integrating ChIP-seq, ATAC-seq, and Bisulfite-seq experiments.
