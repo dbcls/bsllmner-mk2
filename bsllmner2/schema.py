@@ -137,7 +137,7 @@ Mapping = Dict[str, MappingValue]  # key: bs_entry accession
 
 class WfInput(BaseModel):
     bs_entries: BsEntries
-    mapping: Mapping
+    mapping: Optional[Mapping] = None
     prompt: List[Prompt]
     model: str
     thinking: Optional[bool] = None

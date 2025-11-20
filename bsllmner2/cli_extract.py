@@ -3,7 +3,7 @@ import asyncio
 import math
 import sys
 from pathlib import Path
-from typing import List, Set, Tuple
+from typing import List, Tuple
 
 from bsllmner2.client.ollama import ner
 from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH,
@@ -161,7 +161,7 @@ async def run_cli_extract_async() -> None:
     if args.resume:
         resume_extract_outputs = load_extract_resume_file(run_name)
         extract_outputs.extend(resume_extract_outputs)
-        done_ids = Set([output.accession for output in resume_extract_outputs])
+        done_ids = set([output.accession for output in resume_extract_outputs])
         if done_ids:
             LOGGER.info("Skipping %d already processed entries.", len(done_ids))
             bs_entries = [entry for entry in bs_entries if entry.get("accession") not in done_ids]
