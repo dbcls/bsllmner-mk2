@@ -197,9 +197,6 @@ def _ontology_search_wrapper(
         ontology_file_path = field_config.ontology_file
         if ontology_file_path.suffix == ".owl":
             index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
-            if field_name == "tissue":
-                with open("/app/index.json", "w", encoding="utf-8") as f:
-                    f.write(index.model_dump_json(indent=2))
         elif ontology_file_path.suffix in [".tsv", ".csv"]:
             index = build_index_from_table(ontology_file_path)
         else:

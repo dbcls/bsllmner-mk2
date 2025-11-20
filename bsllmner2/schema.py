@@ -21,8 +21,8 @@ class CliExtractArgs(BaseModel):
         description="Path to the input JSON or JSONL file containing BioSample entries.",
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
     )
-    mapping: Path = Field(
-        ...,
+    mapping: Optional[Path] = Field(
+        None,
         description="Path to the mapping file in TSV format.",
         examples=["mapping/mapping.tsv"],
     )
@@ -40,6 +40,8 @@ class CliExtractArgs(BaseModel):
     thinking: Optional[bool] = None
     max_entries: Optional[int] = None
     with_metrics: bool = False
+    run_name: Optional[str] = None
+    resume: bool = False
 
 
 class SelectConfigField(BaseModel):
@@ -76,7 +78,7 @@ class CliSelectArgs(BaseModel):
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
     )
     mapping: Optional[Path] = Field(
-        ...,
+        None,
         description="Path to the mapping file in TSV format.",
         examples=["mapping/mapping.tsv"],
     )
@@ -84,6 +86,8 @@ class CliSelectArgs(BaseModel):
     thinking: Optional[bool] = None
     max_entries: Optional[int] = None
     with_metrics: bool = False
+    run_name: Optional[str] = None
+    resume: bool = False
 
     select_config: Path = Field(
         ...,
@@ -139,7 +143,7 @@ class WfInput(BaseModel):
     thinking: Optional[bool] = None
     format: Optional[JsonSchemaValue] = None
     config: Config
-    cli_args: Optional[CliExtractArgs] = None
+    cli_args: Optional[CliExtractArgs | CliSelectArgs] = None
 
 
 class LlmOutput(BaseModel):

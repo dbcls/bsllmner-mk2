@@ -2,7 +2,7 @@ import json
 import traceback
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, List, Optional, Set
 
 import ijson
 import yaml
@@ -205,10 +205,7 @@ def build_error_log(
     )
 
 
-def dump_extract_result(result: Result, run_name: Optional[str] = None) -> Path:
-    if run_name is None:
-        run_name = f"{result.input.cli_args.model}_{get_now_str()}"  # type: ignore
-
+def dump_extract_result(result: Result, run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
@@ -409,3 +406,64 @@ def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
         Prompt(role="system", content=system_content),
         Prompt(role="user", content=user_content),
     ]
+
+
+def load_extract_resume_file(run_name: str) -> List[LlmOutput]:
+    extract_resume_file_path = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
+    if not extract_resume_file_path.exists():
+        return []
+
+    with extract_resume_file_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(f"Resume file {extract_resume_file_path} must contain a list of LLM outputs.")
+    outputs: List[LlmOutput] = []
+    for item in data:
+        output = LlmOutput.model_validate(item)
+        outputs.append(output)
+
+    return outputs
+
+
+def dump_extract_resume_file(outputs: List[LlmOutput], run_name: str) -> Path:
+    EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    resume_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
+    with resume_file.open("w", encoding="utf-8") as f:
+        f.write(json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2))
+
+    return resume_file
+
+
+def load_select_resume_file(run_name: str) -> List[SelectResult]:
+    select_resume_file_path = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
+    if not select_resume_file_path.exists():
+        return []
+    with select_resume_file_path.open("r", encoding="utf-8") as f:
+        data = json.load(f)
+    if not isinstance(data, list):
+        raise ValueError(f"Resume file {select_resume_file_path} must contain a list of SelectResult objects.")
+    results: List[SelectResult] = []
+    for item in data:
+        result = SelectResult.model_validate(item)
+        results.append(result)
+
+    return results
+
+
+def dump_select_resume_file(results: List[SelectResult], run_name: str) -> Path:
+    SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
+    resume_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
+    with resume_file.open("w", encoding="utf-8") as f:
+        f.write(json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2))
+
+    return resume_file
+
+
+def remove_resume_files(run_name: str) -> None:
+    extract_resume_file_path = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
+    if extract_resume_file_path.exists():
+        extract_resume_file_path.unlink()
+
+    select_resume_file_path = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
+    if select_resume_file_path.exists():
+        select_resume_file_path.unlink()

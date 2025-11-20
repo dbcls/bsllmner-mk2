@@ -238,48 +238,7 @@ Since SRX and BioSample entries are in a one-to-one relationship, we can provide
 
 This enables benchmarking and evaluation of LLM-based NER and ontology mapping against expert-curated annotations.
 
-To facilitate this experiment, the repository provides a script:
-
-- [`scripts/chip_atlas_batch.py`](./scripts/chip_atlas_batch.py)
-
-### Usage
-
-This script automates batch extraction and comparison between LLM-predicted and human-curated values for a set of SRX/BioSample entries.
-
-Usage example:
-
-```sh
-$ python3 ./scripts/chip_atlas_batch.py --help
-...
-$ python3 ./scripts/chip_atlas_batch.py \
-  --predict-field cell_type \
-  --model llama3.1:70b \
-  --num-lines 100
-```
-
-During execution, the script automatically downloads various external resources (e.g., ChIP-Atlas tab files, NCBI SRA Accessions.tab, BioSample entry JSON files). All intermediate and output files are stored in the `./tmp-data` directory.
-
-After running the script, the contents of `./tmp-data` may look like:
-
-```sh
-$ ls -l tmp-data/
-total 31193280
--rw-r--r-- 1 root root 29418575866 Sep  2 11:22 SRA_Accessions.tab
-drwxr-xr-x 2 root root     2285568 Sep  2 22:21 bs_entries
--rw-r--r-- 1 root root      106919 Sep  2 21:04 chip_atlas_ner_results_llama3.1:70b_cell_type.json
--rw-r--r-- 1 root root        5816 Sep  2 21:04 chip_atlas_ner_results_llama3.1:70b_cell_type.tsv
--rw-r--r-- 1 root root   344940779 Sep  2 10:04 experimentList.tab
--rw-r--r-- 1 root root   644734357 Sep  2 12:19 experiments.json
--rw-r--r-- 1 root root       63177 Sep  2 12:42 meta_field_keys.txt
--rw-r--r-- 1 root root  1530128296 Sep  2 12:02 srx_to_biosample.json
-```
-
-Among these, the main result files are:
-
-- `chip_atlas_ner_results_llama3.1:70b_cell_type.json`
-- `chip_atlas_ner_results_llama3.1:70b_cell_type.tsv`
-
-These files contain the LLM-predicted and human-curated values for each entry, and can be used for downstream analysis or benchmarking.
+TODO: docs...
 
 ## Download Ontology Files for Searching
 

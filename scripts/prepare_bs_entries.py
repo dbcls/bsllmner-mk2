@@ -1,28 +1,17 @@
 import argparse
 import asyncio
 import json
-import logging
-import sys
+import re
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple
 
 import httpx
 from pydantic import BaseModel, Field
 
+from bsllmner2.config import LOGGER
+
 HERE = Path(__file__).parent.resolve()
 DATA_DIR = HERE.parent.joinpath("chip-atlas-data")
-RESULTS_DIR = DATA_DIR.joinpath("results")
-RESULTS_DIR.mkdir(exist_ok=True, parents=True)
-
-
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-    datefmt="%Y-%m-%d %H:%M:%S",
-    handlers=[logging.StreamHandler(sys.stderr)],  # stderrに出す
-)
-
-LOGGER = logging.getLogger(__name__)
 
 
 # === Parse experimentList.tab from ChIP-Atlas ===
@@ -31,8 +20,8 @@ LOGGER = logging.getLogger(__name__)
 # ref.: https://github.com/inutano/chip-atlas/wiki#data-for-each-srx
 # All ChIP-seq, ATAC-seq, DNase-seq, and Bisulfite-seq experiments recorded in ChIP-Atlas are described in experimentList.tab (Download, Table schema)
 CHIP_ATLAS_EXPERIMENT_LIST_URL = "https://chip-atlas.dbcls.jp/data/metadata/experimentList.tab"
-CHIP_ATLAS_FILE_NAME = "experimentList.tab"
-CHIP_ATLAS_EXPERIMENT_LIST_PATH = DATA_DIR.joinpath(CHIP_ATLAS_FILE_NAME)
+CHIP_ATLAS_EXPERIMENT_LIST_PATH = DATA_DIR.joinpath("experimentList.tab")
+CHIP_ATLAS_EXPERIMENT_LIST_JSON_PATH = DATA_DIR.joinpath("experimentList.json")
 
 
 class ChipAtlasExperiment(BaseModel):
@@ -109,16 +98,6 @@ class ChipAtlasExperiment(BaseModel):
     )
 
 
-CHIP_ATLAS_KEYS = [
-    "genome_assembly",
-    "track_type_class",
-    "track_type",
-    "cell_type_class",
-    "cell_type",
-    "cell_type_description",
-]
-
-
 async def download_chip_atlas_experiment_list(
     url: str = CHIP_ATLAS_EXPERIMENT_LIST_URL,
     path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH,
@@ -145,22 +124,15 @@ def iterate_tsv(path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH) -> Iterator[List[s
 
 
 def parse_meta_field(element: str) -> Optional[tuple[str, str]]:
+    """
+    Parse a metadata field in the format "key=value".
+    note: sometimes the value is "NA".
+    """
     if "=" not in element:
         return None
+
     key, value = element.split("=", 1)
     return key, value
-
-
-def dump_meta_field_keys(
-    experiments: List[ChipAtlasExperiment],
-) -> None:
-    field_keys: Set[str] = set()
-    for experiment in experiments:
-        field_keys.update(experiment.meta_fields.keys())
-
-    with DATA_DIR.joinpath("meta_field_keys.txt").open("w", encoding="utf-8") as f:
-        for key in sorted(field_keys):
-            f.write(f"{key}\n")
 
 
 def normalize_field_value(value: Optional[str]) -> Optional[str]:
@@ -174,7 +146,7 @@ def normalize_field_value(value: Optional[str]) -> Optional[str]:
 
 def parse_experiment_list(
     path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH,
-    num_lines: Optional[int] = None
+    genome_assembly: Optional[str] = None,
 ) -> List[ChipAtlasExperiment]:
     LOGGER.info("Parsing %s...", path)
 
@@ -183,6 +155,9 @@ def parse_experiment_list(
         fields = [normalize_field_value(line[j]) if j < len(line) else None for j in range(9)]
         srx = fields[0]
         if srx is None:
+            continue
+
+        if genome_assembly is not None and fields[1] != genome_assembly:
             continue
 
         meta_fields = {}
@@ -204,31 +179,26 @@ def parse_experiment_list(
             processing_logs=fields[7],
             title=fields[8],
             meta_fields=meta_fields,
-            biosample_id=None,
+            biosample_id=None,  # to be filled later
         ))
-
-        if num_lines is not None and i + 1 == num_lines:
-            break
 
     return experiments
 
 
 # === Parse SRA.Accessions.tab from ncbi.nlm.nih.gov ===
 
-
 SRA_ACCESSIONS_FILE_URL = "https://ftp.ncbi.nlm.nih.gov/sra/reports/Metadata/SRA_Accessions.tab"
-SRA_ACCESSIONS_FILE_NAME = "SRA_Accessions.tab"
-SRA_ACCESSIONS_FILE_PATH = DATA_DIR.joinpath(SRA_ACCESSIONS_FILE_NAME)
+SRA_ACCESSIONS_FILE_PATH = DATA_DIR.joinpath("SRA_Accessions.tab")
 BioAccessionType = Literal["bioproject", "biosample"]
 SraEntityType = Literal["STUDY", "SAMPLE", "EXPERIMENT", "RUN"]
 SRX_TO_BIOSAMPLE_PATH = DATA_DIR.joinpath("srx_to_biosample.json")
 
 
+# ref.: https://github.com/linsalrob/SRA_Metadata/blob/master/README.md
 ID_INDEX = 0
 TYPE_INDEX = 6
 BIOSAMPLE_INDEX = 17
 BIOPROJECT_INDEX = 18
-
 TYPE_FILTERS: Dict[BioAccessionType, List[SraEntityType]] = {
     "bioproject": ["STUDY", "EXPERIMENT", "RUN"],
     "biosample": ["SAMPLE", "EXPERIMENT", "RUN"],
@@ -258,7 +228,6 @@ def parse_sra_accessions_file(
     from_type: SraEntityType,
     to_type: BioAccessionType,
     path: Path = SRA_ACCESSIONS_FILE_PATH,
-    num_lines: Optional[int] = None,
 ) -> Dict[str, List[str]]:
     LOGGER.info("Parsing %s...", path)
 
@@ -272,9 +241,8 @@ def parse_sra_accessions_file(
     for line in iterate_tsv(path):
         line_count += 1
         if line_count == 1:
+            # Skip header line
             continue
-        if num_lines is not None and line_count >= num_lines:
-            break
 
         if len(line) <= max(ID_INDEX, TYPE_INDEX, BIOSAMPLE_INDEX, BIOPROJECT_INDEX):
             continue
@@ -295,39 +263,10 @@ def parse_sra_accessions_file(
     return {k: sorted(v) for k, v in id_to_relation_ids.items()}
 
 
-def save_srx_to_biosample_mapping(mapping: Dict[str, List[str]]) -> None:
-    with SRX_TO_BIOSAMPLE_PATH.open("w", encoding="utf-8") as file:
-        json.dump(mapping, file, indent=2)
-
-
-def load_srx_to_biosample_mapping() -> Dict[str, List[str]]:
-    if not SRX_TO_BIOSAMPLE_PATH.exists():
-        raise FileNotFoundError(f"{SRX_TO_BIOSAMPLE_PATH} does not exist.")
-
-    with SRX_TO_BIOSAMPLE_PATH.open("r", encoding="utf-8") as file:
-        return json.load(file)
-
-
-def use_cache_srx_to_biosample_mapping(
-    sra_accessions_path: Path = SRA_ACCESSIONS_FILE_PATH,
-    force: bool = False
-) -> Dict[str, List[str]]:
-    if SRX_TO_BIOSAMPLE_PATH.exists() and not force:
-        return load_srx_to_biosample_mapping()
-
-    mapping = parse_sra_accessions_file(
-        from_type="EXPERIMENT",
-        to_type="biosample",
-        path=sra_accessions_path,
-        num_lines=None,
-    )
-    save_srx_to_biosample_mapping(mapping)
-    return mapping
-
-
 # === Prepare BP Entries and Mapping (for bsllmner2) ===
 
 DDBJ_SEARCH_BASE_URL = "https://ddbj.nig.ac.jp/search/entry/biosample"
+BS_ENTRIES_FILE_PATH = DATA_DIR.joinpath("bs_entries.jsonl")
 
 
 async def download_bs_entry(accession: str) -> Optional[Any]:
@@ -344,15 +283,23 @@ async def download_bs_entry(accession: str) -> Optional[Any]:
             return None
 
 
+def get_bs_entry_cache_path(accession: str) -> Path:
+    m = re.search(r"(\d+)$", accession)
+    if not m:
+        return DATA_DIR.joinpath("bs_entries", f"{accession}.json")
+
+    num = m.group(1)
+    if len(num) < 3:
+        prefix = num.zfill(3)
+    else:
+        prefix = num[:3]
+
+    return DATA_DIR.joinpath("bs_entries", prefix, f"{accession}.json")
+
+
 def load_or_download_bs_entry(accession: str, force: bool = False) -> Optional[Any]:
-    digits = "".join([c for c in accession if c.isdigit()])
-    digits = digits.zfill(6)
-    prefix = digits[:3]
-
-    base_dir = DATA_DIR.joinpath("bs_entries", prefix)
-    base_dir.mkdir(parents=True, exist_ok=True)
-    cache_path = base_dir.joinpath(f"{accession}.json")
-
+    cache_path = get_bs_entry_cache_path(accession)
+    cache_path.parent.mkdir(parents=True, exist_ok=True)
     if cache_path.exists() and not force:
         with cache_path.open("r", encoding="utf-8") as file:
             return json.load(file)
@@ -365,217 +312,114 @@ def load_or_download_bs_entry(accession: str, force: bool = False) -> Optional[A
         with cache_path.open("w", encoding="utf-8") as file:
             json.dump(entry_props, file, indent=2)
 
-    return entry
+        return entry_props
+
+    return None
 
 
-def json_dumps(obj: Any) -> str:
-    return json.dumps(obj, ensure_ascii=False)
-
-
-# === Main ====
+# === Main ===
 
 
 class Args(BaseModel):
-    chip_atlas_experiment_list: Path = Field(
-        CHIP_ATLAS_EXPERIMENT_LIST_PATH,
-        description="Path to the ChIP-Atlas experiment list file.",
-    )
-    sra_accessions_file: Path = Field(
-        SRA_ACCESSIONS_FILE_PATH,
-        description="Path to the SRA accessions file.",
-    )
-    predict_field: str = Field(
-        "cell_type",
-        description="The metadata field to predict (e.g., cell_type, cell_type_class)"
-    )
-    model: str = Field(
-        "llama3.1:70b",
-        description="LLM model to use for NER.",
-    )
-    num_lines: Optional[int] = Field(
-        None,
-        description="Number of lines to process from the chip-atlas experiment list for testing.",
-    )
     force: bool = Field(
         False,
         description="Force re-download of files even if they already exist.",
     )
-    batch_size: int = Field(
-        128,
-        description="Batch size for NER calls.",
-    )
-    resume: bool = Field(
-        False,
-        description="Resume from the last processed entry if output file exists.",
+    genome_assembly: Optional[str] = Field(
+        None,
+        description="If given, filter experiments by genome_assembly (e.g. 'hg38').",
     )
 
 
 def parse_args(raw_args: Optional[List[str]] = None) -> Args:
-    parser = argparse.ArgumentParser(description="Process ChIP-Atlas accessions")
+    parser = argparse.ArgumentParser(description="Prepare ChIP-Atlas caches")
 
-    parser.add_argument(
-        "--chip-atlas-experiment-list",
-        type=Path,
-        default=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
-        help="Path to the ChIP-Atlas experiment list file.",
-    )
-    parser.add_argument(
-        "--sra-accessions-file",
-        type=Path,
-        default=SRA_ACCESSIONS_FILE_PATH,
-        help="Path to the SRA accessions file.",
-    )
-    parser.add_argument(
-        "--predict-field",
-        type=str,
-        default="cell_type",
-        help="The metadata field to predict (e.g., cell_type, tissue, antibody)",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="llama3.1:70b",
-        help="LLM model to use for NER.",
-    )
-    parser.add_argument(
-        "--num-lines",
-        type=int,
-        default=None,
-        help="Number of lines to process from the chip-atlas experiment list for testing.",
-    )
     parser.add_argument(
         "--force",
         action="store_true",
         help="Force re-download of files even if they already exist.",
     )
     parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=128,
-        help="Batch size for NER calls.",
-    )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume from the last processed entry if output file exists.",
+        "--genome-assembly",
+        type=str,
+        default=None,
+        help="If given, filter experiments by genome_assembly (e.g. 'hg38').",
     )
 
-    if raw_args is None:
-        raw_args = sys.argv[1:]
-    parsed_args = parser.parse_args(raw_args)
-
-    if parsed_args.predict_field not in CHIP_ATLAS_KEYS:
-        raise ValueError(f"Invalid predict_field '{parsed_args.predict_field}'. Must be one of {CHIP_ATLAS_KEYS}.")
-
+    ns = parser.parse_args(raw_args)
     return Args(
-        chip_atlas_experiment_list=parsed_args.chip_atlas_experiment_list,
-        sra_accessions_file=parsed_args.sra_accessions_file,
-        predict_field=parsed_args.predict_field,
-        model=parsed_args.model,
-        num_lines=parsed_args.num_lines,
-        force=parsed_args.force,
-        batch_size=parsed_args.batch_size,
-        resume=parsed_args.resume,
+        force=ns.force,
+        genome_assembly=ns.genome_assembly,
     )
-
-
-EXPERIMENTS_CACHE_PATH = DATA_DIR.joinpath("experiments.json")
 
 
 def main() -> None:
-    LOGGER.info("Start chip_atlas_batch")
+    LOGGER.info("Preparing ChIP-Atlas BioSample entries...")
+    args = parse_args()
+    LOGGER.info("Arguments: %s", args.model_dump())
 
-    args = parse_args(sys.argv[1:])
-    LOGGER.info("Argument: %s", args.model_dump())
-
-    # === Pre-processing ===
-
-    if EXPERIMENTS_CACHE_PATH.exists() and not args.force:
-        with EXPERIMENTS_CACHE_PATH.open("r", encoding="utf-8") as file:
-            experiments = [ChipAtlasExperiment.model_validate(ex) for ex in json.load(file)]
-    else:
-        asyncio.run(download_chip_atlas_experiment_list(
-            path=args.chip_atlas_experiment_list,
-            force=args.force
-        ))
-        experiments = parse_experiment_list(
-            path=args.chip_atlas_experiment_list,
-            num_lines=None,
+    # 1. download experimentList.tab & parse
+    asyncio.run(
+        download_chip_atlas_experiment_list(
+            url=CHIP_ATLAS_EXPERIMENT_LIST_URL,
+            path=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
+            force=args.force,
         )
-        asyncio.run(download_sra_accessions_file(
-            path=args.sra_accessions_file,
-            force=args.force
-        ))
-        srx_to_biosample = use_cache_srx_to_biosample_mapping(
-            sra_accessions_path=args.sra_accessions_file,
-            force=args.force
+    )
+
+    experiments = parse_experiment_list(
+        path=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
+        genome_assembly=args.genome_assembly,
+    )
+
+    # 2. Download SRA_Accessions.tab & map SRX to BioSample
+    asyncio.run(
+        download_sra_accessions_file(
+            path=SRA_ACCESSIONS_FILE_PATH,
+            force=args.force,
         )
-        for experiment in experiments:
-            if experiment.srx in srx_to_biosample:
-                biosample_ids = srx_to_biosample[experiment.srx]
-                if len(biosample_ids) > 1:
-                    LOGGER.info("Warning: Multiple BioSample IDs found for %s: %s", experiment.srx, biosample_ids)
-                experiment.biosample_id = biosample_ids[0]
-        with EXPERIMENTS_CACHE_PATH.open("w", encoding="utf-8") as file:
-            json.dump([ex.model_dump() for ex in experiments], file, indent=2)
+    )
+    srx_to_biosample = parse_sra_accessions_file(
+        from_type="EXPERIMENT",
+        to_type="biosample",
+        path=SRA_ACCESSIONS_FILE_PATH,
+    )
 
-    # === Main processing ===
+    for ex in experiments:
+        if ex.srx in srx_to_biosample:
+            biosample_ids = srx_to_biosample[ex.srx]
+            if len(biosample_ids) > 1:
+                LOGGER.info(
+                    "Warning: Multiple BioSample IDs found for %s: %s",
+                    ex.srx,
+                    biosample_ids,
+                )
+            ex.biosample_id = biosample_ids[0]
 
-    work_items: List[Tuple[str, str, Any, Optional[str]]] = []
+    # 3. Save experimentList.json and srx_to_biosample.json
+    with CHIP_ATLAS_EXPERIMENT_LIST_JSON_PATH.open("w", encoding="utf-8") as f:
+        json.dump([ex.model_dump() for ex in experiments], f, indent=2)
+    LOGGER.info("Saved experimentsList.json to %s", CHIP_ATLAS_EXPERIMENT_LIST_JSON_PATH)
+    with SRX_TO_BIOSAMPLE_PATH.open("w", encoding="utf-8") as f:
+        json.dump(srx_to_biosample, f, indent=2)
+    LOGGER.info("Saved srx_to_biosample.json to %s", SRX_TO_BIOSAMPLE_PATH)
 
-    for experiment in experiments:
-        # もとの "hg38" フィルタは維持
-        if experiment.genome_assembly != "hg38":
-            continue
-        if experiment.biosample_id is None:
-            LOGGER.info("Skipping %s because biosample_id is None", experiment.srx)
-            continue
+    # 4. Download BioSample entries
+    bs_entries = []
+    for ex in experiments:
+        if ex.biosample_id is not None:
+            bs_entry = load_or_download_bs_entry(
+                accession=ex.biosample_id,
+                force=args.force,
+            )
+            if bs_entry is not None:
+                bs_entries.append(bs_entry)
+    with BS_ENTRIES_FILE_PATH.open("w", encoding="utf-8") as f:
+        for entry in bs_entries:
+            f.write(json.dumps(entry) + "\n")
+    LOGGER.info("Saved BioSample entries to %s", BS_ENTRIES_FILE_PATH)
 
-        bs_entry = load_or_download_bs_entry(experiment.biosample_id, force=args.force)
-        if bs_entry is None:
-            continue
-
-        work_items.append((
-            experiment.biosample_id,
-            experiment.srx,
-            bs_entry,
-            None
-        ))
-        if args.num_lines is not None and len(work_items) >= args.num_lines:
-            break
-
-    LOGGER.info("To-do items: %d", len(work_items))
-
-    jsonl_path = RESULTS_DIR.joinpath("biosample_entries.jsonl")
-    jsonl_path.parent.mkdir(parents=True, exist_ok=True)
-
-    chunk_size = 5000
-
-    def flush_chunk(chunk: List[Tuple[str, str, Any, Optional[str]]]) -> None:
-        # chunk の内容を追記して、呼び出し側で chunk を空にする
-        with jsonl_path.open("a", encoding="utf-8") as f:
-            for biosample_id, srx, bs_entry, _ in chunk:
-                rec = {
-                    "biosample_id": biosample_id,
-                    "srx": srx,
-                    "entry": bs_entry,
-                }
-                f.write(json_dumps(rec) + "\n")
-
-    # === chunk flush 書き込み ===
-    buffer: List[Tuple[str, str, Any, Optional[str]]] = []
-    for item in work_items:
-        buffer.append(item)
-        if len(buffer) >= chunk_size:
-            flush_chunk(buffer)
-            buffer.clear()   # メモリ開放
-
-    # 余りを flush
-    if buffer:
-        flush_chunk(buffer)
-        buffer.clear()
-
-    LOGGER.info("JSONL generated: %s", jsonl_path)
+    LOGGER.info("Done.")
 
 
 if __name__ == "__main__":
