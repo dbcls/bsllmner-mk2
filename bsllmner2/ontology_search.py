@@ -1,4 +1,5 @@
 import csv
+import logging
 import re
 import unicodedata
 from pathlib import Path
@@ -9,8 +10,11 @@ import text2term
 from owlready2 import Ontology, ThingClass, World
 from pydantic import BaseModel, Field
 
-# === Build ontology index ===
+logging.getLogger("text2term").setLevel(logging.DEBUG)
+logging.getLogger("text2term.term_collector").setLevel(logging.DEBUG)
+logging.getLogger("text2term.t2t").setLevel(logging.DEBUG)
 
+# === Build ontology index ===
 
 DEFAULT_PREFIX_MAP: Dict[str, str] = {
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",

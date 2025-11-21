@@ -3,7 +3,7 @@ import asyncio
 import json
 import re
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Literal, Optional, Set, Tuple
+from typing import Any, Dict, Iterator, List, Literal, Optional, Set
 
 import httpx
 from pydantic import BaseModel, Field
@@ -151,7 +151,7 @@ def parse_experiment_list(
     LOGGER.info("Parsing %s...", path)
 
     experiments = []
-    for i, line in enumerate(iterate_tsv(path)):
+    for line in iterate_tsv(path):
         fields = [normalize_field_value(line[j]) if j < len(line) else None for j in range(9)]
         srx = fields[0]
         if srx is None:
@@ -406,14 +406,18 @@ def main() -> None:
 
     # 4. Download BioSample entries
     bs_entries = []
+    bs_entries_set: Set[str] = set()
     for ex in experiments:
         if ex.biosample_id is not None:
+            if ex.biosample_id in bs_entries_set:
+                continue
             bs_entry = load_or_download_bs_entry(
                 accession=ex.biosample_id,
                 force=args.force,
             )
             if bs_entry is not None:
                 bs_entries.append(bs_entry)
+                bs_entries_set.add(ex.biosample_id)
     with BS_ENTRIES_FILE_PATH.open("w", encoding="utf-8") as f:
         for entry in bs_entries:
             f.write(json.dumps(entry) + "\n")

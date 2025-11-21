@@ -89,6 +89,12 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
         action="store_true",
         help="Resume from the last incomplete run if possible.",
     )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=RESUME_BATCH_SIZE,
+        help="Number of entries to process in each batch when resuming. Default is None, which uses the default batch size.",
+    )
 
     # Select mode specific arguments
     parser.add_argument(
@@ -121,6 +127,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
         with_metrics=parsed_args.with_metrics,
         run_name=parsed_args.run_name,
         resume=parsed_args.resume,
+        batch_size=parsed_args.batch_size,
         select_config=parsed_args.select_config.resolve()
     )
 
@@ -170,13 +177,15 @@ async def run_cli_select_async() -> None:
         metrics_collector.start()
     try:
         LOGGER.info("Processing %d BioSample entries...", len(bs_entries))
-        batches = math.ceil(len(bs_entries) / RESUME_BATCH_SIZE)
+        batches = math.ceil(len(bs_entries) / args.batch_size)
         for batch_idx in range(batches):
-            start_idx = batch_idx * RESUME_BATCH_SIZE
-            end_idx = min(start_idx + RESUME_BATCH_SIZE, len(bs_entries))
-            LOGGER.info("Processing batch %d/%d: entries %d to %d", batch_idx + 1, batches, start_idx + 1, end_idx)
+            start_idx = batch_idx * args.batch_size
+            end_idx = min(start_idx + args.batch_size, len(bs_entries))
+            LOGGER.info("[BATCH %d/%d] entries from %d to %d", batch_idx + 1, batches, start_idx + 1, end_idx)
             batch_entries = bs_entries[start_idx:end_idx]
+            LOGGER.info("Extracting entities...")
             batch_extract_outputs = await ner(config, batch_entries, prompt, format_, args.model, args.thinking)
+            LOGGER.info("Selecting entities...")
             extract_outputs.extend(batch_extract_outputs)
             batch_select_results = await select(config, batch_entries, args.model, batch_extract_outputs, select_config, args.thinking)
             select_results.extend(batch_select_results)

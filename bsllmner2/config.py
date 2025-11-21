@@ -18,7 +18,7 @@ TMP_DIR = Path("/tmp/bsllmner2")
 PROGRESS_DIR = TMP_DIR.joinpath("progress")
 PROGRESS_DIR.mkdir(parents=True, exist_ok=True)
 
-RESUME_BATCH_SIZE = 256
+RESUME_BATCH_SIZE = 1024
 
 OLLAMA_CONTAINER_NAME = "bsllmner2-ollama"
 

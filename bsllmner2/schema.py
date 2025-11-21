@@ -42,6 +42,7 @@ class CliExtractArgs(BaseModel):
     with_metrics: bool = False
     run_name: Optional[str] = None
     resume: bool = False
+    batch_size: int
 
 
 class SelectConfigField(BaseModel):
@@ -88,6 +89,7 @@ class CliSelectArgs(BaseModel):
     with_metrics: bool = False
     run_name: Optional[str] = None
     resume: bool = False
+    batch_size: int
 
     select_config: Path = Field(
         ...,

@@ -363,7 +363,7 @@ SELECT_SYSTEM_MESSAGE = Message(
         "Rules:\n"
         "- Prefer exact string matches or canonical labels present in the metadata.\n"
         "- Prefer widely recognized and specific terms.\n"
-        "- Be conservative: if multiple plausible candidates remain, return null.\n"
+        # "- Be conservative: if multiple plausible candidates remain, return null.\n"
         "- Do NOT invent IDs. Choose only from the provided candidates.\n"
         "- Do NOT use outside knowledge; decide only from the provided context.\n"
         "- Output ONLY valid JSON matching the schema. No extra text.\n"
@@ -524,6 +524,7 @@ async def select(
             ))
 
     if tasks:
+        LOGGER.info("Performing LLM selection for %d fields across %d entries...", len(tasks), len(intermediate_results))
         acc_to_result_map = {result.accession: result for result in intermediate_results}
         llm_results = await asyncio.gather(*tasks)
         for accession, field_name, chat_response in llm_results:
