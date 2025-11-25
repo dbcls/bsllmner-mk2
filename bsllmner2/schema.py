@@ -96,6 +96,7 @@ class CliSelectArgs(BaseModel):
         description="Path to the select configuration file in JSON format.",
         examples=["config/select_config.json"],
     )
+    include_reasoning: bool = True
 
 
 class ServiceInfo(BaseModel):

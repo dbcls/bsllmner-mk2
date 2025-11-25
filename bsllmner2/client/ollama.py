@@ -224,7 +224,7 @@ def _ontology_search_wrapper(
             if not isinstance(query_value, str):
                 continue
             results_for_query = search_results.get(query_value, [])
-            res.search_results[field_name] = [r.model_copy(deep=True) for r in results_for_query]
+            res.search_results[field_name] = list(results_for_query)
 
             # If exactly one exact match is found, use it directly.
             exact_match_result = _pick_exact_match_search_result(results_for_query)
@@ -275,7 +275,7 @@ def _text2term_wrapper(
             if not isinstance(query_value, str):
                 continue
             results_for_query = text2term_results.get(query_value, [])
-            res.text2term_results[field_name] = [r.model_copy(deep=True) for r in results_for_query]
+            res.search_results[field_name] = list(results_for_query)
 
             # If exactly one exact match is found, use it directly.
             exact_match_result = _pick_exact_match_search_result(results_for_query)
@@ -285,26 +285,35 @@ def _text2term_wrapper(
     return select_results
 
 
-def _build_select_schema(candidates: List[SearchResult]) -> JsonSchemaValue:
+def _build_select_schema(
+    candidates: List[SearchResult],
+    reasoning: bool = True,
+) -> JsonSchemaValue:
     enum = [res.term_id for res in candidates]
+
+    properties: Dict[str, Any] = {
+        "id": {
+            "anyOf": [
+                {"type": "string", "enum": enum},
+                {"type": "null"},
+            ]
+        },
+    }
+    required = ["id"]
+
+    if reasoning:
+        properties["reasoning"] = {
+            "anyOf": [
+                {"type": "string"},
+                {"type": "null"},
+            ]
+        }
+        required.append("reasoning")
 
     schema: JsonSchemaValue = {
         "type": "object",
-        "properties": {
-            "id": {
-                "anyOf": [
-                    {"type": "string", "enum": enum},
-                    {"type": "null"},
-                ]
-            },
-            "reasoning": {
-                "anyOf": [
-                    {"type": "string"},
-                    {"type": "null"},
-                ]
-            }
-        },
-        "required": ["id", "reasoning"],
+        "properties": properties,
+        "required": required,
         "additionalProperties": False,
     }
 
@@ -355,35 +364,39 @@ def _pick_search_result_by_id(
     return None
 
 
-SELECT_SYSTEM_MESSAGE = Message(
-    role="system",
-    content=(
+def _build_select_system_message(reasoning: bool) -> Message:
+    base = (
         "You are a smart curator of biological metadata.\n"
         "Pick the best ontology term ID from the provided candidates, or return null if uncertain.\n"
         "Rules:\n"
         "- Prefer exact string matches or canonical labels present in the metadata.\n"
         "- Prefer widely recognized and specific terms.\n"
-        # "- Be conservative: if multiple plausible candidates remain, return null.\n"
         "- Do NOT invent IDs. Choose only from the provided candidates.\n"
         "- Do NOT use outside knowledge; decide only from the provided context.\n"
         "- Output ONLY valid JSON matching the schema. No extra text.\n"
-        "- Also return a 'reasoning' that describes your decision process step by step: cite the exact evidence from the provided text, compare the top candidates, and state why others were rejected do not use outside knowledge."
     )
-)
+    if reasoning:
+        base += (
+            "- Also return a 'reasoning' that describes your decision process step by step: "
+            "cite the exact evidence from the provided text, compare the top candidates, "
+            "and state why others were rejected do not use outside knowledge."
+        )
+    return Message(role="system", content=base)
 
 
 def _build_select_prompt_and_schema(
     bs_entry: Dict[str, Any],
     select_result: SelectResult,
     select_config: SelectConfig,
+    reasoning: bool,
 ) -> Dict[str, Tuple[List[Message], JsonSchemaValue]]:
     """
     Build per-field (messages, schema) for LLM selection (choose term_id)
     Only includes fields that still need a selection (i.e., results[field] is None)
     """
     results: Dict[str, Tuple[List[Message], JsonSchemaValue]] = {}
-
     bs_ctx_json = json.dumps(bs_entry, ensure_ascii=False)
+    system_msg = _build_select_system_message(reasoning)
 
     for field_name, field_config in select_config.fields.items():
         # Skip fields that already have a result
@@ -403,7 +416,11 @@ def _build_select_prompt_and_schema(
         if not candidates:
             continue
 
-        schema = _build_select_schema(candidates)
+        schema = _build_select_schema(candidates, reasoning=reasoning)
+
+        reasoning_instr = ""
+        if reasoning:
+            reasoning_instr = "For 'reasoning', provide: (1) exact evidence text, (2) a brief comparison of the top 2-3 candidates, (3) explicit rejection reasons for the others."
 
         user_msg = Message(
             role="user",
@@ -418,13 +435,13 @@ def _build_select_prompt_and_schema(
                 f"BioSample metadata (context):\n{bs_ctx_json}\n\n"
                 f"Ontology candidates (JSON array):\n"
                 f"{json.dumps(_serialize_candidates_for_llm(candidates), ensure_ascii=False, indent=2)}\n\n"
-                "Return ONLY JSON that matches the schema."
-                "For 'reasoning', provide: (1) exact evidence text, (2) a brief comparison of the top 2-3 candidates, (3) explicit rejection reasons for the others."
+                "Return ONLY JSON that matches the schema.\n"
+                f"{reasoning_instr}"
             ),
         )
 
         results[field_name] = (
-            [SELECT_SYSTEM_MESSAGE, user_msg],
+            [system_msg, user_msg],
             schema,
         )
 
@@ -459,6 +476,7 @@ async def select(
     extract_outputs: List[LlmOutput],
     select_config: SelectConfig,
     thinking: Optional[bool] = None,
+    include_reasoning: bool = True,
 ) -> List[SelectResult]:
     fields = select_config.fields.keys()
 
@@ -488,7 +506,6 @@ async def select(
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
     #   The LLM prompt should include the original field value, the list of candidate matches from steps 1 and 2, and bs_entry context.
     client = ollama.AsyncClient(host=config.ollama_host)
-
     sem = asyncio.Semaphore(256)
 
     async def _process_field_selection(
@@ -517,7 +534,7 @@ async def select(
     # bs_entries and intermediate_results are aligned by accession
     for bs_entry, select_result in zip(bs_entries, intermediate_results):
         accession = select_result.accession
-        field_prompts_and_schemas = _build_select_prompt_and_schema(bs_entry, select_result, select_config)
+        field_prompts_and_schemas = _build_select_prompt_and_schema(bs_entry, select_result, select_config, include_reasoning)
         for field_name, (messages, schema) in field_prompts_and_schemas.items():
             tasks.append(asyncio.create_task(
                 _process_field_selection(accession, field_name, messages, schema)
@@ -529,9 +546,7 @@ async def select(
         llm_results = await asyncio.gather(*tasks)
         for accession, field_name, chat_response in llm_results:
             select_result = acc_to_result_map[accession]
-            if select_result is None:
-                continue
-            if chat_response is None:
+            if select_result is None or chat_response is None:
                 continue
 
             select_result.llm_chat_response[field_name] = chat_response

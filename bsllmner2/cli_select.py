@@ -103,6 +103,12 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
         required=True,
         help="Path to the select configuration file in JSON format.",
     )
+    parser.add_argument(
+        "--no-reasoning",
+        action="store_false",
+        dest="include_reasoning",
+        help="Disable reasoning step during selection.",
+    )
 
     parsed_args = parser.parse_args(args)
 
@@ -128,7 +134,8 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
         run_name=parsed_args.run_name,
         resume=parsed_args.resume,
         batch_size=parsed_args.batch_size,
-        select_config=parsed_args.select_config.resolve()
+        select_config=parsed_args.select_config.resolve(),
+        include_reasoning=parsed_args.include_reasoning,
     )
 
 
@@ -187,7 +194,7 @@ async def run_cli_select_async() -> None:
             batch_extract_outputs = await ner(config, batch_entries, prompt, format_, args.model, args.thinking)
             LOGGER.info("Selecting entities...")
             extract_outputs.extend(batch_extract_outputs)
-            batch_select_results = await select(config, batch_entries, args.model, batch_extract_outputs, select_config, args.thinking)
+            batch_select_results = await select(config, batch_entries, args.model, batch_extract_outputs, select_config, args.thinking, include_reasoning=args.include_reasoning)
             select_results.extend(batch_select_results)
 
             # Dump intermediate results for resuming
