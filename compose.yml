@@ -10,15 +10,15 @@ services:
     environment:
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
     working_dir: /app
-    entrypoint: [""]
-    command: ["sleep", "infinity"]
+    entrypoint: [ "" ]
+    command: [ "sleep", "infinity" ]
     restart: unless-stopped
     init: true
     networks:
       - bsllmner-mk2-network
 
   ollama:
-    image: ollama/ollama:0.11.6
+    image: ollama/ollama:0.13.0
     container_name: bsllmner-mk2-ollama
     volumes:
       - ${PWD}/ollama-data:/root/.ollama
@@ -30,8 +30,8 @@ services:
       - OLLAMA_MAX_QUEUE=1024
       - CUDA_VISIBLE_DEVICES=0,1
       - OLLAMA_SCHED_SPREAD=1
-    entrypoint: ["/bin/ollama"]
-    command: ["serve"]
+    entrypoint: [ "/bin/ollama" ]
+    command: [ "serve" ]
     restart: unless-stopped
     deploy:
       resources:
@@ -39,7 +39,7 @@ services:
           devices:
             - driver: nvidia
               count: all
-              capabilities: [gpu]
+              capabilities: [ gpu ]
     init: true
     networks:
       - bsllmner-mk2-network

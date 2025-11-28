@@ -524,9 +524,9 @@ def search_terms_with_text2term(
 
 if __name__ == "__main__":
     # TEST_QUERIES = {"HeLa", "MCF-7", "A549"}
-    TEST_QUERIES = {"Blood"}
+    TEST_QUERIES = {"GSK1210151A"}
     # OWL_FILE_PATH = Path("/app/ontology/cellosaurus.owl").resolve()
-    OWL_FILE_PATH = Path("/app/ontology/uberon.owl").resolve()
+    OWL_FILE_PATH = Path("/app/ontology/chebi.owl").resolve()
     index = build_index_from_owl(
         OWL_FILE_PATH,
         # additional_conditions={"hasDbXref": "NCBI_TaxID:9606"}

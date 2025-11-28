@@ -70,6 +70,12 @@ async def main() -> None:
             # https://purl.obolibrary.org/obo/mondo.owl
             "file_name": "mondo.owl",
             "url": "https://purl.obolibrary.org/obo/mondo.owl",
+        },
+        {
+            # ChEBI
+            # https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.owl
+            "file_name": "chebi.owl",
+            "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.owl",
         }
     ]
 

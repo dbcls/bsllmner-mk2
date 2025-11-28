@@ -21,6 +21,10 @@
       "ontology_filter": {
         "hasDbXref": "NCBITaxon:9606"
       }
+    },
+    "drug": {
+      "ontology_file": "/app/ontology/chebi.owl",
+      "prompt_description": "Drug is a chemical or biological substance used to prevent, diagnose, treat, or alleviate disease or symptoms, or to modify physiological functions. e.g., aspirin, metformin, trastuzumab, etc."
     }
   }
 }

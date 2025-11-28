@@ -275,7 +275,7 @@ def _text2term_wrapper(
             if not isinstance(query_value, str):
                 continue
             results_for_query = text2term_results.get(query_value, [])
-            res.search_results[field_name] = list(results_for_query)
+            res.text2term_results[field_name] = list(results_for_query)
 
             # If exactly one exact match is found, use it directly.
             exact_match_result = _pick_exact_match_search_result(results_for_query)

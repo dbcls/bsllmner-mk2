@@ -28,6 +28,9 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
     Returns:
         Args: Parsed command-line arguments.
     """
+    def str_to_bool(v: str) -> bool:
+        return v.lower() == "true"
+
     parser = argparse.ArgumentParser(
         description="Named Entity Recognition (NER) of biological terms in BioSample records using LLMs, developed as bsllmner-mk2.",
     )
@@ -50,7 +53,8 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
     )
     parser.add_argument(
         "--thinking",
-        choices=["true", "false"],
+        choices=[True, False],
+        type=str_to_bool,
         help="Enable or disable thinking mode for the LLM. Use 'true' to enable thinking, 'false' to disable it.",
     )
     parser.add_argument(
