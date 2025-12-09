@@ -344,12 +344,22 @@ def build_select_prompt(config: SelectConfig) -> List[Prompt]:
 
 
 def build_extract_schema_for_select(config: SelectConfig) -> JsonSchemaValue:
-    properties = {
-        field_name: {
-            "type": ["string", "null"],
-        }
-        for field_name in config.fields.keys()
-    }
+    properties: Dict[str, JsonSchemaValue] = {}
+
+    for field_name, field_config in config.fields.items():
+        if field_config.value_type == "string":
+            properties[field_name] = {
+                "type": ["string", "null"],
+            }
+        elif field_config.value_type == "array":
+            properties[field_name] = {
+                "type": ["array", "null"],
+                "items": {
+                    "type": "string",
+                },
+            }
+        else:
+            raise ValueError(f"Unsupported value_type {field_config.value_type} for field {field_name}")
 
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",
@@ -363,16 +373,19 @@ def build_extract_schema_for_select(config: SelectConfig) -> JsonSchemaValue:
 def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
     category_lines: List[str] = []
     for field_name, field_config in config.fields.items():
-        if field_config.prompt_description:
-            category_lines.append(
-                f'- "{field_name}":\n'
-                f'  - {field_config.prompt_description}'
-            )
+        if field_config.value_type == "array":
+            type_note = "multiple values (array)"
         else:
-            category_lines.append(
-                f'- "{field_name}":\n'
-                f'  - A biological attribute to be extracted from the metadata.'
-            )
+            type_note = "single value"
+        if field_config.prompt_description:
+            desc = field_config.prompt_description
+        else:
+            desc = "A biological attribute to be extracted from the metadata."
+
+        category_lines.append(
+            f'- "{field_name} ({type_note})":\n'
+            f'  - {desc}'
+        )
 
     categories_block = "\n".join(category_lines)
 
@@ -391,12 +404,15 @@ def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
         "---\n"
         "Output rules:\n"
         "  - Return only JSON, matching the provided schema (via the `format` option).\n"
-        "  - For each category: if you can identify a value, output a concise canonical name "
-        "(not a free-form description).\n"
-        "  - If a category cannot be found in the input, output null for that category.\n"
-        "  - Prefer exact mentions in the input; if multiple candidates exist, pick the most specific "
-        "and widely recognized.\n"
+        "  - For categories with `string` value_type:\n"
+        "      - If you can identify a value, output a single concise canonical name (not a free-form description).\n"
+        "      - If no value can be found, output null.\n"
+        "  - For categories with `array` value_type:\n"
+        "      - If you can identify one or more values, output an array of concise canonical names.\n"
+        "      - If no values can be found, output null (not an empty array).\n"
+        "  - Prefer exact mentions in the input; if multiple candidates exist, pick the most specific and widely recognized.\n"
         "  - Do not hallucinate or infer values that are absent from the input.\n"
+        "  - Do not mix different kinds of concepts in the same category.\n"
         "\n"
         "---\n"
         "Here is the input metadata:\n"

@@ -46,8 +46,8 @@ class CliExtractArgs(BaseModel):
 
 
 class SelectConfigField(BaseModel):
-    ontology_file: Path = Field(
-        ...,
+    ontology_file: Optional[Path] = Field(
+        None,
         description="Path to the ontology OWL file or TSV file.",
         examples=["ontology/cellosaurus.owl", "ontology/cellosaurus.tsv"],
     )
@@ -59,6 +59,11 @@ class SelectConfigField(BaseModel):
         None,
         description="Filter criteria for ontology terms, e.g., {'hasDbXref': 'NCBI_TaxID:9606'}.",
         examples=[{"hasDbXref": "NCBI_TaxID:9606"}],
+    )
+    value_type: Literal["string", "array"] = Field(
+        "string",
+        description="Expected value type for the selected field.",
+        examples=["string", "array"],
     )
 
 
@@ -161,10 +166,11 @@ class LlmOutput(BaseModel):
 class SelectResult(BaseModel):
     accession: str
     extract_output: Optional[Any] = None
-    search_results: Dict[str, List[SearchResult]] = Field(default_factory=dict)
-    text2term_results: Dict[str, List[SearchResult]] = Field(default_factory=dict)
-    llm_chat_response: Dict[str, Optional[ChatResponse]] = Field(default_factory=dict)
-    results: Dict[str, Optional[SearchResult]] = Field(default_factory=dict)
+    # field -> value -> List[SearchResult]
+    search_results: Dict[str, Dict[str, List[SearchResult]]] = Field(default_factory=dict)
+    text2term_results: Dict[str, Dict[str, List[SearchResult]]] = Field(default_factory=dict)
+    llm_chat_response: Dict[str, Dict[str, Optional[ChatResponse]]] = Field(default_factory=dict)
+    results: Dict[str, Dict[str, Optional[SearchResult]] | Any] = Field(default_factory=dict)
 
 
 class Evaluation(BaseModel):

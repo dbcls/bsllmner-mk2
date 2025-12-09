@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import pickle
 import re
 from pathlib import Path
 from typing import IO, Any, Dict, List, Optional, Set, Tuple
@@ -11,8 +12,8 @@ from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.bs import construct_llm_input_json, is_ebi_format
 from bsllmner2.config import LOGGER, Config
-from bsllmner2.ontology_search import (SearchResult, _is_label_prop,
-                                       build_index_from_owl,
+from bsllmner2.ontology_search import (OntologyIndex, SearchResult,
+                                       _is_label_prop, build_index_from_owl,
                                        build_index_from_table, search_terms,
                                        search_terms_with_text2term)
 from bsllmner2.schema import (BsEntries, LlmOutput, Prompt, SelectConfig,
@@ -69,7 +70,7 @@ def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> 
             output_obj = json.loads(res_text_json) if res_text_json else None
             if output_obj is not None:
                 for k, v in output_obj.items():
-                    if v in ("null", "None"):
+                    if isinstance(v, str) and v in ("null", "None"):
                         output_obj[k] = None
         except Exception as e:  # pylint: disable=broad-except
             LOGGER.error("Error parsing JSON response: %s", e)
@@ -87,7 +88,12 @@ def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> 
     # add "characteristics" and "taxId"
     if isinstance(output_ins.output, dict) and is_ebi_format(bs_entry):
         output_ins.characteristics = {
-            key: {"text": value} for key, value in output_ins.output.items()
+            key: (
+                {"text": value}
+                if not isinstance(value, list)
+                else [{"text": v} for v in value]
+            )
+            for key, value in output_ins.output.items()
         }
         if "taxId" in bs_entry:
             output_ins.taxId = bs_entry["taxId"]
@@ -182,9 +188,51 @@ def _pick_exact_match_search_result(
     return exact_matches[0]
 
 
+INDEX_CACHE_DIR = Path("/app/ontology/index_cache")
+INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
+
+def build_index_map(select_config: SelectConfig) -> Dict[Path, OntologyIndex]:
+    mapping: Dict[Path, OntologyIndex] = {}
+
+    for field_config in select_config.fields.values():
+        ontology_file_path = field_config.ontology_file
+        if ontology_file_path is None:
+            continue
+        if ontology_file_path in mapping:
+            continue
+
+        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}.pkl")
+        if cache_file_path.exists():
+            try:
+                with cache_file_path.open("rb") as f:
+                    index = pickle.load(f)
+                mapping[ontology_file_path] = index
+                continue
+            except Exception:  # pylint: disable=broad-except
+                pass
+
+        if ontology_file_path.suffix == ".owl":
+            index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
+        elif ontology_file_path.suffix in [".tsv", ".csv"]:
+            index = build_index_from_table(ontology_file_path)
+        else:
+            raise ValueError(f"Unsupported ontology file format: {ontology_file_path}")
+        mapping[ontology_file_path] = index
+
+        try:
+            with cache_file_path.open("wb") as f:
+                pickle.dump(index, f)
+        except Exception:  # pylint: disable=broad-except
+            pass
+
+    return mapping
+
+
 def _ontology_search_wrapper(
     select_results: List[SelectResult],
     select_config: SelectConfig,
+    index_map: Optional[Dict[Path, OntologyIndex]] = None,
 ) -> List[SelectResult]:
     """\
     Wrapper function to perform ontology search for each field in the select configuration.
@@ -195,41 +243,74 @@ def _ontology_search_wrapper(
     """
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
-        if ontology_file_path.suffix == ".owl":
-            index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
-        elif ontology_file_path.suffix in [".tsv", ".csv"]:
-            index = build_index_from_table(ontology_file_path)
+
+        if ontology_file_path is None:
+            continue
+
+        if index_map is not None:
+            index = index_map.get(ontology_file_path, None)
+            if index is None:
+                continue
         else:
-            raise ValueError(f"Unsupported ontology file format: {ontology_file_path}")
+            if ontology_file_path.suffix == ".owl":
+                index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
+            elif ontology_file_path.suffix in [".tsv", ".csv"]:
+                index = build_index_from_table(ontology_file_path)
+            else:
+                raise ValueError(f"Unsupported ontology file format: {ontology_file_path}")
 
         LOGGER.info("Searching ontology for field: %s", field_name)
+
         queries: Set[str] = set()
         for res in select_results:
-            if res.extract_output is None or field_name not in res.extract_output:
+            if res.extract_output is None:
+                continue
+            if field_name not in res.extract_output:
                 continue
             # For idempotency, skip if results already exist
             if res.results.get(field_name, None) is not None:
                 continue
+
             query_value = res.extract_output[field_name]
-            if not isinstance(query_value, str):
-                continue
-            queries.add(query_value)
+            if isinstance(query_value, str):
+                queries.add(query_value)
+            elif isinstance(query_value, list):
+                for value in query_value:
+                    if isinstance(value, str):
+                        queries.add(value)
+
+        if not queries:
+            continue
 
         search_results = search_terms(index, queries)
 
         for res in select_results:
-            if res.extract_output is None or field_name not in res.extract_output:
+            if res.extract_output is None:
                 continue
-            query_value = res.extract_output[field_name]
-            if not isinstance(query_value, str):
+            if field_name not in res.extract_output:
                 continue
-            results_for_query = search_results.get(query_value, [])
-            res.search_results[field_name] = list(results_for_query)
 
-            # If exactly one exact match is found, use it directly.
-            exact_match_result = _pick_exact_match_search_result(results_for_query)
-            if exact_match_result is not None:
-                res.results[field_name] = exact_match_result
+            # For idempotency, skip if results already exist
+            if res.results.get(field_name, None) is not None:
+                continue
+
+            query_value = res.extract_output[field_name]
+            values: List[str] = []
+            if isinstance(query_value, str):
+                values = [query_value]
+            elif isinstance(query_value, list):
+                values = [v for v in query_value if isinstance(v, str)]
+
+            field_search_results = res.search_results.setdefault(field_name, {})
+
+            for value in values:
+                candidates = search_results.get(value, [])
+                field_search_results[value] = candidates
+
+                # If exactly one exact match is found, use it directly.
+                exact_match_result = _pick_exact_match_search_result(candidates)
+                if exact_match_result is not None:
+                    res.results.setdefault(field_name, {})[value] = exact_match_result
 
     return select_results
 
@@ -247,21 +328,31 @@ def _text2term_wrapper(
     """
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
+        if ontology_file_path is None:
+            continue
+
         if not ontology_file_path.suffix == ".owl":
             LOGGER.warning("Text2Term currently supports only OWL files. Skipping field: %s", field_name)
 
         LOGGER.info("text2term for field: %s", field_name)
+
         queries: Set[str] = set()
         for res in select_results:
-            if res.extract_output is None or field_name not in res.extract_output:
+            if res.extract_output is None:
+                continue
+            if field_name not in res.extract_output:
                 continue
             # For idempotency, skip if results already exist
             if res.results.get(field_name, None) is not None:
                 continue
+
             query_value = res.extract_output[field_name]
-            if not isinstance(query_value, str):
-                continue
-            queries.add(query_value)
+            if isinstance(query_value, str):
+                queries.add(query_value)
+            elif isinstance(query_value, list):
+                for value in query_value:
+                    if isinstance(value, str):
+                        queries.add(value)
 
         if not queries:
             continue
@@ -269,18 +360,31 @@ def _text2term_wrapper(
         text2term_results = search_terms_with_text2term(queries, ontology_file_path)
 
         for res in select_results:
-            if res.extract_output is None or field_name not in res.extract_output:
+            if res.extract_output is None:
                 continue
-            query_value = res.extract_output[field_name]
-            if not isinstance(query_value, str):
+            if field_name not in res.extract_output:
                 continue
-            results_for_query = text2term_results.get(query_value, [])
-            res.text2term_results[field_name] = list(results_for_query)
+            if res.results.get(field_name, None) is not None:
+                continue
 
-            # If exactly one exact match is found, use it directly.
-            exact_match_result = _pick_exact_match_search_result(results_for_query)
-            if exact_match_result is not None:
-                res.results[field_name] = exact_match_result
+            query_value = res.extract_output[field_name]
+            values: List[str] = []
+            if isinstance(query_value, str):
+                values = [query_value]
+            elif isinstance(query_value, list):
+                values = [v for v in query_value if isinstance(v, str)]
+
+            field_text2term_results = res.text2term_results.setdefault(field_name, {})
+
+            for value in values:
+                candidates = text2term_results.get(value, [])
+                field_text2term_results[value] = candidates
+
+                exact_match_result = _pick_exact_match_search_result(candidates)
+                if exact_match_result is not None:
+                    field_results = res.results.setdefault(field_name, {})
+                    if field_results.get(value) is None:
+                        field_results[value] = exact_match_result
 
     return select_results
 
@@ -329,11 +433,12 @@ def _serialize_candidates_for_llm(candidates: List[SearchResult]) -> List[Dict[s
 
 def _collect_candidates_for_field(
     field_name: str,
+    value: str,
     select_result: SelectResult,
 ) -> List[SearchResult]:
     merged: List[SearchResult] = []
-    merged.extend(select_result.search_results.get(field_name, []))
-    merged.extend(select_result.text2term_results.get(field_name, []))
+    merged.extend(select_result.search_results.get(field_name, {}).get(value, []))
+    merged.extend(select_result.text2term_results.get(field_name, {}).get(value, []))
 
     # Remove duplicates based on term_id.
     by_term_id: Dict[str, SearchResult] = {}
@@ -351,9 +456,10 @@ def _collect_candidates_for_field(
 def _pick_search_result_by_id(
     select_result: SelectResult,
     field_name: str,
+    value: str,
     term_id: str,
 ) -> Optional[SearchResult]:
-    candidates = _collect_candidates_for_field(field_name, select_result)
+    candidates = _collect_candidates_for_field(field_name, value, select_result)
     for candidate in candidates:
         if candidate.term_id == term_id and _is_label_prop(candidate.prop_uri):
             return candidate
@@ -389,61 +495,71 @@ def _build_select_prompt_and_schema(
     select_result: SelectResult,
     select_config: SelectConfig,
     reasoning: bool,
-) -> Dict[str, Tuple[List[Message], JsonSchemaValue]]:
+) -> Dict[Tuple[str, str], Tuple[List[Message], JsonSchemaValue]]:
     """
     Build per-field (messages, schema) for LLM selection (choose term_id)
     Only includes fields that still need a selection (i.e., results[field] is None)
     """
-    results: Dict[str, Tuple[List[Message], JsonSchemaValue]] = {}
+    results: Dict[Tuple[str, str], Tuple[List[Message], JsonSchemaValue]] = {}
     bs_ctx_json = json.dumps(bs_entry, ensure_ascii=False)
     system_msg = _build_select_system_message(reasoning)
 
     for field_name, field_config in select_config.fields.items():
-        # Skip fields that already have a result
-        if select_result.results.get(field_name, None) is not None:
-            continue
-
-        # Skip fields without extract_output
-        extracted_value = None
-        if isinstance(select_result.extract_output, dict):
-            value = select_result.extract_output.get(field_name, None)
-            if isinstance(value, str):
-                extracted_value = value
-        if extracted_value is None:
-            continue
-
-        candidates = _collect_candidates_for_field(field_name, select_result)
-        if not candidates:
-            continue
-
-        schema = _build_select_schema(candidates, reasoning=reasoning)
-
-        reasoning_instr = ""
-        if reasoning:
-            reasoning_instr = "For 'reasoning', provide: (1) exact evidence text, (2) a brief comparison of the top 2-3 candidates, (3) explicit rejection reasons for the others."
-
-        user_msg = Message(
-            role="user",
-            content=(
-                f"Field: {field_name}\n\n"
-                f"Description: {(field_config.prompt_description or field_name)}\n\n"
-                "Provenance:\n"
-                "- The 'extracted value' below was produced by an earlier NER step and may be noisy.\n"
-                "- The 'ontology candidates' were assembled by ontology search (and possibly text2term) and are the ONLY allowed choices.\n"
-                "- Decide strictly from the provided metadata and candidates; do not use outside knowledge.\n\n"
-                f"Original extracted value: {extracted_value}\n\n"
-                f"BioSample metadata (context):\n{bs_ctx_json}\n\n"
-                f"Ontology candidates (JSON array):\n"
-                f"{json.dumps(_serialize_candidates_for_llm(candidates), ensure_ascii=False, indent=2)}\n\n"
-                "Return ONLY JSON that matches the schema.\n"
-                f"{reasoning_instr}"
-            ),
+        raw = (
+            select_result.extract_output.get(field_name)
+            if isinstance(select_result.extract_output, dict)
+            else None
         )
 
-        results[field_name] = (
-            [system_msg, user_msg],
-            schema,
-        )
+        if isinstance(raw, str):
+            values = [raw]
+        elif isinstance(raw, list):
+            values = [v for v in raw if isinstance(v, str)]
+        else:
+            continue
+
+        for value in values:
+            if field_name in select_result.results and value in select_result.results[field_name]:
+                continue
+
+            candidates = _collect_candidates_for_field(field_name, value, select_result)
+            if not candidates:
+                continue
+
+            schema = _build_select_schema(candidates, reasoning=reasoning)
+
+            reasoning_instr = ""
+            if reasoning:
+                reasoning_instr = (
+                    "For 'reasoning', provide: "
+                    "(1) exact evidence text, "
+                    "(2) a brief comparison of the top 2-3 candidates, "
+                    "(3) explicit rejection reasons for the others."
+                )
+
+            user_msg = Message(
+                role="user",
+                content=(
+                    f"Field: {field_name}\n"
+                    f"Value: {value}\n\n"
+                    f"Description: {(field_config.prompt_description or field_name)}\n\n"
+                    "Provenance:\n"
+                    "- The 'value' below was produced by an earlier NER step and may be noisy.\n"
+                    "- The 'ontology candidates' were assembled by ontology search (and possibly text2term) and are the ONLY allowed choices.\n"
+                    "- Decide strictly from the provided metadata and candidates; do not use outside knowledge.\n\n"
+                    f"Original extracted value: {value}\n\n"
+                    f"BioSample metadata (context):\n{bs_ctx_json}\n\n"
+                    f"Ontology candidates (JSON array):\n"
+                    f"{json.dumps(_serialize_candidates_for_llm(candidates), ensure_ascii=False, indent=2)}\n\n"
+                    "Return ONLY JSON that matches the schema.\n"
+                    f"{reasoning_instr}"
+                ),
+            )
+
+            results[(field_name, value)] = (
+                [system_msg, user_msg],
+                schema,
+            )
 
     return results
 
@@ -477,25 +593,20 @@ async def select(
     select_config: SelectConfig,
     thinking: Optional[bool] = None,
     include_reasoning: bool = True,
+    index_map: Optional[Dict[Path, OntologyIndex]] = None,
 ) -> List[SelectResult]:
-    fields = select_config.fields.keys()
-
     intermediate_results: List[SelectResult] = []
     for obj in extract_outputs:
         intermediate_results.append(SelectResult(
             accession=obj.accession,
             extract_output=obj.output,
-            search_results={field: [] for field in fields},
-            text2term_results={field: [] for field in fields},
-            llm_chat_response={field: None for field in fields},
-            results={field: None for field in fields},
         ))
 
     # 1. Perform ontology search for each field specified in the select configuration.
     #   1.1 If no matches are found, proceed to step 2.
     #   1.2 If exactly one match is found, use that result as the final result for that field.
     #   1.3 If multiple matches are found, proceed to step 2.
-    _ontology_search_wrapper(intermediate_results, select_config)
+    _ontology_search_wrapper(intermediate_results, select_config, index_map=index_map)
 
     # 2. Perform text2term search for each field specified in the select configuration.
     #   2.1 If no matches are found, proceed to step 3.
@@ -511,9 +622,10 @@ async def select(
     async def _process_field_selection(
         accession: str,
         field_name: str,
+        value: str,
         messages: List[Message],
         schema: JsonSchemaValue
-    ) -> Tuple[str, str, Optional[ChatResponse]]:
+    ) -> Tuple[str, str, str, Optional[ChatResponse]]:
         async with sem:
             try:
                 LOGGER.debug("[Select] Processing entry: %s, field: %s", accession, field_name)
@@ -528,36 +640,46 @@ async def select(
                 LOGGER.error("Error during select step: %s", e)
                 response = None
 
-            return (accession, field_name, response)
+            return (accession, field_name, value, response)
 
     tasks = []
     # bs_entries and intermediate_results are aligned by accession
     for bs_entry, select_result in zip(bs_entries, intermediate_results):
         accession = select_result.accession
         field_prompts_and_schemas = _build_select_prompt_and_schema(bs_entry, select_result, select_config, include_reasoning)
-        for field_name, (messages, schema) in field_prompts_and_schemas.items():
+        for (field_name, value), (messages, schema) in field_prompts_and_schemas.items():
+            field_config = select_config.fields.get(field_name, None)
+            # No ontology configured for this field; skip
+            if field_config is None or field_config.ontology_file is None:
+                value: Any = select_result.extract_output[field_name]  # type: ignore
+                if value is not None:
+                    select_result.results[field_name] = value
+                continue
+
             tasks.append(asyncio.create_task(
-                _process_field_selection(accession, field_name, messages, schema)
+                _process_field_selection(accession, field_name, value, messages, schema)
             ))
 
     if tasks:
         LOGGER.info("Performing LLM selection for %d fields across %d entries...", len(tasks), len(intermediate_results))
         acc_to_result_map = {result.accession: result for result in intermediate_results}
         llm_results = await asyncio.gather(*tasks)
-        for accession, field_name, chat_response in llm_results:
+
+        for accession, field_name, value, chat_response in llm_results:
             select_result = acc_to_result_map[accession]
             if select_result is None or chat_response is None:
                 continue
 
-            select_result.llm_chat_response[field_name] = chat_response
+            select_result.llm_chat_response.setdefault(field_name, {})[value] = chat_response
 
             output_obj = _parse_output_object(chat_response)
             chosen_id = output_obj.get("id", None) if output_obj else None
             reasoning = output_obj.get("reasoning", None) if output_obj else None
-            if not isinstance(chosen_id, str) or not chosen_id.strip():
+
+            if not isinstance(chosen_id, str):
                 continue
-            chosen_id = chosen_id.strip()
-            picked_result = _pick_search_result_by_id(select_result, field_name, chosen_id)
+
+            picked_result = _pick_search_result_by_id(select_result, field_name, value, chosen_id.strip())
             if picked_result is None:
                 continue
 
@@ -565,6 +687,6 @@ async def select(
             if isinstance(reasoning, str):
                 picked_copy.reasoning = reasoning
 
-            select_result.results[field_name] = picked_copy
+            select_result.results.setdefault(field_name, {})[value] = picked_copy
 
     return intermediate_results

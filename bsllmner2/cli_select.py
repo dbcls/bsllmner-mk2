@@ -5,7 +5,7 @@ import sys
 from pathlib import Path
 from typing import List, Tuple
 
-from bsllmner2.client.ollama import ner, select
+from bsllmner2.client.ollama import build_index_map, ner, select
 from bsllmner2.config import (LOGGER, RESUME_BATCH_SIZE, Config,
                               default_config, get_config, set_logging_level)
 from bsllmner2.metrics import LiveMetricsCollector
@@ -178,10 +178,12 @@ async def run_cli_select_async() -> None:
         extract_outputs.extend(resume_extract_outputs)
         resume_select_results = load_select_resume_file(run_name)
         select_results.extend(resume_select_results)
-        done_ids = set([output.accession for output in resume_extract_outputs])
+        done_ids = set(output.accession for output in resume_extract_outputs)
         if done_ids:
             LOGGER.info("Skipping %d already processed entries.", len(done_ids))
             bs_entries = [entry for entry in bs_entries if entry.get("accession") not in done_ids]
+
+    select_index_map = build_index_map(select_config)
 
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()
@@ -198,7 +200,7 @@ async def run_cli_select_async() -> None:
             batch_extract_outputs = await ner(config, batch_entries, prompt, format_, args.model, args.thinking)
             LOGGER.info("Selecting entities...")
             extract_outputs.extend(batch_extract_outputs)
-            batch_select_results = await select(config, batch_entries, args.model, batch_extract_outputs, select_config, args.thinking, include_reasoning=args.include_reasoning)
+            batch_select_results = await select(config, batch_entries, args.model, batch_extract_outputs, select_config, args.thinking, include_reasoning=args.include_reasoning, index_map=select_index_map)
             select_results.extend(batch_select_results)
 
             # Dump intermediate results for resuming

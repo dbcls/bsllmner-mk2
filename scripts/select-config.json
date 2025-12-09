@@ -24,7 +24,17 @@
     },
     "drug": {
       "ontology_file": "/app/ontology/chebi.owl",
-      "prompt_description": "Drug is a chemical or biological substance used to prevent, diagnose, treat, or alleviate disease or symptoms, or to modify physiological functions. e.g., aspirin, metformin, trastuzumab, etc."
+      "prompt_description": "Drug is a chemical or biological substance used to prevent, diagnose, treat, or alleviate disease or symptoms, or to modify physiological functions. e.g., aspirin, metformin, trastuzumab, etc.",
+      "value_type": "array"
+    },
+    "gene": {
+      "ontology_file": "/app/ontology/ncbi_gene_human.owl",
+      "prompt_description": "Gene is a unit of heredity that encodes a functional product, such as a protein or RNA, and plays a specific role in biological processes. e.g., BRCA1, TP53, EGFR, etc.",
+      "value_type": "array"
+    },
+    "gene_perturbation": {
+      "prompt_description": "Experimental or biological perturbation applied to the target gene or its product. If the perturbation clearly corresponds to a gene-level effect, normalize to one of the following fixed terms when applicable: 'knockout', 'knockdown', or 'overexpression'. Otherwise, extract the perturbation term as it appears in the text.",
+      "value_type": "array"
     }
   }
 }
