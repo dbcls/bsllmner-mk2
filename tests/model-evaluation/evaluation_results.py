@@ -7,6 +7,8 @@ from typing import Any, Dict, Optional, Tuple
 
 import httpx
 
+from bsllmner2.schema import SelectResult
+
 HERE = Path(__file__).parent
 LOG_DIR = HERE.joinpath("model-evaluation-batch-logs")
 SELECT_RESULTS_DIR = Path("/app/bsllmner2-results/select")
@@ -106,16 +108,18 @@ def load_predicted_mapping(model: str) -> Dict[str, Optional[str]]:
     model_safe = model.replace(":", "_")
     run_name = f"{BASE_RUN_NAME}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
-    select_results = json.loads(select_results_path.read_text(encoding="utf-8"))
+    select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
+    select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
     predicted_mapping: Dict[str, Optional[str]] = {}
     for select_result in select_results:
-        accession = select_result["accession"]
-        results = select_result.get("results", {}) or {}
+        accession = select_result.accession
+        results = select_result.results
         cell_line_info = results.get("cell_line", None)
-        if cell_line_info is None:
-            predicted_mapping[accession] = None
-        else:
-            predicted_mapping[accession] = cell_line_info.get("term_id", None)
+        predicted_mapping[accession] = None
+        if isinstance(cell_line_info, dict):
+            cell_line_result = next(iter(cell_line_info.values()), None)
+            if cell_line_result is not None:
+                predicted_mapping[accession] = cell_line_result.get("term_id", None)
 
     return predicted_mapping
 
@@ -197,17 +201,33 @@ def count_results(model: str) -> Dict[str, int]:
     model_safe = model.replace(":", "_")
     run_name = f"{BASE_RUN_NAME}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
-    select_results = json.loads(select_results_path.read_text(encoding="utf-8"))
+    select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
+    select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
     extract_count = 0
     select_count = 0
     final_count = 0
     for select_result in select_results:
-        extract_output = select_result.get("extract_output", {}) or {}
-        extract_count += sum(v is not None for v in extract_output.values())
-        llm_output = select_result.get("llm_chat_response", {}) or {}
-        select_count += sum(v is not None for v in llm_output.values())
-        final_output = select_result.get("results", {}) or {}
-        final_count += sum(v is not None for v in final_output.values())
+        extract_output = select_result.extract_output
+        if isinstance(extract_output, dict):
+            for v in extract_output.values():
+                if isinstance(v, list):
+                    if len(v) > 0:
+                        extract_count += 1
+                elif v is not None:
+                    extract_count += 1
+
+        llm_output = select_result.llm_chat_response or {}
+        for llm_map in llm_output.values():
+            if isinstance(llm_map, dict) and len(llm_map) > 0:
+                select_count += 1
+
+        final_output = select_result.results or {}
+        for final_map in final_output.values():
+            if isinstance(final_map, dict):
+                if len(final_map) > 0:
+                    final_count += 1
+            elif final_map is not None:
+                final_count += 1
 
     return {
         "extract_count": extract_count,
@@ -314,6 +334,8 @@ def main() -> None:
         result.update(ollama_info)
 
         results[model] = result
+
+    # print(json.dumps(results, indent=2))
 
     write_results_tsv(results)
     print(f"Results written to {RESULTS_TSV_PATH}")

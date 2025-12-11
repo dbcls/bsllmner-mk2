@@ -301,7 +301,14 @@ def _ontology_search_wrapper(
             elif isinstance(query_value, list):
                 values = [v for v in query_value if isinstance(v, str)]
 
-            field_search_results = res.search_results.setdefault(field_name, {})
+            field_search_results = res.search_results.get(field_name)
+            if not isinstance(field_search_results, dict):
+                field_search_results = {}
+                res.search_results[field_name] = field_search_results
+            field_results = res.results.get(field_name)
+            if field_results is None:
+                field_results = {}
+                res.results[field_name] = field_results
 
             for value in values:
                 candidates = search_results.get(value, [])
@@ -310,7 +317,7 @@ def _ontology_search_wrapper(
                 # If exactly one exact match is found, use it directly.
                 exact_match_result = _pick_exact_match_search_result(candidates)
                 if exact_match_result is not None:
-                    res.results.setdefault(field_name, {})[value] = exact_match_result
+                    field_results[value] = exact_match_result
 
     return select_results
 
@@ -374,7 +381,14 @@ def _text2term_wrapper(
             elif isinstance(query_value, list):
                 values = [v for v in query_value if isinstance(v, str)]
 
-            field_text2term_results = res.text2term_results.setdefault(field_name, {})
+            field_text2term_results = res.text2term_results.get(field_name)
+            if not isinstance(field_text2term_results, dict):
+                field_text2term_results = {}
+                res.text2term_results[field_name] = field_text2term_results
+            field_results = res.results.get(field_name)
+            if field_results is None:
+                field_results = {}
+                res.results[field_name] = field_results
 
             for value in values:
                 candidates = text2term_results.get(value, [])
@@ -382,9 +396,7 @@ def _text2term_wrapper(
 
                 exact_match_result = _pick_exact_match_search_result(candidates)
                 if exact_match_result is not None:
-                    field_results = res.results.setdefault(field_name, {})
-                    if field_results.get(value) is None:
-                        field_results[value] = exact_match_result
+                    field_results[value] = exact_match_result
 
     return select_results
 
@@ -595,12 +607,22 @@ async def select(
     include_reasoning: bool = True,
     index_map: Optional[Dict[Path, OntologyIndex]] = None,
 ) -> List[SelectResult]:
+    fields = select_config.fields.keys()
+    no_select_fields = [f for f in fields if select_config.fields[f].ontology_file is None]
+
     intermediate_results: List[SelectResult] = []
     for obj in extract_outputs:
-        intermediate_results.append(SelectResult(
+        sr = SelectResult(
             accession=obj.accession,
             extract_output=obj.output,
-        ))
+            search_results={field: {} for field in fields},
+            text2term_results={field: {} for field in fields},
+            llm_chat_response={field: {} for field in fields},
+            results={},
+        )
+        for field in no_select_fields:
+            sr.results[field] = obj.output.get(field, None)  # type: ignore
+        intermediate_results.append(sr)
 
     # 1. Perform ontology search for each field specified in the select configuration.
     #   1.1 If no matches are found, proceed to step 2.
@@ -648,14 +670,6 @@ async def select(
         accession = select_result.accession
         field_prompts_and_schemas = _build_select_prompt_and_schema(bs_entry, select_result, select_config, include_reasoning)
         for (field_name, value), (messages, schema) in field_prompts_and_schemas.items():
-            field_config = select_config.fields.get(field_name, None)
-            # No ontology configured for this field; skip
-            if field_config is None or field_config.ontology_file is None:
-                value: Any = select_result.extract_output[field_name]  # type: ignore
-                if value is not None:
-                    select_result.results[field_name] = value
-                continue
-
             tasks.append(asyncio.create_task(
                 _process_field_selection(accession, field_name, value, messages, schema)
             ))
@@ -687,6 +701,8 @@ async def select(
             if isinstance(reasoning, str):
                 picked_copy.reasoning = reasoning
 
-            select_result.results.setdefault(field_name, {})[value] = picked_copy
+            if field_name not in select_result.results:
+                select_result.results[field_name] = {}
+            select_result.results[field_name][value] = picked_copy
 
     return intermediate_results
