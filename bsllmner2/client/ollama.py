@@ -234,26 +234,24 @@ def _ontology_search_wrapper(
     select_config: SelectConfig,
     index_map: Optional[Dict[Path, OntologyIndex]] = None,
 ) -> List[SelectResult]:
-    """\
+    """
     Wrapper function to perform ontology search for each field in the select configuration.
-
-    Args:
-        select_results (List[SelectResult]): List of SelectResult objects containing LLM outputs.
-        select_config (SelectConfig): Configuration for the select mode.
     """
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
-
         if ontology_file_path is None:
             continue
 
         if index_map is not None:
-            index = index_map.get(ontology_file_path, None)
+            index = index_map.get(ontology_file_path)
             if index is None:
                 continue
         else:
             if ontology_file_path.suffix == ".owl":
-                index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
+                index = build_index_from_owl(
+                    ontology_file_path,
+                    additional_conditions=field_config.ontology_filter,
+                )
             elif ontology_file_path.suffix in [".tsv", ".csv"]:
                 index = build_index_from_table(ontology_file_path)
             else:
@@ -263,21 +261,20 @@ def _ontology_search_wrapper(
 
         queries: Set[str] = set()
         for res in select_results:
-            if res.extract_output is None:
+            if not isinstance(res.extract_output, dict):
                 continue
             if field_name not in res.extract_output:
                 continue
-            # For idempotency, skip if results already exist
-            if res.results.get(field_name, None) is not None:
+
+            # skip only if final result already exists
+            if field_name in res.results and res.results[field_name]:
                 continue
 
             query_value = res.extract_output[field_name]
             if isinstance(query_value, str):
                 queries.add(query_value)
             elif isinstance(query_value, list):
-                for value in query_value:
-                    if isinstance(value, str):
-                        queries.add(value)
+                queries.update(v for v in query_value if isinstance(v, str))
 
         if not queries:
             continue
@@ -285,26 +282,28 @@ def _ontology_search_wrapper(
         search_results = search_terms(index, queries)
 
         for res in select_results:
-            if res.extract_output is None:
+            if not isinstance(res.extract_output, dict):
                 continue
             if field_name not in res.extract_output:
                 continue
 
-            # For idempotency, skip if results already exist
-            if res.results.get(field_name, None) is not None:
+            # skip only if final result already exists
+            if field_name in res.results and res.results[field_name]:
                 continue
 
             query_value = res.extract_output[field_name]
-            values: List[str] = []
             if isinstance(query_value, str):
                 values = [query_value]
             elif isinstance(query_value, list):
                 values = [v for v in query_value if isinstance(v, str)]
+            else:
+                continue
 
             field_search_results = res.search_results.get(field_name)
             if not isinstance(field_search_results, dict):
                 field_search_results = {}
                 res.search_results[field_name] = field_search_results
+
             field_results = res.results.get(field_name)
             if field_results is None:
                 field_results = {}
@@ -314,7 +313,6 @@ def _ontology_search_wrapper(
                 candidates = search_results.get(value, [])
                 field_search_results[value] = candidates
 
-                # If exactly one exact match is found, use it directly.
                 exact_match_result = _pick_exact_match_search_result(candidates)
                 if exact_match_result is not None:
                     field_results[value] = exact_match_result
@@ -326,40 +324,39 @@ def _text2term_wrapper(
     select_results: List[SelectResult],
     select_config: SelectConfig,
 ) -> List[SelectResult]:
-    """\
+    """
     Wrapper function to perform text2term search for each field in the select configuration.
-
-    Args:
-        select_results (List[SelectResult]): List of SelectResult objects containing LLM outputs.
-        select_config (SelectConfig): Configuration for the select mode.
     """
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
         if ontology_file_path is None:
             continue
 
-        if not ontology_file_path.suffix == ".owl":
-            LOGGER.warning("Text2Term currently supports only OWL files. Skipping field: %s", field_name)
+        if ontology_file_path.suffix != ".owl":
+            LOGGER.warning(
+                "Text2Term currently supports only OWL files. Skipping field: %s",
+                field_name,
+            )
+            continue
 
         LOGGER.info("text2term for field: %s", field_name)
 
         queries: Set[str] = set()
         for res in select_results:
-            if res.extract_output is None:
+            if not isinstance(res.extract_output, dict):
                 continue
             if field_name not in res.extract_output:
                 continue
-            # For idempotency, skip if results already exist
-            if res.results.get(field_name, None) is not None:
+
+            # skip only if final result already exists
+            if field_name in res.results and res.results[field_name]:
                 continue
 
             query_value = res.extract_output[field_name]
             if isinstance(query_value, str):
                 queries.add(query_value)
             elif isinstance(query_value, list):
-                for value in query_value:
-                    if isinstance(value, str):
-                        queries.add(value)
+                queries.update(v for v in query_value if isinstance(v, str))
 
         if not queries:
             continue
@@ -367,24 +364,28 @@ def _text2term_wrapper(
         text2term_results = search_terms_with_text2term(queries, ontology_file_path)
 
         for res in select_results:
-            if res.extract_output is None:
+            if not isinstance(res.extract_output, dict):
                 continue
             if field_name not in res.extract_output:
                 continue
-            if res.results.get(field_name, None) is not None:
+
+            # skip only if final result already exists
+            if field_name in res.results and res.results[field_name]:
                 continue
 
             query_value = res.extract_output[field_name]
-            values: List[str] = []
             if isinstance(query_value, str):
                 values = [query_value]
             elif isinstance(query_value, list):
                 values = [v for v in query_value if isinstance(v, str)]
+            else:
+                continue
 
             field_text2term_results = res.text2term_results.get(field_name)
             if not isinstance(field_text2term_results, dict):
                 field_text2term_results = {}
                 res.text2term_results[field_name] = field_text2term_results
+
             field_results = res.results.get(field_name)
             if field_results is None:
                 field_results = {}
