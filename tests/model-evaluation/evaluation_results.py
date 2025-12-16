@@ -1,3 +1,4 @@
+import argparse
 import csv
 import json
 import re
@@ -10,31 +11,27 @@ import httpx
 from bsllmner2.schema import SelectResult
 
 HERE = Path(__file__).parent
-LOG_DIR = HERE.joinpath("model-evaluation-batch-logs")
 SELECT_RESULTS_DIR = Path("/app/bsllmner2-results/select")
-BASE_RUN_NAME = "models-with-large-dataset"
 MAPPING_FILE = Path("/app/tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv")
 OLLAMA_HOST = "http://bsllmner-mk2-ollama:11434"
-RESULTS_TSV_PATH = HERE.joinpath("model_evaluation_results.tsv")
-
-MODELS = [
-    "deepseek-r1:8b",
-    "deepseek-r1:32b",
-    "gemma3:4b",
-    "gemma3:12b",
-    "gemma3:27b",
-    "gpt-oss:20b",
-    "llama3.1:8b",
-    "phi4:14b",
-    "qwen3:4b",
-    "qwen3:8b",
-    "qwen3:32b",
-]
 
 
-def parse_time_from_log(model: str) -> Dict[str, float]:
+def list_models_from_log_dir(log_dir: Path) -> list[str]:
+    models = []
+    for log_file in sorted(log_dir.glob("*.log")):
+        model_safe = log_file.stem
+        # deepseek-r1_8b -> deepseek-r1:8b
+        if "_" not in model_safe:
+            continue
+        family, rest = model_safe.split("_", 1)
+        model = f"{family}:{rest}"
+        models.append(model)
+    return models
+
+
+def parse_time_from_log(model: str, log_dir: Path) -> Dict[str, float]:
     model_safe = model.replace(":", "_")
-    log_file_path = LOG_DIR.joinpath(f"{model_safe}.log")
+    log_file_path = log_dir.joinpath(f"{model_safe}.log")
     log_lines = log_file_path.read_text(encoding="utf-8").splitlines()
 
     TS_MAIN = re.compile(
@@ -104,9 +101,9 @@ def load_answer_mapping() -> Dict[str, Optional[str]]:
     return answer_mapping
 
 
-def load_predicted_mapping(model: str) -> Dict[str, Optional[str]]:
+def load_predicted_mapping(model: str, run_name_base: str) -> Dict[str, Optional[str]]:
     model_safe = model.replace(":", "_")
-    run_name = f"{BASE_RUN_NAME}-{model_safe}"
+    run_name = f"{run_name_base}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
     select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
     select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
@@ -119,7 +116,7 @@ def load_predicted_mapping(model: str) -> Dict[str, Optional[str]]:
         if isinstance(cell_line_info, dict):
             cell_line_result = next(iter(cell_line_info.values()), None)
             if cell_line_result is not None:
-                predicted_mapping[accession] = cell_line_result.get("term_id", None)
+                predicted_mapping[accession] = cell_line_result.term_id
 
     return predicted_mapping
 
@@ -197,9 +194,9 @@ def evaluate_mapping(
     }
 
 
-def count_results(model: str) -> Dict[str, int]:
+def count_results(model: str, run_name_base: str) -> Dict[str, int]:
     model_safe = model.replace(":", "_")
-    run_name = f"{BASE_RUN_NAME}-{model_safe}"
+    run_name = f"{run_name_base}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
     select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
     select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
@@ -255,7 +252,7 @@ def get_ollama_model_info(model: str) -> Dict[str, Any]:
     }
 
 
-def write_results_tsv(results: Dict[str, Dict[str, Any]]) -> None:
+def write_results_tsv(results: Dict[str, Dict[str, Any]], result_tsv_path: Path) -> None:
     header = [
         "Model",
         "Parameter Size",
@@ -273,7 +270,7 @@ def write_results_tsv(results: Dict[str, Dict[str, Any]]) -> None:
         "Final Fields (max: 3000)",
     ]
 
-    with open(RESULTS_TSV_PATH, "w", newline="", encoding="utf-8") as f:
+    with open(result_tsv_path, "w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, delimiter="\t")
         writer.writerow(header)
 
@@ -314,31 +311,46 @@ def write_results_tsv(results: Dict[str, Dict[str, Any]]) -> None:
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--batch-name", required=True)
+    args = parser.parse_args()
+
+    run_name_base = f"model-eval-{args.batch_name}"
+    log_dir = HERE.joinpath("model-evaluation-batch-logs", args.batch_name)
+    result_tsv_path = HERE.joinpath(f"model_evaluation_results_{args.batch_name}.tsv")
+
     answer_mapping = load_answer_mapping()
 
+    models = list_models_from_log_dir(log_dir)
+
+    if not models:
+        raise RuntimeError(f"No log files found in {log_dir}")
+
     results = {}
-    for model in MODELS:
-        result: Dict[str, Any] = {}
+    for model in models:
+        try:
+            result: Dict[str, Any] = {}
 
-        time_results = parse_time_from_log(model)
-        result.update(time_results)
+            time_results = parse_time_from_log(model, log_dir)
+            result.update(time_results)
 
-        predicted_mapping = load_predicted_mapping(model)
-        evaluation_results = evaluate_mapping(predicted_mapping, answer_mapping)
-        result.update(evaluation_results)
+            predicted_mapping = load_predicted_mapping(model, run_name_base)
+            evaluation_results = evaluate_mapping(predicted_mapping, answer_mapping)
+            result.update(evaluation_results)
 
-        results_counts = count_results(model)
-        result.update(results_counts)
+            results_counts = count_results(model, run_name_base)
+            result.update(results_counts)
 
-        ollama_info = get_ollama_model_info(model)
-        result.update(ollama_info)
+            ollama_info = get_ollama_model_info(model)
+            result.update(ollama_info)
 
-        results[model] = result
+            results[model] = result
+        except Exception as e:
+            print(f"Error processing model {model}: {e}")
+            continue
 
-    # print(json.dumps(results, indent=2))
-
-    write_results_tsv(results)
-    print(f"Results written to {RESULTS_TSV_PATH}")
+    write_results_tsv(results, result_tsv_path)
+    print(f"Results written to {result_tsv_path}")
 
 
 if __name__ == "__main__":

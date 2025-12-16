@@ -1,33 +1,57 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Executed inside the container at /app
+
+usage() {
+    echo "Usage: $0 --batch-name <name"
+    exit 1
+}
+
+BATCH_NAME="default-batch"
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --batch-name)
+      BATCH_NAME="$2"
+      shift 2
+      ;;
+    -*)
+      echo "Unknown option: $1"
+      usage
+      ;;
+    *)
+      break
+      ;;
+  esac
+done
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 MODELS=(
   "deepseek-r1:8b"
   "deepseek-r1:32b"
-  "gemma3:4b"
   "gemma3:12b"
   "gemma3:27b"
-  "gpt-oss:20b"
-  "llama3.1:8b"
   "phi4:14b"
-  "qwen3:4b"
   "qwen3:8b"
   "qwen3:32b"
+  "gpt-oss:20b"
 )
 
 BS_ENTRIES="/app/tests/zenodo-data/biosample_cellosaurus_mapping_testset.json"
-SELECT_CONFIG="/app/scripts/select-config.json"
-BASE_RUN_NAME="models-with-large-dataset"
+SELECT_CONFIG="/app/scripts/select-config-hg38.json"
 
-LOG_BASE="${SCRIPT_DIR}/model-evaluation-batch-logs"
+RUN_NAME_BASE="model-eval-${BATCH_NAME}"
+LOG_BASE="${SCRIPT_DIR}/model-evaluation-batch-logs/${BATCH_NAME}"
+
 mkdir -p "$LOG_BASE"
 
 for model in "${MODELS[@]}"; do
     model_safe=$(echo "$model" | tr ':/' '__')
-    run_name="${BASE_RUN_NAME}-${model_safe}"
+    run_name="${RUN_NAME_BASE}-${model_safe}"
     log_file="${LOG_BASE}/${model_safe}.log"
+
+    docker restart bsllmner-mk2-ollama > /dev/null 2>&1 || true
 
     echo "=== Running model: $model (run-name: $run_name) ==="
 

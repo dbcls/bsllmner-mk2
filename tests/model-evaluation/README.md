@@ -74,7 +74,7 @@ These fields are extracted and then ontology candidates are selected.
 The batch script:
 
 ```bash
-bash run-model-evaluation-batch.sh
+bash run-model-evaluation-batch.sh --batch-name <something-batch-name>
 ```
 
 Executes, for each model:
@@ -102,7 +102,7 @@ bsllmner2_select \
 Once all models complete, run:
 
 ```bash
-python tests/model-evaluation/evaluation_results.py
+python tests/model-evaluation/evaluation_results.py --batch-name <something-batch-name>
 ```
 
 This script:
@@ -126,29 +126,43 @@ This script:
 Extraction/selection JSON files are copied for archival:
 
 ```bash
-mkdir -p ./model-evaluation-results/extract
-mkdir -p ./model-evaluation-results/select
+export BATCH_NAME="your-batch-name"
+mkdir -p ./model-evaluation-results/${BATCH_NAME}/extract
+mkdir -p ./model-evaluation-results/${BATCH_NAME}/select
 
-cp -r /app/bsllmner2-results/extract/models-with-large-dataset-* ./model-evaluation-results/extract/
-cp -r /app/bsllmner2-results/select/select_models-with-large-dataset-* ./model-evaluation-results/select/
+cp -r /app/bsllmner2-results/extract/model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/extract/
+cp -r /app/bsllmner2-results/select/model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/select/
 ```
 
 Directory structure:
 
 ```bash
 model-evaluation-results/
-├── extract
-│   ├── models-with-large-dataset-deepseek-r1_32b.json
-│   ├── models-with-large-dataset-deepseek-r1_8b.json
-│   ├── models-with-large-dataset-gemma3_12b.json
-│   ├── ...
-│   └── models-with-large-dataset-qwen3_8b.json
-└── select
-    ├── select_models-with-large-dataset-deepseek-r1_32b.json
-    ├── select_models-with-large-dataset-deepseek-r1_8b.json
-    ├── select_models-with-large-dataset-gemma3_12b.json
-    ├── ...
-    └── select_models-with-large-dataset-qwen3_8b.json
+└── your-batch-name
+    ├── extract
+    │   ├── model-eval-251127-1-deepseek-r1_32b.json
+    │   ├── model-eval-251127-1-deepseek-r1_8b.json
+    │   ├── model-eval-251127-1-gemma3_12b.json
+    │   ├── model-eval-251127-1-gemma3_27b.json
+    │   ├── model-eval-251127-1-gemma3_4b.json
+    │   ├── model-eval-251127-1-gpt-oss_20b.json
+    │   ├── model-eval-251127-1-llama3.1_8b.json
+    │   ├── model-eval-251127-1-phi4_14b.json
+    │   ├── model-eval-251127-1-qwen3_32b.json
+    │   ├── model-eval-251127-1-qwen3_4b.json
+    │   └── model-eval-251127-1-qwen3_8b.json
+    └── select
+        ├── select_model-eval-251127-1-deepseek-r1_32b.json
+        ├── select_model-eval-251127-1-deepseek-r1_8b.json
+        ├── select_model-eval-251127-1-gemma3_12b.json
+        ├── select_model-eval-251127-1-gemma3_27b.json
+        ├── select_model-eval-251127-1-gemma3_4b.json
+        ├── select_model-eval-251127-1-gpt-oss_20b.json
+        ├── select_model-eval-251127-1-llama3.1_8b.json
+        ├── select_model-eval-251127-1-phi4_14b.json
+        ├── select_model-eval-251127-1-qwen3_32b.json
+        ├── select_model-eval-251127-1-qwen3_4b.json
+        └── select_model-eval-251127-1-qwen3_8b.json
 ```
 
 These files can be used for debugging or manual analysis.

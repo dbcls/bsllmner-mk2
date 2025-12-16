@@ -4,7 +4,7 @@
       "ontology_file": "/app/ontology/cellosaurus.owl",
       "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc.",
       "ontology_filter": {
-        "hasDbXref": "NCBI_TaxID:10090"
+        "hasDbXref": "NCBI_TaxID:9606"
       }
     },
     "cell_type": {
@@ -17,7 +17,10 @@
     },
     "disease": {
       "ontology_file": "/app/ontology/mondo.owl",
-      "prompt_description": "Disease is an abnormal state of the body or its parts that impairs normal function. e.g., lung cancer, down syndrome, etc."
+      "prompt_description": "Disease is an abnormal state of the body or its parts that impairs normal function. e.g., lung cancer, down syndrome, etc.",
+      "ontology_filter": {
+        "hasDbXref": "NCBITaxon:9606"
+      }
     },
     "drug": {
       "ontology_file": "/app/ontology/chebi.owl",
