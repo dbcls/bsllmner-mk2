@@ -1,8 +1,0 @@
-Model	Parameter Size	Context Length	Embedding Length	Accuracy (%)	Precision (%)	Recall (%)	F1-score	Extract LLM Time (sec)	Selection LLM Time (sec)	Total Time (sec)	Extracted Fields (max: 3000)	Selected Fields (max: 3000)	Final Fields (max: 3000)
-deepseek-r1:32b	32.8B	131072	5120	50.17	0.0	0.0		492.0	186.0	678.0	1344	206	720
-deepseek-r1:8b	8.2B	131072	4096	50.17	0.0	0.0		170.0	57.0	227.0	1088	174	514
-gemma3:12b	12.2B	131072	3840	50.17	0.0	0.0		293.0	146.0	439.0	1259	246	774
-gemma3:27b	27.4B	131072	5376	50.17	0.0	0.0		472.0	305.0	777.0	1507	291	923
-phi4:14b	14.7B	16384	5120	50.17	0.0	0.0		284.0	121.0	405.0	1398	283	816
-qwen3:32b	32.8B	40960	5120	50.17	0.0	0.0		304.0	334.0	638.0	1440	253	818
-qwen3:8b	8.2B	40960	4096	49.83	0.0	0.0		127.0	85.0	212.0	1354	235	888

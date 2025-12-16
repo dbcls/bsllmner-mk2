@@ -131,7 +131,7 @@ mkdir -p ./model-evaluation-results/${BATCH_NAME}/extract
 mkdir -p ./model-evaluation-results/${BATCH_NAME}/select
 
 cp -r /app/bsllmner2-results/extract/model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/extract/
-cp -r /app/bsllmner2-results/select/model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/select/
+cp -r /app/bsllmner2-results/select/select_model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/select/
 ```
 
 Directory structure:
