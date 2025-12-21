@@ -174,11 +174,11 @@ async def run_cli_select_async() -> None:
     extract_outputs: List[LlmOutput] = []
     select_results: List[SelectResult] = []
     if args.resume:
-        resume_extract_outputs = load_extract_resume_file(run_name)
-        extract_outputs.extend(resume_extract_outputs)
         resume_select_results = load_select_resume_file(run_name)
         select_results.extend(resume_select_results)
-        done_ids = set(output.accession for output in resume_extract_outputs)
+        done_ids = set(output.accession for output in resume_select_results)
+        resume_extract_outputs = load_extract_resume_file(run_name)
+        extract_outputs = [o for o in resume_extract_outputs if o.accession in done_ids]
         if done_ids:
             LOGGER.info("Skipping %d already processed entries.", len(done_ids))
             bs_entries = [entry for entry in bs_entries if entry.get("accession") not in done_ids]
