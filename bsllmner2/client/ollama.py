@@ -361,7 +361,14 @@ def _text2term_wrapper(
         if not queries:
             continue
 
-        text2term_results = search_terms_with_text2term(queries, ontology_file_path)
+        try:
+            text2term_results = search_terms_with_text2term(queries, ontology_file_path)
+        except Exception as e:  # pylint: disable=broad-except
+            LOGGER.exception(
+                "text2term failed. field: %s, error: %s",
+                field_name, e,
+            )
+            text2term_results = {}
 
         for res in select_results:
             if not isinstance(res.extract_output, dict):

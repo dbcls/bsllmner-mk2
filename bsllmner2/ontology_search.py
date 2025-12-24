@@ -508,6 +508,9 @@ def search_terms_with_text2term(
             label_list = index.term_id_to_labels.get(term_id, [])  # pylint: disable=E1101
             label = label_list[0] if label_list else None
 
+            if prop_uri is None or label is None:
+                continue
+
             result = SearchResult(
                 term_uri=term_uri,
                 term_id=term_id,
