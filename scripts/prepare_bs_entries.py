@@ -107,6 +107,8 @@ async def download_chip_atlas_experiment_list(
         LOGGER.info("%s already exists. Skipping download.", path.name)
         return None
 
+    path.parent.mkdir(parents=True, exist_ok=True)
+
     LOGGER.info("Downloading %s from %s...", path.name, url)
 
     async with httpx.AsyncClient(timeout=60.0) as client:
@@ -213,6 +215,8 @@ async def download_sra_accessions_file(
     if path.exists() and not force:
         LOGGER.info("%s already exists. Skipping download.", path.name)
         return None
+
+    path.parent.mkdir(parents=True, exist_ok=True)
 
     LOGGER.info("Downloading %s from %s...", path.name, url)
 
