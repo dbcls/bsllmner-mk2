@@ -1,6 +1,6 @@
 import json
 import traceback
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
@@ -182,7 +182,8 @@ def to_result(
 
 
 def get_now_str() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+    """Return current UTC time as string in YYYYMMDD_HHMMSS format."""
+    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
 
 
 def compute_processing_time(start_time: str, end_time: str) -> float:
@@ -483,3 +484,45 @@ def remove_resume_files(run_name: str) -> None:
     select_resume_file_path = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
     if select_resume_file_path.exists():
         select_resume_file_path.unlink()
+
+
+def validate_resume_consistency(
+    extract_outputs: List[LlmOutput],
+    select_results: List[SelectResult],
+    run_name: str,
+) -> tuple[set[str], set[str]]:
+    """
+    Validate consistency between extract and select resume data.
+
+    Detects orphaned entries (extract completed but select not completed)
+    and invalid entries (select exists but extract missing).
+
+    Returns:
+        Tuple of (done_ids, orphan_ids):
+        - done_ids: IDs that have both extract and select completed
+        - orphan_ids: IDs that have extract but not select (need reprocessing)
+
+    Raises:
+        ResumeDataError: If select has entries that extract doesn't have
+    """
+    from bsllmner2.errors import ResumeDataError
+
+    extract_ids = {output.accession for output in extract_outputs}
+    select_ids = {result.accession for result in select_results}
+
+    # IDs in select but not in extract = data corruption
+    invalid_ids = select_ids - extract_ids
+    if invalid_ids:
+        raise ResumeDataError(
+            run_name,
+            f"Select resume contains {len(invalid_ids)} entries not found in extract resume: "
+            f"{sorted(invalid_ids)[:5]}{'...' if len(invalid_ids) > 5 else ''}"
+        )
+
+    # IDs in both = completed
+    done_ids = extract_ids & select_ids
+
+    # IDs in extract but not in select = orphans (need reprocessing)
+    orphan_ids = extract_ids - select_ids
+
+    return done_ids, orphan_ids

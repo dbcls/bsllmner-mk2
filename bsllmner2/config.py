@@ -38,6 +38,13 @@ default_config = Config()
 ENV_PREFIX = "BSLLMNER2_"
 
 
+def _parse_bool_env(value: str | bool) -> bool:
+    """Parse environment variable value as boolean."""
+    if isinstance(value, bool):
+        return value
+    return value.lower() in ("true", "1", "yes", "on")
+
+
 def get_config() -> Config:
     """
     Get the application configuration.
@@ -46,9 +53,12 @@ def get_config() -> Config:
     Returns:
         Config: The current application configuration.
     """
+    debug_env = os.environ.get(f"{ENV_PREFIX}DEBUG")
+    debug = _parse_bool_env(debug_env) if debug_env is not None else default_config.debug
+
     return Config(
         ollama_host=os.environ.get("OLLAMA_HOST", default_config.ollama_host),
-        debug=bool(os.environ.get(f"{ENV_PREFIX}DEBUG", default_config.debug)),
+        debug=debug,
         api_host=os.environ.get(f"{ENV_PREFIX}API_HOST", default_config.api_host),
         api_port=int(os.environ.get(f"{ENV_PREFIX}API_PORT", default_config.api_port)),
         api_url_prefix=os.environ.get(f"{ENV_PREFIX}API_URL_PREFIX", default_config.api_url_prefix)

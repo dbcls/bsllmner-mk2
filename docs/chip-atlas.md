@@ -1,0 +1,313 @@
+# ChIP-Atlas Data Processing
+
+This guide explains how to process ChIP-Atlas data using bsllmner-mk2 for both human (hg38) and mouse (mm10) genome assemblies.
+
+## Overview
+
+### What is ChIP-Atlas?
+
+[ChIP-Atlas](https://chip-atlas.org) is a comprehensive data-mining suite for exploring epigenomic landscapes by fully integrating ChIP-seq, ATAC-seq, DNase-seq, and Bisulfite-seq experiments.
+
+### Relationship with bsllmner-mk2
+
+- Each SRX (experiment) entry in ChIP-Atlas is linked to a BioSample record
+- SRX and BioSample have a one-to-one relationship
+- ChIP-Atlas provides human-curated metadata values for each experiment
+- bsllmner-mk2 can extract and map values from BioSample records using LLM
+- This enables benchmarking LLM-based NER against human-curated annotations
+
+## Prerequisites
+
+Before processing ChIP-Atlas data, ensure:
+
+1. Docker environment is running (see [quick-start.md](quick-start.md))
+2. Ontology files are downloaded and converted:
+
+    ```bash
+    docker compose exec app python3 scripts/download_ontology_files.py
+
+    # Convert Cellosaurus OBO to OWL
+    cd ontology
+    docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert \
+      -i ./cellosaurus.obo \
+      -o ./cellosaurus.owl \
+      --format owl
+    cd ..
+    ```
+
+3. LLM model is downloaded:
+
+    ```bash
+    docker compose exec ollama ollama pull llama3.1:70b
+    ```
+
+## Data Preparation
+
+### scripts/prepare_bs_entries.py
+
+This script downloads and prepares BioSample entries from ChIP-Atlas:
+
+```bash
+# Inside Docker container
+docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly <GENOME>
+```
+
+**Options:**
+
+- `--genome-assembly`: Filter by genome assembly (e.g., `hg38`, `mm10`)
+- `--force`: Re-download files even if they already exist
+
+**Output Files** (in `chip-atlas-data/`):
+
+| File | Description |
+|------|-------------|
+| `experimentList.tab` | Raw metadata from ChIP-Atlas |
+| `experimentList.json` | Parsed experiment metadata |
+| `SRA_Accessions.tab` | SRX to BioSample mapping source |
+| `srx_to_biosample.json` | SRX to BioSample ID mapping |
+| `bs_entries.jsonl` | BioSample entries (one per line) |
+| `bs_entries/{prefix}/{accession}.json` | Cached individual BioSample files |
+
+## Select Configuration
+
+### Configuration Structure
+
+The `select-config.json` file defines which fields to extract and map to ontologies:
+
+```json
+{
+  "fields": {
+    "field_name": {
+      "ontology_file": "/app/ontology/example.owl",
+      "prompt_description": "Description for LLM",
+      "ontology_filter": {
+        "hasDbXref": "NCBI_TaxID:9606"
+      },
+      "value_type": "string"
+    }
+  }
+}
+```
+
+**Field Properties:**
+
+| Property | Required | Description |
+|----------|----------|-------------|
+| `ontology_file` | No | Path to OWL/TSV file for ontology lookup |
+| `prompt_description` | No | Description to help LLM understand the field |
+| `ontology_filter` | No | Filter conditions (e.g., TaxID restriction) |
+| `value_type` | No | `"string"` (default) or `"array"` for multiple values |
+
+### Provided Configuration Files
+
+| File | TaxID | Fields | Use Case |
+|------|-------|--------|----------|
+| `select-config.json` | 9606 | 7 (cell_line, cell_type, tissue, disease, drug, gene, gene_perturbation) | Full extraction with gene info |
+| `select-config-hg38.json` | 9606 | 5 (cell_line, cell_type, tissue, disease, drug) | Human ChIP-Atlas evaluation |
+| `select-config-mm10.json` | 10090 | 5 (cell_line, cell_type, tissue, disease, drug) | Mouse ChIP-Atlas evaluation |
+
+**Note:** You should customize the select-config based on your specific needs.
+
+### Key Differences Between hg38 and mm10 Configs
+
+| Aspect | hg38 | mm10 |
+|--------|------|------|
+| cell_line TaxID filter | `NCBI_TaxID:9606` | `NCBI_TaxID:10090` |
+| disease TaxID filter | `NCBITaxon:9606` | None (no filter) |
+
+## Processing hg38 (Human)
+
+### 1. Prepare Data
+
+```bash
+docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly hg38
+```
+
+This downloads and processes human experiments from ChIP-Atlas.
+
+### 2. Run Select Mode
+
+```bash
+docker compose exec app bsllmner2_select \
+  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
+  --model llama3.1:70b \
+  --select-config ./scripts/select-config-hg38.json \
+  --run-name hg38-full \
+  --debug
+```
+
+### 3. Check Results
+
+```bash
+ls bsllmner2-results/extract/
+ls bsllmner2-results/select/
+```
+
+## Processing mm10 (Mouse)
+
+### 1. Index Cache Cleanup (Important!)
+
+When switching between genome assemblies, you **must** clear the ontology index cache because the TaxID filters differ:
+
+```bash
+rm -rf ./ontology/index_cache/cellosaurus.owl.pkl
+rm -rf ./ontology/index_cache/mondo.owl.pkl
+```
+
+**Why is this necessary?**
+
+- The index cache stores filtered ontology entries based on TaxID
+- hg38 uses TaxID:9606 (human), mm10 uses TaxID:10090 (mouse)
+- Without clearing, mouse runs would use human-filtered indices
+
+### 2. Backup Existing Data (if switching from hg38)
+
+```bash
+# Optional: backup hg38 data before overwriting
+mv chip-atlas-data/bs_entries.jsonl chip-atlas-data/bs_entries_hg38.jsonl
+mv chip-atlas-data/experimentList.json chip-atlas-data/experimentList_hg38.json
+mv chip-atlas-data/srx_to_biosample.json chip-atlas-data/srx_to_biosample_hg38.json
+```
+
+### 3. Prepare Data
+
+```bash
+docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly mm10
+```
+
+### 4. Run Select Mode
+
+```bash
+docker compose exec app bsllmner2_select \
+  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
+  --model llama3.1:70b \
+  --select-config ./scripts/select-config-mm10.json \
+  --run-name mm10-full \
+  --debug
+```
+
+## Large-Scale Processing Tips
+
+### Test with Limited Entries
+
+Before processing the full dataset, test with a subset:
+
+```bash
+docker compose exec app bsllmner2_select \
+  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
+  --select-config ./scripts/select-config-hg38.json \
+  --model llama3.1:70b \
+  --max-entries 100 \
+  --run-name hg38-test
+```
+
+### Resume Interrupted Processing
+
+If processing is interrupted, resume from where it left off:
+
+```bash
+docker compose exec app bsllmner2_select \
+  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
+  --select-config ./scripts/select-config-hg38.json \
+  --model llama3.1:70b \
+  --run-name hg38-full \
+  --resume
+```
+
+### Adjust Batch Size
+
+If you encounter memory issues, reduce the batch size:
+
+```bash
+docker compose exec app bsllmner2_select \
+  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
+  --select-config ./scripts/select-config-hg38.json \
+  --model llama3.1:70b \
+  --batch-size 256 \
+  --run-name hg38-full
+```
+
+Default batch size is 1024.
+
+### Sample Data for Quick Testing
+
+Create a smaller dataset by sampling:
+
+```bash
+# Sample every 350th entry (reduces ~188k to ~500 entries)
+awk 'NR % 350 == 1' chip-atlas-data/bs_entries.jsonl > chip-atlas-data/bs_entries.small.jsonl
+
+# Run on sampled data
+docker compose exec app bsllmner2_select \
+  --bs-entries ./chip-atlas-data/bs_entries.small.jsonl \
+  --select-config ./scripts/select-config-mm10.json \
+  --model llama3.1:70b \
+  --run-name mm10-test-small
+```
+
+## Troubleshooting
+
+### Index Cache Issues
+
+**Symptom:** Wrong species results (e.g., human cell lines in mouse run)
+
+**Solution:**
+
+```bash
+# Clear all index caches
+rm -rf ./ontology/index_cache/*.pkl
+```
+
+### Out of Memory Errors
+
+**Symptom:** Container crashes during processing
+
+**Solutions:**
+
+1. Reduce `--batch-size` (e.g., `--batch-size 128`)
+2. Reduce Ollama parallel requests in `compose.yml`:
+
+   ```yaml
+   environment:
+     - OLLAMA_NUM_PARALLEL=8  # reduce from 16
+   ```
+
+3. Use a smaller model (e.g., `llama3.1:8b` instead of `llama3.1:70b`)
+
+### Data Download Failures
+
+**Symptom:** Network errors during `prepare_bs_entries.py`
+
+**Solution:**
+
+```bash
+# Re-run with --force to retry failed downloads
+docker compose exec app python3 scripts/prepare_bs_entries.py \
+  --genome-assembly hg38 \
+  --force
+```
+
+### Missing Ontology Files
+
+**Symptom:** FileNotFoundError for `.owl` files
+
+**Solution:**
+
+1. Run the download script: `python3 scripts/download_ontology_files.py`
+2. Convert Cellosaurus OBO to OWL (see Prerequisites section)
+
+## Data Volume Reference
+
+Approximate data sizes by genome assembly:
+
+| Assembly | Experiments | BioSample Entries |
+|----------|-------------|-------------------|
+| hg38 | ~200,000+ | ~150,000+ |
+| mm10 | ~188,000 | ~140,000 |
+
+Processing times vary based on:
+
+- Model size (larger models = slower but more accurate)
+- GPU performance
+- Number of parallel requests (`OLLAMA_NUM_PARALLEL`)
+- Batch size

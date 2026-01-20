@@ -19,6 +19,10 @@ Related resources:
 - Original repository: [sh-ikeda/bsllmner](https://github.com/sh-ikeda/bsllmner)
 - Related paper: [https://doi.org/10.1101/2025.02.17.638570](https://doi.org/10.1101/2025.02.17.638570)
 
+## Quick Start
+
+For a step-by-step guide to get started quickly, see **[docs/quick-start.md](docs/quick-start.md)**.
+
 ## Installation
 
 `bsllmner-mk2` is provided as a Python package and CLI tool.
@@ -74,10 +78,11 @@ To see all available options, run:
 
 ```sh
 bsllmner2_extract --help
-usage: bsllmner2_extract [-h] --bs-entries BS_ENTRIES --mapping MAPPING
+usage: bsllmner2_extract [-h] --bs-entries BS_ENTRIES [--mapping MAPPING]
                          [--prompt PROMPT] [--format FORMAT] [--model MODEL]
                          [--thinking {true,false}] [--max-entries MAX_ENTRIES]
                          [--ollama-host OLLAMA_HOST] [--with-metrics] [--debug]
+                         [--run-name RUN_NAME] [--resume] [--batch-size BATCH_SIZE]
 
 Named Entity Recognition (NER) of biological terms in BioSample records using
 LLMs, developed as bsllmner-mk2.
@@ -103,17 +108,22 @@ options:
                         http://localhost:11434)
   --with-metrics        Enable collection of metrics during processing.
   --debug               Enable debug mode for more verbose logging.
+  --run-name RUN_NAME   Name of the run for identification purposes.
+  --resume              Resume from the last incomplete run if possible.
+  --batch-size BATCH_SIZE
+                        Number of entries to process in each batch (default: 1024).
 ```
 
 ### Main Options
 
-- `--bs-entries`
+- `--bs-entries` (Required)
   - Path to the input JSON or JSONL file containing BioSample entries.
   - Examples:
     - [`tests/test-data/cell_line_example.biosample.json`](./tests/test-data/cell_line_example.biosample.json) (small dataset)
     - [`tests/zenodo-data/biosample_cellosaurus_mapping_testset.json`](./tests/zenodo-data/biosample_cellosaurus_mapping_testset.json) (large dataset)
-- `--mapping`
-  - Path to the mapping file in TSV format.
+- `--mapping` (Optional)
+  - Path to the mapping file in TSV format for evaluation.
+  - If provided, evaluation metrics (precision, recall, F1) will be calculated.
   - Examples:
     - [`tests/test-data/cell_line_example.mapping.tsv`](./tests/test-data/cell_line_example.mapping.tsv) (small dataset)
     - [`tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv`](./tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv) (large dataset)
@@ -125,6 +135,16 @@ options:
   - Path to the JSON schema file for the output format.
   - Examples:
     - [`bsllmner2/format/cell_line.schema.json`](./bsllmner2/format/cell_line.schema.json)
+- `--run-name`
+  - Custom name for the run. Used for result file naming and resume functionality.
+  - Default: `{model}_{timestamp}`
+- `--resume`
+  - Resume processing from the last incomplete run.
+  - Requires `--run-name` to match a previous run.
+- `--batch-size`
+  - Number of entries to process in each batch.
+  - Default: 1024
+  - Reduce this value if you encounter memory issues.
 
 ### Example Command
 
@@ -222,13 +242,52 @@ For more details, refer directly to the configuration in [`compose.yml`](./compo
 
 ## Select
 
-```
+Select mode extends extract mode by mapping extracted terms to ontology entries.
+
+```bash
 docker compose exec app bsllmner2_select \
   --debug \
   --bs-entries tests/test-data/cell_line_example.biosample.json \
   --model llama3.1:70b \
   --select-config ./scripts/select-config.json
 ```
+
+### Select Options
+
+In addition to the common options from extract mode, `bsllmner2_select` has:
+
+- `--select-config` (Required)
+  - Path to the select configuration file in JSON format.
+  - Defines which fields to extract and their corresponding ontology files.
+  - Examples:
+    - [`scripts/select-config.json`](./scripts/select-config.json) - Full configuration with gene fields
+    - [`scripts/select-config-hg38.json`](./scripts/select-config-hg38.json) - Human (hg38) configuration
+    - [`scripts/select-config-mm10.json`](./scripts/select-config-mm10.json) - Mouse (mm10) configuration
+- `--no-reasoning`
+  - Disable reasoning step during selection.
+  - When enabled, the LLM will not provide explanations for its selections.
+
+### Select Configuration
+
+The select configuration file defines which fields to extract and map to ontologies:
+
+```json
+{
+  "fields": {
+    "cell_line": {
+      "ontology_file": "/app/ontology/cellosaurus.owl",
+      "prompt_description": "Cell line is a group of cells...",
+      "ontology_filter": { "hasDbXref": "NCBI_TaxID:9606" }
+    },
+    "tissue": {
+      "ontology_file": "/app/ontology/uberon.owl",
+      "prompt_description": "Tissue is a group of cells..."
+    }
+  }
+}
+```
+
+For detailed configuration options, see [docs/chip-atlas.md](docs/chip-atlas.md#select-configuration).
 
 ## bsllmner-mk2 with ChIP-Atlas
 
@@ -238,17 +297,37 @@ Since SRX and BioSample entries are in a one-to-one relationship, we can provide
 
 This enables benchmarking and evaluation of LLM-based NER and ontology mapping against expert-curated annotations.
 
-TODO: docs...
+For detailed instructions on processing ChIP-Atlas data with hg38 and mm10 genome assemblies, see **[docs/chip-atlas.md](docs/chip-atlas.md)**.
 
 ## Download Ontology Files for Searching
 
-You can download ontology files in OBO format file from [Cellosaurus](https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo).
+### Using the Download Script
 
-```sh
-mkdir -p ontology
+To download all required ontology files, run the following command:
+
+```bash
+docker compose exec app python3 scripts/download_ontology_files.py
+```
+
+This downloads:
+
+- `cellosaurus.obo` - Cell line database (needs conversion to OWL)
+- `cell_ontology.owl` - Cell Ontology
+- `uberon.owl` - UBERON (anatomy ontology)
+- `mondo.owl` - MONDO (disease ontology)
+- `chebi.owl` - ChEBI (chemical entities)
+
+### Converting Cellosaurus OBO to OWL
+
+Cellosaurus is downloaded in OBO format and must be converted to OWL:
+
+```bash
 cd ontology
-curl -O https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo
-docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert -i ./cellosaurus.obo -o ./cellosaurus.owl --format owl
+docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert \
+  -i ./cellosaurus.obo \
+  -o ./cellosaurus.owl \
+  --format owl
+cd ..
 ```
 
 ## License

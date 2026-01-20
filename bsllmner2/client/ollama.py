@@ -1,6 +1,7 @@
 import asyncio
 import copy
 import json
+import os
 import pickle
 import re
 from pathlib import Path
@@ -110,9 +111,13 @@ async def ner(
     thinking: Optional[bool] = None,
     progress_file_path: Optional[Path] = None,
 ) -> List[LlmOutput]:
+    from bsllmner2.errors import OllamaConnectionError
+
     client = ollama.AsyncClient(host=config.ollama_host)
     messages = _construct_messages(prompt)
     outputs: List[LlmOutput] = []
+    error_count = 0
+    connection_tested = False
 
     progress_file: Optional[IO[str]] = None
     if progress_file_path:
@@ -121,6 +126,7 @@ async def ner(
     sem = asyncio.Semaphore(256)
 
     async def _process_entry(entry: Dict[str, Any]) -> Optional[LlmOutput]:
+        nonlocal error_count, connection_tested
         async with sem:
             accession = entry.get("accession", None)
             if accession is None:
@@ -139,8 +145,16 @@ async def ner(
                     think=thinking,
                     format=format_,
                 )
+                connection_tested = True
+            except (ConnectionError, OSError) as e:
+                if not connection_tested:
+                    raise OllamaConnectionError(config.ollama_host, e) from e
+                LOGGER.error("Connection error for entry %s: %s", accession, e)
+                error_count += 1
+                return None
             except Exception as e:  # pylint: disable=broad-except
                 LOGGER.error("Error processing entry %s: %s", accession, e)
+                error_count += 1
                 return None
 
             output = _construct_output(entry, response)
@@ -159,6 +173,13 @@ async def ner(
     finally:
         if progress_file:
             progress_file.close()
+
+    if error_count > 0:
+        LOGGER.warning(
+            "Completed with %d errors out of %d entries (%.1f%% success rate)",
+            error_count, len(bs_entries),
+            (len(bs_entries) - error_count) / len(bs_entries) * 100
+        )
 
     return outputs
 
@@ -188,7 +209,7 @@ def _pick_exact_match_search_result(
     return exact_matches[0]
 
 
-INDEX_CACHE_DIR = Path("/app/ontology/index_cache")
+INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontology/index_cache"))
 INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 

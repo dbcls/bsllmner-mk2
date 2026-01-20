@@ -1,13 +1,13 @@
 import argparse
 import asyncio
-import math
 import sys
 from pathlib import Path
 from typing import List, Tuple
 
+from bsllmner2.cli_common import (BatchInfo, add_common_arguments,
+                                  process_batches, validate_common_args)
 from bsllmner2.client.ollama import build_index_map, ner, select
-from bsllmner2.config import (LOGGER, RESUME_BATCH_SIZE, Config,
-                              default_config, get_config, set_logging_level)
+from bsllmner2.config import LOGGER, Config, get_config, set_logging_level
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import (CliSelectArgs, LlmOutput, RunMetadata,
                               SelectResult)
@@ -18,7 +18,8 @@ from bsllmner2.utils import (build_extract_prompt_for_select,
                              evaluate_output, get_now_str, load_bs_entries,
                              load_extract_resume_file, load_mapping,
                              load_select_config, load_select_resume_file,
-                             remove_resume_files, to_result)
+                             remove_resume_files, to_result,
+                             validate_resume_consistency)
 
 
 def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
@@ -26,79 +27,14 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
     Parse command-line arguments for the bsllmner2 CLI select mode.
 
     Returns:
-        Args: Parsed command-line arguments.
+        Tuple of Config and CliSelectArgs.
     """
-    def str_to_bool(v: str) -> bool:
-        return v.lower() == "true"
-
     parser = argparse.ArgumentParser(
-        description="Named Entity Recognition (NER) of biological terms in BioSample records using LLMs, developed as bsllmner-mk2.",
+        description="Named Entity Recognition (NER) and ontology mapping for BioSample records using LLMs.",
     )
-    parser.add_argument(
-        "--bs-entries",
-        type=Path,
-        required=True,
-        help="Path to the input JSON or JSONL file containing BioSample entries.",
-    )
-    parser.add_argument(
-        "--mapping",
-        type=Path,
-        help="Path to the mapping file in TSV format.",
-    )
-    parser.add_argument(
-        "--model",
-        type=str,
-        default="llama3.1:70b",
-        help="LLM model to use for NER.",
-    )
-    parser.add_argument(
-        "--thinking",
-        choices=[True, False],
-        type=str_to_bool,
-        help="Enable or disable thinking mode for the LLM. Use 'true' to enable thinking, 'false' to disable it.",
-    )
-    parser.add_argument(
-        "--max-entries",
-        type=int,
-        default=-1,
-        help="""\
-            Process only the first N entries from the input file.
-            Default is -1, which means all entries will be processed.
-        """,
-    )
-    parser.add_argument(
-        "--ollama-host",
-        type=str,
-        default=None,
-        help=f"Host URL for the Ollama server (default: {default_config.ollama_host}",
-    )
-    parser.add_argument(
-        "--with-metrics",
-        action="store_true",
-        help="Enable collection of metrics during processing.",
-    )
-    parser.add_argument(
-        "--debug",
-        action="store_true",
-        help="Enable debug mode for more verbose logging.",
-    )
-    parser.add_argument(
-        "--run-name",
-        type=str,
-        default=None,
-        help="Name of the run for identification purposes.",
-    )
-    parser.add_argument(
-        "--resume",
-        action="store_true",
-        help="Resume from the last incomplete run if possible.",
-    )
-    parser.add_argument(
-        "--batch-size",
-        type=int,
-        default=RESUME_BATCH_SIZE,
-        help="Number of entries to process in each batch when resuming. Default is None, which uses the default batch size.",
-    )
+
+    # Add common arguments
+    add_common_arguments(parser)
 
     # Select mode specific arguments
     parser.add_argument(
@@ -116,17 +52,18 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
 
     parsed_args = parser.parse_args(args)
 
-    # Priority: CLI argument > Environment variable > Default config (from config.py)
+    # Validate common arguments
+    validate_common_args(parsed_args)
+
+    # Validate select-specific arguments
+    if not parsed_args.select_config.exists():
+        raise FileNotFoundError(f"Select configuration file {parsed_args.select_config} does not exist.")
+
+    # Build config (CLI args override environment/defaults)
     config = get_config()
-    if not parsed_args.bs_entries.exists():
-        raise FileNotFoundError(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
     if parsed_args.ollama_host:
         config.ollama_host = parsed_args.ollama_host
     config.debug = parsed_args.debug
-
-    # Select mode specific checks
-    if not parsed_args.select_config.exists():
-        raise FileNotFoundError(f"Select configuration file {parsed_args.select_config} does not exist.")
 
     return config, CliSelectArgs(
         bs_entries=parsed_args.bs_entries.resolve(),
@@ -147,6 +84,8 @@ async def run_cli_select_async() -> None:
     """
     Run the CLI for bsllmner2 select mode.
     """
+    from bsllmner2.errors import Bsllmner2Error
+
     LOGGER.info("Starting bsllmner2 CLI select mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
@@ -174,44 +113,96 @@ async def run_cli_select_async() -> None:
     extract_outputs: List[LlmOutput] = []
     select_results: List[SelectResult] = []
     if args.resume:
-        resume_select_results = load_select_resume_file(run_name)
-        select_results.extend(resume_select_results)
-        done_ids = set(output.accession for output in resume_select_results)
         resume_extract_outputs = load_extract_resume_file(run_name)
+        resume_select_results = load_select_resume_file(run_name)
+
+        # Validate consistency and detect orphans
+        done_ids, orphan_ids = validate_resume_consistency(
+            resume_extract_outputs, resume_select_results, run_name
+        )
+
+        if orphan_ids:
+            LOGGER.warning(
+                "Found %d orphan entries (extract completed but select not completed). "
+                "These will be reprocessed: %s%s",
+                len(orphan_ids),
+                sorted(orphan_ids)[:5],
+                "..." if len(orphan_ids) > 5 else ""
+            )
+
+        # Keep only fully completed entries
+        select_results.extend(resume_select_results)
         extract_outputs = [o for o in resume_extract_outputs if o.accession in done_ids]
+
         if done_ids:
             LOGGER.info("Skipping %d already processed entries.", len(done_ids))
             bs_entries = [entry for entry in bs_entries if entry.get("accession") not in done_ids]
 
     select_index_map = build_index_map(select_config)
 
+    metrics_collector = None
     if args.with_metrics:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
-    try:
-        LOGGER.info("Processing %d BioSample entries...", len(bs_entries))
-        batches = math.ceil(len(bs_entries) / args.batch_size)
-        for batch_idx in range(batches):
-            start_idx = batch_idx * args.batch_size
-            end_idx = min(start_idx + args.batch_size, len(bs_entries))
-            LOGGER.info("[BATCH %d/%d] entries from %d to %d", batch_idx + 1, batches, start_idx + 1, end_idx)
-            batch_entries = bs_entries[start_idx:end_idx]
-            LOGGER.info("Extracting entities...")
-            batch_extract_outputs = await ner(config, batch_entries, prompt, format_, args.model, args.thinking)
-            LOGGER.info("Selecting entities...")
-            extract_outputs.extend(batch_extract_outputs)
-            batch_select_results = await select(config, batch_entries, args.model, batch_extract_outputs, select_config, args.thinking, include_reasoning=args.include_reasoning, index_map=select_index_map)
-            select_results.extend(batch_select_results)
 
-            # Dump intermediate results for resuming
+    status = "completed"
+    end_time = None
+    try:
+        async def process_select_batch(
+            batch_info: BatchInfo,
+        ) -> Tuple[List[LlmOutput], List[SelectResult]]:
+            LOGGER.info("Extracting entities...")
+            batch_extract_outputs = await ner(
+                config, batch_info.entries, prompt, format_, args.model, args.thinking
+            )
+            LOGGER.info("Selecting entities...")
+            batch_select_results = await select(
+                config,
+                batch_info.entries,
+                args.model,
+                batch_extract_outputs,
+                select_config,
+                args.thinking,
+                include_reasoning=args.include_reasoning,
+                index_map=select_index_map,
+            )
+            return batch_extract_outputs, batch_select_results
+
+        def on_select_batch_complete(
+            batch_idx: int,
+            batch_result: Tuple[List[LlmOutput], List[SelectResult]],
+        ) -> None:
+            batch_extract_outputs, batch_select_results = batch_result
+            extract_outputs.extend(batch_extract_outputs)
+            select_results.extend(batch_select_results)
+            # Dump both files atomically to ensure consistency
             dump_extract_resume_file(extract_outputs, run_name)
             dump_select_resume_file(select_results, run_name)
 
+        await process_batches(
+            entries=bs_entries,
+            batch_size=args.batch_size,
+            process_fn=process_select_batch,
+            on_batch_complete=on_select_batch_complete,
+            log_prefix="Processing",
+        )
+
         end_time = get_now_str()
+    except Bsllmner2Error as e:
+        LOGGER.error("Processing failed: %s", e)
+        status = "failed"
+        end_time = get_now_str()
+        raise
+    except Exception as e:
+        LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
+        status = "failed"
+        end_time = get_now_str()
+        raise
     finally:
-        if args.with_metrics:
+        if metrics_collector is not None:
             metrics_collector.stop()
-    metrics = metrics_collector.get_records() if args.with_metrics else None
+
+    metrics = metrics_collector.get_records() if metrics_collector else None
 
     if mapping is not None:
         evaluation = evaluate_output(extract_outputs, mapping)
@@ -224,7 +215,7 @@ async def run_cli_select_async() -> None:
         thinking=args.thinking,
         start_time=start_time,
         end_time=end_time,
-        status="completed"
+        status=status
     )
     result = to_result(
         bs_entries=bs_entries,
