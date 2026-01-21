@@ -1,5 +1,6 @@
 import asyncio
 import copy
+import hashlib
 import json
 import os
 import pickle
@@ -34,6 +35,38 @@ def fetch_ollama_models(config: Config) -> List[str]:
     models = client.list()
     model_names = [model.name for model in models]  # type: ignore
     return model_names
+
+
+async def ensure_model_available(config: Config, model: str) -> None:
+    """
+    Ensure the specified model is available on the Ollama server.
+    If not available, pull it automatically.
+    """
+    client = ollama.AsyncClient(host=config.ollama_host)
+
+    # Check if model exists
+    models_response = await client.list()
+    available_models = [m.model for m in models_response.models]
+
+    # Normalize model name for comparison (e.g., "llama3.1:70b" matches "llama3.1:70b")
+    if model in available_models:
+        LOGGER.debug("Model %s is already available", model)
+        return
+
+    # Model not found, pull it
+    LOGGER.info("Model %s not found locally, pulling...", model)
+    try:
+        async for progress in await client.pull(model, stream=True):
+            if progress.status:
+                if progress.completed and progress.total:
+                    pct = (progress.completed / progress.total) * 100
+                    LOGGER.info("Pulling %s: %s (%.1f%%)", model, progress.status, pct)
+                else:
+                    LOGGER.info("Pulling %s: %s", model, progress.status)
+        LOGGER.info("Model %s pulled successfully", model)
+    except ollama.ResponseError as e:
+        LOGGER.error("Failed to pull model %s: %s", model, e)
+        raise
 
 
 def _construct_messages(prompts: List[Prompt]) -> List[Message]:
@@ -112,6 +145,9 @@ async def ner(
     progress_file_path: Optional[Path] = None,
 ) -> List[LlmOutput]:
     from bsllmner2.errors import OllamaConnectionError
+
+    # Ensure model is available, pull if necessary
+    await ensure_model_available(config, model)
 
     client = ollama.AsyncClient(host=config.ollama_host)
     messages = _construct_messages(prompt)
@@ -213,6 +249,14 @@ INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontolog
 INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
+def _compute_filter_hash(ontology_filter: Optional[Dict[str, str]]) -> str:
+    """Compute a hash of the ontology filter for cache key."""
+    if ontology_filter is None:
+        return "nofilter"
+    filter_str = json.dumps(ontology_filter, sort_keys=True)
+    return hashlib.md5(filter_str.encode()).hexdigest()[:12]
+
+
 def build_index_map(select_config: SelectConfig) -> Dict[Path, OntologyIndex]:
     mapping: Dict[Path, OntologyIndex] = {}
 
@@ -223,7 +267,8 @@ def build_index_map(select_config: SelectConfig) -> Dict[Path, OntologyIndex]:
         if ontology_file_path in mapping:
             continue
 
-        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}.pkl")
+        filter_hash = _compute_filter_hash(field_config.ontology_filter)
+        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{filter_hash}.pkl")
         if cache_file_path.exists():
             try:
                 with cache_file_path.open("rb") as f:
@@ -636,6 +681,9 @@ async def select(
     include_reasoning: bool = True,
     index_map: Optional[Dict[Path, OntologyIndex]] = None,
 ) -> List[SelectResult]:
+    # Ensure model is available, pull if necessary
+    await ensure_model_available(config, model)
+
     fields = select_config.fields.keys()
     no_select_fields = [f for f in fields if select_config.fields[f].ontology_file is None]
 

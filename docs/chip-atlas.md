@@ -35,12 +35,6 @@ Before processing ChIP-Atlas data, ensure:
     cd ..
     ```
 
-3. LLM model is downloaded:
-
-    ```bash
-    docker compose exec ollama ollama pull llama3.1:70b
-    ```
-
 ## Data Preparation
 
 ### scripts/prepare_bs_entries.py
@@ -145,22 +139,7 @@ ls bsllmner2-results/select/
 
 ## Processing mm10 (Mouse)
 
-### 1. Index Cache Cleanup (Important!)
-
-When switching between genome assemblies, you **must** clear the ontology index cache because the TaxID filters differ:
-
-```bash
-rm -rf ./ontology/index_cache/cellosaurus.owl.pkl
-rm -rf ./ontology/index_cache/mondo.owl.pkl
-```
-
-**Why is this necessary?**
-
-- The index cache stores filtered ontology entries based on TaxID
-- hg38 uses TaxID:9606 (human), mm10 uses TaxID:10090 (mouse)
-- Without clearing, mouse runs would use human-filtered indices
-
-### 2. Backup Existing Data (if switching from hg38)
+### 1. Backup Existing Data (if switching from hg38)
 
 ```bash
 # Optional: backup hg38 data before overwriting
@@ -169,13 +148,13 @@ mv chip-atlas-data/experimentList.json chip-atlas-data/experimentList_hg38.json
 mv chip-atlas-data/srx_to_biosample.json chip-atlas-data/srx_to_biosample_hg38.json
 ```
 
-### 3. Prepare Data
+### 2. Prepare Data
 
 ```bash
 docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly mm10
 ```
 
-### 4. Run Select Mode
+### 3. Run Select Mode
 
 ```bash
 docker compose exec app bsllmner2_select \
@@ -246,17 +225,6 @@ docker compose exec app bsllmner2_select \
 ```
 
 ## Troubleshooting
-
-### Index Cache Issues
-
-**Symptom:** Wrong species results (e.g., human cell lines in mouse run)
-
-**Solution:**
-
-```bash
-# Clear all index caches
-rm -rf ./ontology/index_cache/*.pkl
-```
 
 ### Out of Memory Errors
 

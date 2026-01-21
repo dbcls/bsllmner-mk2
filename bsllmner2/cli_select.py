@@ -89,12 +89,12 @@ async def run_cli_select_async() -> None:
     LOGGER.info("Starting bsllmner2 CLI select mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
-    LOGGER.debug("Config:\n%s", config.model_dump_json(indent=2))
-    LOGGER.debug("Args:\n%s", args.model_dump_json(indent=2))
+    LOGGER.info("Config:\n%s", config.model_dump_json(indent=2))
+    LOGGER.info("Args:\n%s", args.model_dump_json(indent=2))
 
     # for Select mode
     select_config = load_select_config(args.select_config)
-    LOGGER.debug("Select Config:\n%s", select_config.model_dump_json(indent=2))
+    LOGGER.info("Select Config:\n%s", select_config.model_dump_json(indent=2))
 
     mapping = load_mapping(args.mapping) if args.mapping else None
     format_ = build_extract_schema_for_select(select_config)

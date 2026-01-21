@@ -204,5 +204,8 @@ ollama-data/
 bsllmner2-results/
 chip-atlas-data/
 ontology/
-id_relation
-select*
+
+# Slurm
+slurm.sh
+compose.slurm.yml
+slurm-logs/

@@ -31,17 +31,6 @@ docker network create bsllmner-mk2-network
 docker compose up -d --build
 ```
 
-### 1.3 Download LLM Model
-
-After the containers are running, pull the LLM model:
-
-```bash
-docker compose exec ollama ollama pull llama3.1:70b
-```
-
-You can browse available models at [Ollama Model Library](https://ollama.com/library).
-Replace `llama3.1:70b` with your preferred model if needed.
-
 ## 2. Download Ontology Files
 
 ### 2.1 Run Download Script

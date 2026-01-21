@@ -2,7 +2,9 @@
 **
 
 !bsllmner2
+!docs
 !LICENSE
 !pyproject.toml
 !README.md
+!scripts
 !tests

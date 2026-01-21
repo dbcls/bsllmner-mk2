@@ -1,0 +1,47 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: bsllmner-mk2-app
+    volumes:
+      - ${PWD}:/app
+      - /var/run/docker.sock:/var/run/docker.sock # For docker inspect
+    environment:
+      - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
+    working_dir: /app
+    entrypoint: [ "" ]
+    command: [ "sleep", "infinity" ]
+    restart: unless-stopped
+    init: true
+    networks:
+      - bsllmner-mk2-network
+
+  ollama:
+    image: ollama/ollama:0.13.0
+    container_name: bsllmner-mk2-ollama
+    volumes:
+      - ${PWD}/ollama-data:/root/.ollama
+    environment:
+      - OLLAMA_HOST=0.0.0.0:11434
+      - OLLAMA_KV_CACHE_TYPE=q8_0
+      - OLLAMA_FLASH_ATTENTION=1
+      - OLLAMA_NUM_PARALLEL=16
+      - OLLAMA_MAX_QUEUE=1024
+      - NVIDIA_DRIVER_CAPABILITIES=compute,utility
+      - OLLAMA_SCHED_SPREAD=1
+    entrypoint: [ "/bin/ollama" ]
+    command: [ "serve" ]
+    restart: unless-stopped
+    init: true
+    gpus:
+      - driver: nvidia
+        device_ids: __DEVICE_IDS__
+        capabilities: [ gpu ]
+    networks:
+      - bsllmner-mk2-network
+
+networks:
+  bsllmner-mk2-network:
+    name: bsllmner-mk2-network
+    external: true

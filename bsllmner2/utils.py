@@ -8,7 +8,7 @@ import ijson
 import yaml
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import (EXTRACT_RESULT_DIR, PROGRESS_DIR,
+from bsllmner2.config import (EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR,
                               SELECT_RESULT_DIR, Config)
 from bsllmner2.metrics import Metrics
 from bsllmner2.schema import (BsEntries, CliExtractArgs, CliSelectArgs,
@@ -35,24 +35,45 @@ def load_bs_entries(path: Path) -> BsEntries:
             if isinstance(data, list) and all(isinstance(item, dict) for item in data):
                 return data
             else:
-                raise ValueError("JSON file must contain a list of dictionaries.")
+                raise ValueError(
+                    f"Invalid format in {path}:\n"
+                    f"  JSON file must contain a list of dictionaries.\n"
+                    f'  Expected: [{{"accession": "SAMD00000001", "title": "...", ...}}]'
+                )
         except json.JSONDecodeError as outer_e:
             # If JSON fails, try to load as JSONL
             f.seek(0)
             jl_data: List[Dict[str, Any]] = []
-            for raw in f:
+            for line_no, raw in enumerate(f, start=1):
                 line = raw.strip()
                 if not line:
                     continue
                 try:
                     entry = json.loads(line)
                 except json.JSONDecodeError as inner_e:
-                    raise ValueError(f"Invalid JSONL: failed to parse line {line!r}") from inner_e
+                    raise ValueError(
+                        f"Invalid JSON format in {path} at line {line_no}:\n"
+                        f"  Error: {inner_e}\n"
+                        f"  Line content: {line[:100]}{'...' if len(line) > 100 else ''}\n"
+                        f"  Expected formats:\n"
+                        f'    - JSON array: [{{"accession": "SAMD00000001", ...}}]\n'
+                        f'    - JSONL: one JSON object per line'
+                    ) from inner_e
                 if not isinstance(entry, dict):
-                    raise ValueError("Each line in JSONL file must be a JSON object.") from outer_e
+                    raise ValueError(
+                        f"Invalid entry in {path} at line {line_no}:\n"
+                        f"  Each line in JSONL file must be a JSON object (dictionary).\n"
+                        f"  Got: {type(entry).__name__}"
+                    ) from outer_e
                 jl_data.append(entry)
             if not jl_data:
-                raise ValueError("JSONL file contains no valid JSON objects.") from outer_e
+                raise ValueError(
+                    f"No valid entries in {path}:\n"
+                    f"  File contains no valid JSON objects.\n"
+                    f"  Expected formats:\n"
+                    f'    - JSON array: [{{"accession": "SAMD00000001", ...}}]\n'
+                    f'    - JSONL: one JSON object per line'
+                ) from outer_e
             return jl_data
 
 
@@ -440,6 +461,38 @@ def load_extract_resume_file(run_name: str) -> List[LlmOutput]:
         outputs.append(output)
 
     return outputs
+
+
+def validate_extract_resume_file(
+    extract_outputs: List[LlmOutput],
+    run_name: str,
+) -> set[str]:
+    """
+    Validate extract resume data and return done IDs.
+
+    Checks for duplicates and logs warnings.
+
+    Returns:
+        Set of accession IDs that have been processed.
+    """
+    seen_ids: set[str] = set()
+    duplicates: List[str] = []
+
+    for output in extract_outputs:
+        if output.accession in seen_ids:
+            duplicates.append(output.accession)
+        seen_ids.add(output.accession)
+
+    if duplicates:
+        LOGGER.warning(
+            "Found %d duplicate entries in extract resume file for run '%s': %s%s",
+            len(duplicates),
+            run_name,
+            duplicates[:5],
+            "..." if len(duplicates) > 5 else "",
+        )
+
+    return seen_ids
 
 
 def dump_extract_resume_file(outputs: List[LlmOutput], run_name: str) -> Path:

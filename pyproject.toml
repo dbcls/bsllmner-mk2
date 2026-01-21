@@ -56,6 +56,8 @@ bsllmner2 = ["bs/filter_keys.json", "prompt/*", "format/*", "py.typed"]
 [tool.pytest.ini_options]
 addopts = "--cov=bsllmner2 --cov-report=html:tests/htmlcov"
 testpaths = ["tests/py_tests"]
+asyncio_mode = "strict"
+asyncio_default_fixture_loop_scope = "function"
 
 [tool.mypy]
 files = ["./bsllmner2/**/*.py"]

@@ -11,21 +11,15 @@ import yaml
 
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.schema import LlmOutput, SelectResult
-from bsllmner2.utils import (
-    build_extract_prompt_for_select,
-    build_extract_schema_for_select,
-    dump_extract_resume_file,
-    dump_select_resume_file,
-    get_now_str,
-    load_bs_entries,
-    load_extract_resume_file,
-    load_format_schema,
-    load_mapping,
-    load_prompt_file,
-    load_select_config,
-    load_select_resume_file,
-    validate_resume_consistency,
-)
+from bsllmner2.utils import (build_extract_prompt_for_select,
+                             build_extract_schema_for_select,
+                             dump_extract_resume_file, dump_select_resume_file,
+                             get_now_str, load_bs_entries,
+                             load_extract_resume_file, load_format_schema,
+                             load_mapping, load_prompt_file,
+                             load_select_config, load_select_resume_file,
+                             validate_extract_resume_file,
+                             validate_resume_consistency)
 
 
 class TestLoadBsEntries:
@@ -469,3 +463,98 @@ class TestValidateResumeConsistency:
 
         assert done_ids == set()
         assert orphan_ids == {"SAMN001", "SAMN002"}
+
+
+class TestValidateExtractResumeFile:
+    """Test cases for validate_extract_resume_file function."""
+
+    @pytest.fixture
+    def make_llm_output(self) -> callable:
+        """Factory to create LlmOutput instances."""
+        from ollama import ChatResponse
+
+        def _make(accession: str) -> LlmOutput:
+            chat_response: ChatResponse = {  # type: ignore
+                "model": "test-model",
+                "created_at": "2024-01-01T00:00:00Z",
+                "message": {"role": "assistant", "content": "test"},
+                "done": True,
+            }
+            return LlmOutput(
+                accession=accession,
+                output={"cell_line": "Test"},
+                chat_response=chat_response,
+            )
+        return _make
+
+    def test_returns_all_ids(self, make_llm_output: callable) -> None:
+        """Test that all accession IDs are returned."""
+        extract_outputs = [
+            make_llm_output("SAMN001"),
+            make_llm_output("SAMN002"),
+            make_llm_output("SAMN003"),
+        ]
+
+        done_ids = validate_extract_resume_file(extract_outputs, "test-run")
+
+        assert done_ids == {"SAMN001", "SAMN002", "SAMN003"}
+
+    def test_empty_input_returns_empty_set(self) -> None:
+        """Test that empty input returns empty set."""
+        done_ids = validate_extract_resume_file([], "test-run")
+        assert done_ids == set()
+
+    def test_duplicate_entries_detected_and_logged(
+        self, make_llm_output: callable, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that duplicate entries are detected and logged as warning."""
+        import logging
+
+        extract_outputs = [
+            make_llm_output("SAMN001"),
+            make_llm_output("SAMN002"),
+            make_llm_output("SAMN001"),  # Duplicate
+            make_llm_output("SAMN003"),
+        ]
+
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            caplog.set_level(logging.WARNING, logger="bsllmner2")
+            done_ids = validate_extract_resume_file(extract_outputs, "test-run")
+        finally:
+            logger.propagate = original_propagate
+
+        # Should still return all unique IDs
+        assert done_ids == {"SAMN001", "SAMN002", "SAMN003"}
+
+        # Should log a warning about duplicates
+        assert "duplicate" in caplog.text.lower()
+        assert "SAMN001" in caplog.text
+
+    def test_multiple_duplicates_detected(
+        self, make_llm_output: callable, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        """Test that multiple duplicates are all detected."""
+        import logging
+
+        extract_outputs = [
+            make_llm_output("SAMN001"),
+            make_llm_output("SAMN001"),  # Duplicate 1
+            make_llm_output("SAMN002"),
+            make_llm_output("SAMN002"),  # Duplicate 2
+            make_llm_output("SAMN001"),  # Duplicate 3
+        ]
+
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            caplog.set_level(logging.WARNING, logger="bsllmner2")
+            done_ids = validate_extract_resume_file(extract_outputs, "test-run")
+        finally:
+            logger.propagate = original_propagate
+
+        assert done_ids == {"SAMN001", "SAMN002"}
+        assert "3 duplicate" in caplog.text

@@ -15,7 +15,8 @@ from bsllmner2.utils import (dump_extract_result, dump_extract_resume_file,
                              evaluate_output, get_now_str, load_bs_entries,
                              load_extract_resume_file, load_format_schema,
                              load_mapping, load_prompt_file,
-                             remove_resume_files, to_result)
+                             remove_resume_files, to_result,
+                             validate_extract_resume_file)
 
 
 def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
@@ -88,8 +89,8 @@ async def run_cli_extract_async() -> None:
     LOGGER.info("Starting bsllmner2 CLI extract mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
-    LOGGER.debug("Config:\n%s", config.model_dump_json(indent=2))
-    LOGGER.debug("Args:\n%s", args.model_dump_json(indent=2))
+    LOGGER.info("Config:\n%s", config.model_dump_json(indent=2))
+    LOGGER.info("Args:\n%s", args.model_dump_json(indent=2))
 
     mapping = load_mapping(args.mapping) if args.mapping else None
     prompt = load_prompt_file(args.prompt)
@@ -108,8 +109,8 @@ async def run_cli_extract_async() -> None:
     extract_outputs: List[LlmOutput] = []
     if args.resume:
         resume_extract_outputs = load_extract_resume_file(run_name)
+        done_ids = validate_extract_resume_file(resume_extract_outputs, run_name)
         extract_outputs.extend(resume_extract_outputs)
-        done_ids = {output.accession for output in resume_extract_outputs}
         if done_ids:
             LOGGER.info("Skipping %d already processed entries.", len(done_ids))
             bs_entries = [entry for entry in bs_entries if entry.get("accession") not in done_ids]
@@ -127,7 +128,7 @@ async def run_cli_extract_async() -> None:
                 config, batch_info.entries, prompt, format_, args.model, args.thinking
             )
 
-        def on_extract_batch_complete(batch_idx: int, batch_outputs: List[LlmOutput]) -> None:
+        def on_extract_batch_complete(_batch_idx: int, batch_outputs: List[LlmOutput]) -> None:
             extract_outputs.extend(batch_outputs)
             dump_extract_resume_file(extract_outputs, run_name)
 

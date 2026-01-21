@@ -41,7 +41,10 @@ async def main() -> None:
             metrics_collector.stop()
         metrics = metrics_collector.get_records()
 
-        evaluation = evaluate_output(output, mapping)
+        if mapping is not None:
+            evaluation = evaluate_output(output, mapping)
+        else:
+            evaluation = []
 
         # Update result with the new data
         queue_obj.output = output

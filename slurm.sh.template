@@ -1,0 +1,119 @@
+#!/usr/bin/env bash
+#SBATCH -J bsllmner2-ollama
+#SBATCH -p __PARTITION__
+#SBATCH --nodes=1
+#SBATCH --gres=gpu:__NUM_GPUS__
+#SBATCH --cpus-per-task=__CPUS__
+#SBATCH --mem=__MEM__
+#SBATCH -t __TIME__
+#SBATCH -o __ROOT__/slurm-logs/%x-%j.out
+#SBATCH -e __ROOT__/slurm-logs/%x-%j.err
+
+set -euo pipefail
+
+ROOT=__ROOT__
+BUILD_FLAG="__BUILD_FLAG__"
+
+# ==============================================================================
+# Logging functions
+# ==============================================================================
+log() {
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] $*"
+}
+
+log_section() {
+  echo ""
+  log "========== $* =========="
+}
+
+# ==============================================================================
+# Cleanup function
+# ==============================================================================
+cleanup() {
+  log_section "Cleanup"
+  log "Stopping containers..."
+  docker compose -f compose.slurm.yml down || true
+  log "Cleanup completed"
+}
+
+trap cleanup EXIT SIGTERM SIGINT
+
+# ==============================================================================
+# Main
+# ==============================================================================
+log_section "Job Started"
+log "Host: $(hostname)"
+log "Job ID: ${SLURM_JOB_ID:-unknown}"
+log "Job Name: ${SLURM_JOB_NAME:-unknown}"
+log "Partition: ${SLURM_JOB_PARTITION:-unknown}"
+log "Nodes: ${SLURM_JOB_NODELIST:-unknown}"
+
+mkdir -p "$ROOT/slurm-logs"
+cd "$ROOT"
+
+log_section "GPU Information"
+env | grep -E 'SLURM_.*GPU|CUDA_VISIBLE_DEVICES' || true
+
+# Get GPU IDs (SLURM_JOB_GPUS or SLURM_STEP_GPUS)
+GPUS_CSV="${SLURM_JOB_GPUS:-${SLURM_STEP_GPUS:-}}"
+if [[ -z "${GPUS_CSV}" ]]; then
+  log "ERROR: No GPU allocation found"
+  log "Available SLURM GPU variables:"
+  env | grep -E 'SLURM.*GPU' || echo "  (none)"
+  exit 1
+fi
+
+# Convert comma-separated GPU IDs to JSON array format
+# e.g., "2,3" -> '[ "2", "3" ]'
+DEVICE_IDS=$(echo "$GPUS_CSV" | tr ',' '\n' | sed 's/.*/"&"/' | paste -sd, - | sed 's/.*/[ & ]/')
+
+log "GPU IDs (CSV): $GPUS_CSV"
+log "Device IDs (JSON): $DEVICE_IDS"
+
+# Generate compose file from template
+log_section "Docker Compose Setup"
+sed "s|__DEVICE_IDS__|${DEVICE_IDS}|g" compose.slurm.yml.template > compose.slurm.yml
+log "Generated compose.slurm.yml"
+
+# Build compose command
+COMPOSE_CMD="docker compose -f compose.slurm.yml up -d --force-recreate"
+if [[ -n "$BUILD_FLAG" ]]; then
+  COMPOSE_CMD="$COMPOSE_CMD $BUILD_FLAG"
+fi
+
+log "Running: $COMPOSE_CMD"
+eval "$COMPOSE_CMD"
+
+log_section "Container Status"
+docker compose -f compose.slurm.yml ps
+
+# Wait for Ollama to be ready
+log_section "Health Check"
+OLLAMA_URL="http://localhost:11434"
+MAX_RETRIES=30
+RETRY_INTERVAL=10
+
+log "Waiting for Ollama to be ready at $OLLAMA_URL..."
+for i in $(seq 1 $MAX_RETRIES); do
+  if docker exec bsllmner-mk2-ollama curl -sf "$OLLAMA_URL/api/tags" > /dev/null 2>&1; then
+    log "Ollama is ready (attempt $i/$MAX_RETRIES)"
+    break
+  fi
+  if [[ $i -eq $MAX_RETRIES ]]; then
+    log "WARNING: Ollama health check timed out after $((MAX_RETRIES * RETRY_INTERVAL)) seconds"
+    log "Container may still be starting up. Check logs with: docker logs bsllmner-mk2-ollama"
+  else
+    log "Waiting for Ollama... (attempt $i/$MAX_RETRIES)"
+    sleep $RETRY_INTERVAL
+  fi
+done
+
+log_section "GPU Status in Container"
+docker exec bsllmner-mk2-ollama nvidia-smi || log "WARNING: nvidia-smi failed"
+
+log_section "Ready"
+log "Containers are running. Use 'docker exec -it bsllmner-mk2-app bash' to access."
+log "Waiting for job termination (Ctrl+C or scancel to stop)..."
+
+# Keep the job running
+tail -f /dev/null
