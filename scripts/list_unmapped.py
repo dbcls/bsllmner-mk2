@@ -103,9 +103,22 @@ def main() -> None:
         sys.exit(1)
 
     data = p.read_text(encoding="utf-8")
-    select_results: List[SelectResult] = TypeAdapter(
-        List[SelectResult]
-    ).validate_json(data)
+
+    # JSON と JSONL の両方に対応
+    stripped = data.strip()
+    if stripped.startswith("["):
+        # JSON 配列形式
+        select_results: List[SelectResult] = TypeAdapter(
+            List[SelectResult]
+        ).validate_json(data)
+    else:
+        # JSONL 形式（各行が個別の JSON オブジェクト）
+        adapter = TypeAdapter(SelectResult)
+        select_results = [
+            adapter.validate_json(line)
+            for line in stripped.splitlines()
+            if line.strip()
+        ]
 
     unmapped = find_unmapped(select_results)
 
