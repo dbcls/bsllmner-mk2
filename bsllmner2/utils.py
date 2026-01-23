@@ -1,4 +1,7 @@
 import json
+import os
+import shutil
+import tempfile
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
@@ -453,7 +456,10 @@ def load_extract_resume_file(run_name: str) -> List[LlmOutput]:
         return []
 
     with extract_resume_file_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+        content = f.read()
+    if not content.strip():
+        return []
+    data = json.loads(content)
     if not isinstance(data, list):
         raise ValueError(f"Resume file {extract_resume_file_path} must contain a list of LLM outputs.")
     outputs: List[LlmOutput] = []
@@ -499,9 +505,25 @@ def validate_extract_resume_file(
 def dump_extract_resume_file(outputs: List[LlmOutput], run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     resume_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
-    with resume_file.open("w", encoding="utf-8") as f:
-        json_str = json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2)
-        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=EXTRACT_RESULT_DIR,
+        prefix=f"{run_name}_resume_",
+        suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json_str = json.dumps(
+                [output.model_dump() for output in outputs],
+                ensure_ascii=False,
+                indent=2
+            )
+            f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+        shutil.move(tmp_path, resume_file)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
     return resume_file
 
@@ -511,7 +533,10 @@ def load_select_resume_file(run_name: str) -> List[SelectResult]:
     if not select_resume_file_path.exists():
         return []
     with select_resume_file_path.open("r", encoding="utf-8") as f:
-        data = json.load(f)
+        content = f.read()
+    if not content.strip():
+        return []
+    data = json.loads(content)
     if not isinstance(data, list):
         raise ValueError(f"Resume file {select_resume_file_path} must contain a list of SelectResult objects.")
     results: List[SelectResult] = []
@@ -525,9 +550,25 @@ def load_select_resume_file(run_name: str) -> List[SelectResult]:
 def dump_select_resume_file(results: List[SelectResult], run_name: str) -> Path:
     SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     resume_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
-    with resume_file.open("w", encoding="utf-8") as f:
-        json_str = json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2)
-        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+
+    fd, tmp_path = tempfile.mkstemp(
+        dir=SELECT_RESULT_DIR,
+        prefix=f"select_{run_name}_resume_",
+        suffix=".tmp"
+    )
+    try:
+        with os.fdopen(fd, "w", encoding="utf-8") as f:
+            json_str = json.dumps(
+                [result.model_dump() for result in results],
+                ensure_ascii=False,
+                indent=2
+            )
+            f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+        shutil.move(tmp_path, resume_file)
+    except Exception:
+        if os.path.exists(tmp_path):
+            os.remove(tmp_path)
+        raise
 
     return resume_file
 
