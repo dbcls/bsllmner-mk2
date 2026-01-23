@@ -240,7 +240,8 @@ def dump_select_result(result: List[SelectResult], run_name: str) -> Path:
     SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
-        f.write(json.dumps([res.model_dump() for res in result], ensure_ascii=False, indent=2))
+        json_str = json.dumps([res.model_dump() for res in result], ensure_ascii=False, indent=2)
+        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
 
     return result_file
 
@@ -499,7 +500,8 @@ def dump_extract_resume_file(outputs: List[LlmOutput], run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     resume_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
     with resume_file.open("w", encoding="utf-8") as f:
-        f.write(json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2))
+        json_str = json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2)
+        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
 
     return resume_file
 
@@ -524,7 +526,8 @@ def dump_select_resume_file(results: List[SelectResult], run_name: str) -> Path:
     SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     resume_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
     with resume_file.open("w", encoding="utf-8") as f:
-        f.write(json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2))
+        json_str = json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2)
+        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
 
     return resume_file
 
