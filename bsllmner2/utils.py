@@ -234,7 +234,8 @@ def dump_extract_result(result: Result, run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
-        f.write(result.model_dump_json(indent=2))
+        json_str = json.dumps(result.model_dump(), ensure_ascii=False, indent=2)
+        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
 
     return result_file
 
