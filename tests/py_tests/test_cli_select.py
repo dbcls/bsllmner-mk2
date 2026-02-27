@@ -1,4 +1,5 @@
 """Tests for CLI select mode argument parsing."""
+
 from pathlib import Path
 
 import pytest
@@ -10,15 +11,15 @@ from bsllmner2.config import RESUME_BATCH_SIZE
 class TestParseArgsSelect:
     """Test cases for cli_select.parse_args function."""
 
-    def test_minimal_args(
-        self, bs_entries_json_file: Path, select_config_file: Path
-    ) -> None:
+    def test_minimal_args(self, bs_entries_json_file: Path, select_config_file: Path) -> None:
         """Test parsing with minimal required arguments."""
         args = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
         ]
-        config, cli_args = parse_args(args)
+        _config, cli_args = parse_args(args)
 
         assert cli_args.bs_entries == bs_entries_json_file.resolve()
         assert cli_args.select_config == select_config_file.resolve()
@@ -40,21 +41,30 @@ class TestParseArgsSelect:
     ) -> None:
         """Test parsing with all arguments specified."""
         args = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--mapping", str(mapping_file),
-            "--model", "qwen2.5:72b",
-            "--thinking", "true",
-            "--max-entries", "100",
-            "--ollama-host", "http://custom:11434",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--mapping",
+            str(mapping_file),
+            "--model",
+            "qwen2.5:72b",
+            "--thinking",
+            "true",
+            "--max-entries",
+            "100",
+            "--ollama-host",
+            "http://custom:11434",
             "--with-metrics",
             "--debug",
-            "--run-name", "test-run",
+            "--run-name",
+            "test-run",
             "--resume",
-            "--batch-size", "512",
+            "--batch-size",
+            "512",
             "--no-reasoning",
         ]
-        config, cli_args = parse_args(args)
+        config, cli_args = parse_args(args)  # config used below
 
         assert cli_args.bs_entries == bs_entries_json_file.resolve()
         assert cli_args.select_config == select_config_file.resolve()
@@ -69,25 +79,29 @@ class TestParseArgsSelect:
         assert config.ollama_host == "http://custom:11434"
         assert config.debug is True
 
-    def test_thinking_flag_type(
-        self, bs_entries_json_file: Path, select_config_file: Path
-    ) -> None:
+    def test_thinking_flag_type(self, bs_entries_json_file: Path, select_config_file: Path) -> None:
         """Test that --thinking flag produces correct type (bool).
 
         cli_select uses str_to_bool to convert string to bool.
         This is the CORRECT behavior that cli_extract should also follow.
         """
         args_true = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--thinking", "true",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--thinking",
+            "true",
         ]
         _, cli_args_true = parse_args(args_true)
 
         args_false = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--thinking", "false",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--thinking",
+            "false",
         ]
         _, cli_args_false = parse_args(args_false)
 
@@ -97,34 +111,39 @@ class TestParseArgsSelect:
         assert isinstance(cli_args_true.thinking, bool)
         assert isinstance(cli_args_false.thinking, bool)
 
-    def test_thinking_flag_case_insensitive(
-        self, bs_entries_json_file: Path, select_config_file: Path
-    ) -> None:
+    def test_thinking_flag_case_insensitive(self, bs_entries_json_file: Path, select_config_file: Path) -> None:
         """Test that --thinking flag is case-insensitive."""
         args_upper = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--thinking", "TRUE",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--thinking",
+            "TRUE",
         ]
         _, cli_args = parse_args(args_upper)
         assert cli_args.thinking is True
 
         args_mixed = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--thinking", "True",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--thinking",
+            "True",
         ]
         _, cli_args = parse_args(args_mixed)
         assert cli_args.thinking is True
 
-    def test_max_entries_negative_becomes_none(
-        self, bs_entries_json_file: Path, select_config_file: Path
-    ) -> None:
+    def test_max_entries_negative_becomes_none(self, bs_entries_json_file: Path, select_config_file: Path) -> None:
         """Test that negative max_entries becomes None."""
         args = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--max-entries", "-1",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--max-entries",
+            "-1",
         ]
         _, cli_args = parse_args(args)
         assert cli_args.max_entries is None
@@ -132,8 +151,10 @@ class TestParseArgsSelect:
     def test_missing_bs_entries_file(self, select_config_file: Path) -> None:
         """Test that missing bs_entries file raises FileNotFoundError."""
         args = [
-            "--bs-entries", "/nonexistent/path/bs_entries.json",
-            "--select-config", str(select_config_file),
+            "--bs-entries",
+            "/nonexistent/path/bs_entries.json",
+            "--select-config",
+            str(select_config_file),
         ]
         with pytest.raises(FileNotFoundError, match="BioSample entries file"):
             parse_args(args)
@@ -141,8 +162,10 @@ class TestParseArgsSelect:
     def test_missing_select_config_file(self, bs_entries_json_file: Path) -> None:
         """Test that missing select_config file raises FileNotFoundError."""
         args = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", "/nonexistent/select_config.json",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            "/nonexistent/select_config.json",
         ]
         with pytest.raises(FileNotFoundError, match="Select configuration file"):
             parse_args(args)
@@ -173,17 +196,23 @@ class TestThinkingTypeConsistency:
 
         # Extract mode
         extract_args = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--prompt", str(prompt_file),
-            "--thinking", "true",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--prompt",
+            str(prompt_file),
+            "--thinking",
+            "true",
         ]
         _, extract_cli_args = parse_args_extract(extract_args)
 
         # Select mode
         select_args = [
-            "--bs-entries", str(bs_entries_json_file),
-            "--select-config", str(select_config_file),
-            "--thinking", "true",
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--thinking",
+            "true",
         ]
         _, select_cli_args = parse_args_select(select_args)
 
@@ -191,6 +220,6 @@ class TestThinkingTypeConsistency:
         extract_thinking_type = type(extract_cli_args.thinking)
         select_thinking_type = type(select_cli_args.thinking)
 
-        assert extract_thinking_type == bool
-        assert select_thinking_type == bool
-        assert extract_thinking_type == select_thinking_type
+        assert extract_thinking_type is bool
+        assert select_thinking_type is bool
+        assert extract_thinking_type is select_thinking_type

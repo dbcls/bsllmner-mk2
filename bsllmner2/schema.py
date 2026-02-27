@@ -1,5 +1,5 @@
 from pathlib import Path
-from typing import Any, Dict, List, Literal, Optional
+from typing import Any, Literal
 
 from ollama import ChatResponse
 from pydantic import BaseModel, Field
@@ -13,15 +13,14 @@ API_VERSION = "1.0.0"
 
 
 class CliExtractArgs(BaseModel):
-    """
-    Command-line arguments for the bsllmner2 CLI extract mode.
-    """
+    """Command-line arguments for the bsllmner2 CLI extract mode."""
+
     bs_entries: Path = Field(
         ...,
         description="Path to the input JSON or JSONL file containing BioSample entries.",
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
     )
-    mapping: Optional[Path] = Field(
+    mapping: Path | None = Field(
         None,
         description="Path to the mapping file in TSV format.",
         examples=["mapping/mapping.tsv"],
@@ -31,31 +30,31 @@ class CliExtractArgs(BaseModel):
         description="Path to the prompt file in YAML format.",
         examples=["prompt/prompt_extract.yml"],
     )
-    format: Optional[Path] = Field(
+    format: Path | None = Field(
         ...,
         description="Path to the JSON schema file for the output format.",
         examples=["format/cell_line.schema.json"],
     )
     model: str = "llama3.1:70b"
-    thinking: Optional[bool] = None
-    max_entries: Optional[int] = None
+    thinking: bool | None = None
+    max_entries: int | None = None
     with_metrics: bool = False
-    run_name: Optional[str] = None
+    run_name: str | None = None
     resume: bool = False
     batch_size: int
 
 
 class SelectConfigField(BaseModel):
-    ontology_file: Optional[Path] = Field(
+    ontology_file: Path | None = Field(
         None,
         description="Path to the ontology OWL file or TSV file.",
         examples=["ontology/cellosaurus.owl", "ontology/cellosaurus.tsv"],
     )
-    prompt_description: Optional[str] = Field(
+    prompt_description: str | None = Field(
         None,
         description="Description to be included in the prompt for select mode.",
     )
-    ontology_filter: Optional[Dict[str, str]] = Field(
+    ontology_filter: dict[str, str] | None = Field(
         None,
         description="Filter criteria for ontology terms, e.g., {'hasDbXref': 'NCBI_TaxID:9606'}.",
         examples=[{"hasDbXref": "NCBI_TaxID:9606"}],
@@ -68,31 +67,30 @@ class SelectConfigField(BaseModel):
 
 
 class SelectConfig(BaseModel):
-    fields: Dict[str, SelectConfigField] = Field(
+    fields: dict[str, SelectConfigField] = Field(
         ...,
         description="Configuration for each field to be selected using the ontology. The key is the field name to be extracted.",
     )
 
 
 class CliSelectArgs(BaseModel):
-    """
-    Command-line arguments for the bsllmner2 CLI select mode.
-    """
+    """Command-line arguments for the bsllmner2 CLI select mode."""
+
     bs_entries: Path = Field(
         ...,
         description="Path to the input JSON or JSONL file containing BioSample entries.",
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
     )
-    mapping: Optional[Path] = Field(
+    mapping: Path | None = Field(
         None,
         description="Path to the mapping file in TSV format.",
         examples=["mapping/mapping.tsv"],
     )
     model: str = "llama3.1:70b"
-    thinking: Optional[bool] = None
-    max_entries: Optional[int] = None
+    thinking: bool | None = None
+    max_entries: int | None = None
     with_metrics: bool = False
-    run_name: Optional[str] = None
+    run_name: str | None = None
     resume: bool = False
     batch_size: int
 
@@ -130,69 +128,69 @@ class Prompt(BaseModel):
     )
 
 
-BsEntries = List[Dict[str, Any]]
+BsEntries = list[dict[str, Any]]
 
 
 class MappingValue(BaseModel):
     experiment_type: str
-    extraction_answer: Optional[str]
-    mapping_answer_id: Optional[str]
-    mapping_answer_label: Optional[str]
+    extraction_answer: str | None
+    mapping_answer_id: str | None
+    mapping_answer_label: str | None
 
 
-Mapping = Dict[str, MappingValue]  # key: bs_entry accession
+Mapping = dict[str, MappingValue]  # key: bs_entry accession
 
 
 class WfInput(BaseModel):
     bs_entries: BsEntries
-    mapping: Optional[Mapping] = None
-    prompt: List[Prompt]
+    mapping: Mapping | None = None
+    prompt: list[Prompt]
     model: str
-    thinking: Optional[bool] = None
-    format: Optional[JsonSchemaValue] = None
+    thinking: bool | None = None
+    format: JsonSchemaValue | None = None
     config: Config
-    cli_args: Optional[CliExtractArgs | CliSelectArgs] = None
+    cli_args: CliExtractArgs | CliSelectArgs | None = None
 
 
 class LlmOutput(BaseModel):
     accession: str
-    output: Optional[Any] = None
-    output_full: Optional[str] = None
-    characteristics: Optional[Dict[str, Any]] = None
-    taxId: Optional[Any] = None
+    output: Any | None = None
+    output_full: str | None = None
+    characteristics: dict[str, Any] | None = None
+    taxId: Any | None = None
     chat_response: ChatResponse
 
 
 class SelectResult(BaseModel):
     accession: str
-    extract_output: Optional[Any] = None
+    extract_output: Any | None = None
     # field -> value -> List[SearchResult]
-    search_results: Dict[str, Dict[str, List[SearchResult]]] = Field(default_factory=dict)
-    text2term_results: Dict[str, Dict[str, List[SearchResult]]] = Field(default_factory=dict)
-    llm_chat_response: Dict[str, Dict[str, Optional[ChatResponse]]] = Field(default_factory=dict)
-    results: Dict[str, Dict[str, Optional[SearchResult]] | Any] = Field(default_factory=dict)
+    search_results: dict[str, dict[str, list[SearchResult]]] = Field(default_factory=dict)
+    text2term_results: dict[str, dict[str, list[SearchResult]]] = Field(default_factory=dict)
+    llm_chat_response: dict[str, dict[str, ChatResponse | None]] = Field(default_factory=dict)
+    results: dict[str, dict[str, SearchResult | None] | Any] = Field(default_factory=dict)
 
 
 class Evaluation(BaseModel):
     accession: str
-    expected: Optional[str] = None
-    actual: Optional[str] = None
+    expected: str | None = None
+    actual: str | None = None
     match: bool = False
 
 
 class RunMetadata(BaseModel):
     run_name: str
     model: str
-    thinking: Optional[bool] = None
-    username: Optional[str] = None
+    thinking: bool | None = None
+    username: str | None = None
     start_time: str
-    end_time: Optional[str] = None
+    end_time: str | None = None
     status: Literal["running", "completed", "failed"] = "running"
-    processing_time: Optional[float] = None
-    matched_entries: Optional[int] = None
-    total_entries: Optional[int] = None
-    accuracy: Optional[float] = None
-    completed_count: Optional[int] = None
+    processing_time: float | None = None
+    matched_entries: int | None = None
+    total_entries: int | None = None
+    accuracy: float | None = None
+    completed_count: int | None = None
 
 
 class ErrorInfo(BaseModel):
@@ -208,8 +206,8 @@ class ErrorLog(BaseModel):
 
 class Result(BaseModel):
     input: WfInput
-    output: List[LlmOutput] = []
-    evaluation: List[Evaluation] = []
-    metrics: Optional[List[Metrics]] = None
+    output: list[LlmOutput] = []
+    evaluation: list[Evaluation] = []
+    metrics: list[Metrics] | None = None
     run_metadata: RunMetadata
-    error_log: Optional[ErrorLog] = None
+    error_log: ErrorLog | None = None

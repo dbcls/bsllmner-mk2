@@ -6,8 +6,7 @@ from bsllmner2.client.ollama import ner
 from bsllmner2.config import PROGRESS_DIR
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import Result
-from bsllmner2.utils import (build_error_log, compute_processing_time,
-                             dump_extract_result, evaluate_output, get_now_str)
+from bsllmner2.utils import build_error_log, compute_processing_time, dump_extract_result, evaluate_output, get_now_str
 
 
 async def main() -> None:
@@ -52,20 +51,15 @@ async def main() -> None:
         queue_obj.metrics = metrics
         queue_obj.run_metadata.end_time = end_time
         queue_obj.run_metadata.status = "completed"
-        queue_obj.run_metadata.processing_time = compute_processing_time(
-            queue_obj.run_metadata.start_time, end_time
-        )
-        queue_obj.run_metadata.matched_entries = sum(
-            1 for eval_item in evaluation if eval_item.match
-        )
+        queue_obj.run_metadata.processing_time = compute_processing_time(queue_obj.run_metadata.start_time, end_time)
+        queue_obj.run_metadata.matched_entries = sum(1 for eval_item in evaluation if eval_item.match)
         if queue_obj.run_metadata.total_entries is not None and queue_obj.run_metadata.total_entries > 0:
             queue_obj.run_metadata.accuracy = (
-                queue_obj.run_metadata.matched_entries
-                / queue_obj.run_metadata.total_entries
+                queue_obj.run_metadata.matched_entries / queue_obj.run_metadata.total_entries
             ) * 100
 
         dump_extract_result(queue_obj, queue_obj.run_metadata.run_name)
-    except Exception as e:  # pylint: disable=broad-except
+    except Exception as e:
         if "queue_obj" in locals():
             queue_obj.run_metadata.status = "failed"
             queue_obj.error_log = build_error_log(e)

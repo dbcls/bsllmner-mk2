@@ -6,7 +6,7 @@ import os
 import pickle
 import re
 from pathlib import Path
-from typing import IO, Any, Dict, List, Optional, Set, Tuple
+from typing import IO, Any
 
 import ollama
 from ollama import ChatResponse, Message, Options
@@ -14,12 +14,16 @@ from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.bs import construct_llm_input_json, is_ebi_format
 from bsllmner2.config import LOGGER, Config
-from bsllmner2.ontology_search import (OntologyIndex, SearchResult,
-                                       _is_label_prop, build_index_from_owl,
-                                       build_index_from_table, search_terms,
-                                       search_terms_with_text2term)
-from bsllmner2.schema import (BsEntries, LlmOutput, Prompt, SelectConfig,
-                              SelectResult)
+from bsllmner2.ontology_search import (
+    OntologyIndex,
+    SearchResult,
+    _is_label_prop,
+    build_index_from_owl,
+    build_index_from_table,
+    search_terms,
+    search_terms_with_text2term,
+)
+from bsllmner2.schema import BsEntries, LlmOutput, Prompt, SelectConfig, SelectResult
 
 OLLAMA_OPTIONS = Options(
     seed=0,
@@ -27,19 +31,16 @@ OLLAMA_OPTIONS = Options(
 )
 
 
-def fetch_ollama_models(config: Config) -> List[str]:
-    """
-    Fetch the list of available models from the Ollama server.
-    """
+def fetch_ollama_models(config: Config) -> list[str]:
+    """Fetch the list of available models from the Ollama server."""
     client = ollama.Client(host=config.ollama_host)
     models = client.list()
-    model_names = [model.name for model in models]  # type: ignore
-    return model_names
+    return [model.name for model in models]  # type: ignore[attr-defined]
 
 
 async def ensure_model_available(config: Config, model: str) -> None:
-    """
-    Ensure the specified model is available on the Ollama server.
+    """Ensure the specified model is available on the Ollama server.
+
     If not available, pull it automatically.
     """
     client = ollama.AsyncClient(host=config.ollama_host)
@@ -69,14 +70,12 @@ async def ensure_model_available(config: Config, model: str) -> None:
         raise
 
 
-def _construct_messages(prompts: List[Prompt]) -> List[Message]:
-    """
-    Construct a list of messages from the prompt file content.
-    """
+def _construct_messages(prompts: list[Prompt]) -> list[Message]:
+    """Construct a list of messages from the prompt file content."""
     return [Message(role=prompt.role, content=prompt.content) for prompt in prompts]
 
 
-def _extract_last_json(text: str) -> Optional[str]:
+def _extract_last_json(text: str) -> str | None:
     json_candidates = re.findall(r"(\{.*?\}|\[.*?\])", text, re.DOTALL)
 
     if not json_candidates:
@@ -92,11 +91,11 @@ def _extract_last_json(text: str) -> Optional[str]:
     return None
 
 
-def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> LlmOutput:
+def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> LlmOutput:
     try:
         res_text = chat_response["message"]["content"]
         res_text_json = _extract_last_json(res_text)
-    except Exception as e:  # pylint: disable=broad-except
+    except Exception as e:
         LOGGER.error("Error extracting JSON from response text: %s", e)
         res_text_json = None
     if res_text_json is not None:
@@ -106,7 +105,7 @@ def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> 
                 for k, v in output_obj.items():
                     if isinstance(v, str) and v in ("null", "None"):
                         output_obj[k] = None
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:
             LOGGER.error("Error parsing JSON response: %s", e)
             output_obj = None
     else:
@@ -122,11 +121,7 @@ def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> 
     # add "characteristics" and "taxId"
     if isinstance(output_ins.output, dict) and is_ebi_format(bs_entry):
         output_ins.characteristics = {
-            key: (
-                {"text": value}
-                if not isinstance(value, list)
-                else [{"text": v} for v in value]
-            )
+            key: ({"text": value} if not isinstance(value, list) else [{"text": v} for v in value])
             for key, value in output_ins.output.items()
         }
         if "taxId" in bs_entry:
@@ -138,12 +133,12 @@ def _construct_output(bs_entry: Dict[str, Any], chat_response: ChatResponse) -> 
 async def ner(
     config: Config,
     bs_entries: BsEntries,
-    prompt: List[Prompt],
-    format_: Optional[JsonSchemaValue],
+    prompt: list[Prompt],
+    format_: JsonSchemaValue | None,
     model: str,
-    thinking: Optional[bool] = None,
-    progress_file_path: Optional[Path] = None,
-) -> List[LlmOutput]:
+    thinking: bool | None = None,
+    progress_file_path: Path | None = None,
+) -> list[LlmOutput]:
     from bsllmner2.errors import OllamaConnectionError
 
     # Ensure model is available, pull if necessary
@@ -151,20 +146,20 @@ async def ner(
 
     client = ollama.AsyncClient(host=config.ollama_host)
     messages = _construct_messages(prompt)
-    outputs: List[LlmOutput] = []
+    outputs: list[LlmOutput] = []
     error_count = 0
     connection_tested = False
 
-    progress_file: Optional[IO[str]] = None
+    progress_file: IO[str] | None = None
     if progress_file_path:
         progress_file = progress_file_path.open("w", encoding="utf-8")
 
     sem = asyncio.Semaphore(256)
 
-    async def _process_entry(entry: Dict[str, Any]) -> Optional[LlmOutput]:
+    async def _process_entry(entry: dict[str, Any]) -> LlmOutput | None:
         nonlocal error_count, connection_tested
         async with sem:
-            accession = entry.get("accession", None)
+            accession = entry.get("accession")
             if accession is None:
                 LOGGER.warning("Entry without accession found, skipping.")
                 return None
@@ -188,7 +183,7 @@ async def ner(
                 LOGGER.error("Connection error for entry %s: %s", accession, e)
                 error_count += 1
                 return None
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:
                 LOGGER.error("Error processing entry %s: %s", accession, e)
                 error_count += 1
                 return None
@@ -202,9 +197,7 @@ async def ner(
             return output
 
     try:
-        results = await asyncio.gather(
-            *(_process_entry(entry) for entry in bs_entries)
-        )
+        results = await asyncio.gather(*(_process_entry(entry) for entry in bs_entries))
         outputs.extend([res for res in results if res is not None])
     finally:
         if progress_file:
@@ -213,8 +206,9 @@ async def ner(
     if error_count > 0:
         LOGGER.warning(
             "Completed with %d errors out of %d entries (%.1f%% success rate)",
-            error_count, len(bs_entries),
-            (len(bs_entries) - error_count) / len(bs_entries) * 100
+            error_count,
+            len(bs_entries),
+            (len(bs_entries) - error_count) / len(bs_entries) * 100,
         )
 
     return outputs
@@ -224,15 +218,15 @@ async def ner(
 
 
 def _pick_exact_match_search_result(
-    search_results: List[SearchResult],
-) -> Optional[SearchResult]:
+    search_results: list[SearchResult],
+) -> SearchResult | None:
     exact_matches = [res for res in search_results if res.exact_match]
     if not exact_matches:
         return None
     if len(exact_matches) == 1:
         return exact_matches[0]
 
-    term_ids = set(search_result.term_id for search_result in exact_matches)
+    term_ids = {search_result.term_id for search_result in exact_matches}
     if len(term_ids) > 1:
         return None
 
@@ -249,7 +243,7 @@ INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontolog
 INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def _compute_filter_hash(ontology_filter: Optional[Dict[str, str]]) -> str:
+def _compute_filter_hash(ontology_filter: dict[str, str] | None) -> str:
     """Compute a hash of the ontology filter for cache key."""
     if ontology_filter is None:
         return "nofilter"
@@ -257,8 +251,8 @@ def _compute_filter_hash(ontology_filter: Optional[Dict[str, str]]) -> str:
     return hashlib.md5(filter_str.encode()).hexdigest()[:12]
 
 
-def build_index_map(select_config: SelectConfig) -> Dict[Path, OntologyIndex]:
-    mapping: Dict[Path, OntologyIndex] = {}
+def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
+    mapping: dict[Path, OntologyIndex] = {}
 
     for field_config in select_config.fields.values():
         ontology_file_path = field_config.ontology_file
@@ -275,7 +269,7 @@ def build_index_map(select_config: SelectConfig) -> Dict[Path, OntologyIndex]:
                     index = pickle.load(f)
                 mapping[ontology_file_path] = index
                 continue
-            except Exception:  # pylint: disable=broad-except
+            except Exception:
                 pass
 
         if ontology_file_path.suffix == ".owl":
@@ -289,20 +283,18 @@ def build_index_map(select_config: SelectConfig) -> Dict[Path, OntologyIndex]:
         try:
             with cache_file_path.open("wb") as f:
                 pickle.dump(index, f)
-        except Exception:  # pylint: disable=broad-except
+        except Exception:
             pass
 
     return mapping
 
 
 def _ontology_search_wrapper(
-    select_results: List[SelectResult],
+    select_results: list[SelectResult],
     select_config: SelectConfig,
-    index_map: Optional[Dict[Path, OntologyIndex]] = None,
-) -> List[SelectResult]:
-    """
-    Wrapper function to perform ontology search for each field in the select configuration.
-    """
+    index_map: dict[Path, OntologyIndex] | None = None,
+) -> list[SelectResult]:
+    """Perform ontology search for each field in the select configuration."""
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
         if ontology_file_path is None:
@@ -312,20 +304,19 @@ def _ontology_search_wrapper(
             index = index_map.get(ontology_file_path)
             if index is None:
                 continue
+        elif ontology_file_path.suffix == ".owl":
+            index = build_index_from_owl(
+                ontology_file_path,
+                additional_conditions=field_config.ontology_filter,
+            )
+        elif ontology_file_path.suffix in [".tsv", ".csv"]:
+            index = build_index_from_table(ontology_file_path)
         else:
-            if ontology_file_path.suffix == ".owl":
-                index = build_index_from_owl(
-                    ontology_file_path,
-                    additional_conditions=field_config.ontology_filter,
-                )
-            elif ontology_file_path.suffix in [".tsv", ".csv"]:
-                index = build_index_from_table(ontology_file_path)
-            else:
-                raise ValueError(f"Unsupported ontology file format: {ontology_file_path}")
+            raise ValueError(f"Unsupported ontology file format: {ontology_file_path}")
 
         LOGGER.info("Searching ontology for field: %s", field_name)
 
-        queries: Set[str] = set()
+        queries: set[str] = set()
         for res in select_results:
             if not isinstance(res.extract_output, dict):
                 continue
@@ -333,7 +324,7 @@ def _ontology_search_wrapper(
                 continue
 
             # skip only if final result already exists
-            if field_name in res.results and res.results[field_name]:
+            if res.results.get(field_name):
                 continue
 
             query_value = res.extract_output[field_name]
@@ -354,7 +345,7 @@ def _ontology_search_wrapper(
                 continue
 
             # skip only if final result already exists
-            if field_name in res.results and res.results[field_name]:
+            if res.results.get(field_name):
                 continue
 
             query_value = res.extract_output[field_name]
@@ -387,12 +378,10 @@ def _ontology_search_wrapper(
 
 
 def _text2term_wrapper(
-    select_results: List[SelectResult],
+    select_results: list[SelectResult],
     select_config: SelectConfig,
-) -> List[SelectResult]:
-    """
-    Wrapper function to perform text2term search for each field in the select configuration.
-    """
+) -> list[SelectResult]:
+    """Perform text2term search for each field in the select configuration."""
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
         if ontology_file_path is None:
@@ -407,7 +396,7 @@ def _text2term_wrapper(
 
         LOGGER.info("text2term for field: %s", field_name)
 
-        queries: Set[str] = set()
+        queries: set[str] = set()
         for res in select_results:
             if not isinstance(res.extract_output, dict):
                 continue
@@ -415,7 +404,7 @@ def _text2term_wrapper(
                 continue
 
             # skip only if final result already exists
-            if field_name in res.results and res.results[field_name]:
+            if res.results.get(field_name):
                 continue
 
             query_value = res.extract_output[field_name]
@@ -429,10 +418,11 @@ def _text2term_wrapper(
 
         try:
             text2term_results = search_terms_with_text2term(queries, ontology_file_path)
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:
             LOGGER.exception(
                 "text2term failed. field: %s, error: %s",
-                field_name, e,
+                field_name,
+                e,
             )
             text2term_results = {}
 
@@ -443,7 +433,7 @@ def _text2term_wrapper(
                 continue
 
             # skip only if final result already exists
-            if field_name in res.results and res.results[field_name]:
+            if res.results.get(field_name):
                 continue
 
             query_value = res.extract_output[field_name]
@@ -476,17 +466,17 @@ def _text2term_wrapper(
 
 
 def _build_select_schema(
-    candidates: List[SearchResult],
+    candidates: list[SearchResult],
     reasoning: bool = True,
 ) -> JsonSchemaValue:
     enum = [res.term_id for res in candidates]
 
-    properties: Dict[str, Any] = {
+    properties: dict[str, Any] = {
         "id": {
             "anyOf": [
                 {"type": "string", "enum": enum},
                 {"type": "null"},
-            ]
+            ],
         },
     }
     required = ["id"]
@@ -496,7 +486,7 @@ def _build_select_schema(
             "anyOf": [
                 {"type": "string"},
                 {"type": "null"},
-            ]
+            ],
         }
         required.append("reasoning")
 
@@ -510,31 +500,25 @@ def _build_select_schema(
     return schema
 
 
-def _serialize_candidates_for_llm(candidates: List[SearchResult]) -> List[Dict[str, Any]]:
-    return [
-        c.model_dump(exclude={"exact_match", "text2term_score", "reasoning"})
-        for c in candidates
-    ]
+def _serialize_candidates_for_llm(candidates: list[SearchResult]) -> list[dict[str, Any]]:
+    return [c.model_dump(exclude={"exact_match", "text2term_score", "reasoning"}) for c in candidates]
 
 
 def _collect_candidates_for_field(
     field_name: str,
     value: str,
     select_result: SelectResult,
-) -> List[SearchResult]:
-    merged: List[SearchResult] = []
+) -> list[SearchResult]:
+    merged: list[SearchResult] = []
     merged.extend(select_result.search_results.get(field_name, {}).get(value, []))
     merged.extend(select_result.text2term_results.get(field_name, {}).get(value, []))
 
     # Remove duplicates based on term_id.
-    by_term_id: Dict[str, SearchResult] = {}
+    by_term_id: dict[str, SearchResult] = {}
     for result in merged:
-        prev = by_term_id.get(result.term_id, None)
-        if prev is None:
+        prev = by_term_id.get(result.term_id)
+        if prev is None or (_is_label_prop(result.prop_uri) and not _is_label_prop(prev.prop_uri)):
             by_term_id[result.term_id] = result
-        else:
-            if _is_label_prop(result.prop_uri) and not _is_label_prop(prev.prop_uri):
-                by_term_id[result.term_id] = result
 
     return list(by_term_id.values())
 
@@ -544,7 +528,7 @@ def _pick_search_result_by_id(
     field_name: str,
     value: str,
     term_id: str,
-) -> Optional[SearchResult]:
+) -> SearchResult | None:
     candidates = _collect_candidates_for_field(field_name, value, select_result)
     for candidate in candidates:
         if candidate.term_id == term_id and _is_label_prop(candidate.prop_uri):
@@ -577,25 +561,21 @@ def _build_select_system_message(reasoning: bool) -> Message:
 
 
 def _build_select_prompt_and_schema(
-    bs_entry: Dict[str, Any],
+    bs_entry: dict[str, Any],
     select_result: SelectResult,
     select_config: SelectConfig,
     reasoning: bool,
-) -> Dict[Tuple[str, str], Tuple[List[Message], JsonSchemaValue]]:
+) -> dict[tuple[str, str], tuple[list[Message], JsonSchemaValue]]:
+    """Build per-field (messages, schema) for LLM selection (choose term_id).
+
+    Only includes fields that still need a selection (i.e., results[field] is None).
     """
-    Build per-field (messages, schema) for LLM selection (choose term_id)
-    Only includes fields that still need a selection (i.e., results[field] is None)
-    """
-    results: Dict[Tuple[str, str], Tuple[List[Message], JsonSchemaValue]] = {}
+    results: dict[tuple[str, str], tuple[list[Message], JsonSchemaValue]] = {}
     bs_ctx_json = json.dumps(bs_entry, ensure_ascii=False)
     system_msg = _build_select_system_message(reasoning)
 
     for field_name, field_config in select_config.fields.items():
-        raw = (
-            select_result.extract_output.get(field_name)
-            if isinstance(select_result.extract_output, dict)
-            else None
-        )
+        raw = select_result.extract_output.get(field_name) if isinstance(select_result.extract_output, dict) else None
 
         if isinstance(raw, str):
             values = [raw]
@@ -650,11 +630,11 @@ def _build_select_prompt_and_schema(
     return results
 
 
-def _parse_output_object(chat_response: ChatResponse) -> Optional[Dict[str, Any]]:
+def _parse_output_object(chat_response: ChatResponse) -> dict[str, Any] | None:
     try:
         res_text = chat_response["message"]["content"]
         res_text_json = _extract_last_json(res_text)
-    except Exception as e:  # pylint: disable=broad-except
+    except Exception as e:
         LOGGER.error("Error extracting JSON from response text: %s", e)
         res_text_json = None
     if res_text_json is not None:
@@ -664,10 +644,11 @@ def _parse_output_object(chat_response: ChatResponse) -> Optional[Dict[str, Any]
                 for k, v in output_obj.items():
                     if v in ("null", "None"):
                         output_obj[k] = None
-            return output_obj
-        except Exception as e:  # pylint: disable=broad-except
+        except Exception as e:
             LOGGER.error("Error parsing JSON response: %s", e)
             return None
+        else:
+            return output_obj
     return None
 
 
@@ -675,19 +656,19 @@ async def select(
     config: Config,
     bs_entries: BsEntries,
     model: str,
-    extract_outputs: List[LlmOutput],
+    extract_outputs: list[LlmOutput],
     select_config: SelectConfig,
-    thinking: Optional[bool] = None,
+    thinking: bool | None = None,
     include_reasoning: bool = True,
-    index_map: Optional[Dict[Path, OntologyIndex]] = None,
-) -> List[SelectResult]:
+    index_map: dict[Path, OntologyIndex] | None = None,
+) -> list[SelectResult]:
     # Ensure model is available, pull if necessary
     await ensure_model_available(config, model)
 
     fields = select_config.fields.keys()
     no_select_fields = [f for f in fields if select_config.fields[f].ontology_file is None]
 
-    intermediate_results: List[SelectResult] = []
+    intermediate_results: list[SelectResult] = []
     for obj in extract_outputs:
         sr = SelectResult(
             accession=obj.accession,
@@ -698,7 +679,8 @@ async def select(
             results={},
         )
         for field in no_select_fields:
-            sr.results[field] = obj.output.get(field, None)  # type: ignore
+            if isinstance(obj.output, dict):
+                sr.results[field] = obj.output.get(field, None)
         intermediate_results.append(sr)
 
     # 1. Perform ontology search for each field specified in the select configuration.
@@ -722,20 +704,20 @@ async def select(
         accession: str,
         field_name: str,
         value: str,
-        messages: List[Message],
-        schema: JsonSchemaValue
-    ) -> Tuple[str, str, str, Optional[ChatResponse]]:
+        messages: list[Message],
+        schema: JsonSchemaValue,
+    ) -> tuple[str, str, str, ChatResponse | None]:
         async with sem:
             try:
                 LOGGER.debug("[Select] Processing entry: %s, field: %s", accession, field_name)
-                response: Optional[ChatResponse] = await client.chat(
+                response: ChatResponse | None = await client.chat(
                     model=model,
                     messages=messages,
                     options=OLLAMA_OPTIONS,
                     think=thinking,
                     format=schema,
                 )
-            except Exception as e:  # pylint: disable=broad-except
+            except Exception as e:
                 LOGGER.error("Error during select step: %s", e)
                 response = None
 
@@ -743,16 +725,23 @@ async def select(
 
     tasks = []
     # bs_entries and intermediate_results are aligned by accession
-    for bs_entry, select_result in zip(bs_entries, intermediate_results):
+    for bs_entry, select_result in zip(bs_entries, intermediate_results, strict=False):
         accession = select_result.accession
-        field_prompts_and_schemas = _build_select_prompt_and_schema(bs_entry, select_result, select_config, include_reasoning)
+        field_prompts_and_schemas = _build_select_prompt_and_schema(
+            bs_entry,
+            select_result,
+            select_config,
+            include_reasoning,
+        )
         for (field_name, value), (messages, schema) in field_prompts_and_schemas.items():
-            tasks.append(asyncio.create_task(
-                _process_field_selection(accession, field_name, value, messages, schema)
-            ))
+            tasks.append(asyncio.create_task(_process_field_selection(accession, field_name, value, messages, schema)))
 
     if tasks:
-        LOGGER.info("Performing LLM selection for %d fields across %d entries...", len(tasks), len(intermediate_results))
+        LOGGER.info(
+            "Performing LLM selection for %d fields across %d entries...",
+            len(tasks),
+            len(intermediate_results),
+        )
         acc_to_result_map = {result.accession: result for result in intermediate_results}
         llm_results = await asyncio.gather(*tasks)
 

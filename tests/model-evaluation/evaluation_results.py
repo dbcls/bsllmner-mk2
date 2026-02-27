@@ -4,7 +4,7 @@ import json
 import re
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import httpx
 
@@ -29,17 +29,15 @@ def list_models_from_log_dir(log_dir: Path) -> list[str]:
     return models
 
 
-def parse_time_from_log(model: str, log_dir: Path) -> Dict[str, float]:
+def parse_time_from_log(model: str, log_dir: Path) -> dict[str, float]:
     model_safe = model.replace(":", "_")
     log_file_path = log_dir.joinpath(f"{model_safe}.log")
     log_lines = log_file_path.read_text(encoding="utf-8").splitlines()
 
-    TS_MAIN = re.compile(
-        r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - bsllmner2 - INFO - (?P<msg>.*)$"
-    )
+    ts_main = re.compile(r"^(?P<ts>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - bsllmner2 - INFO - (?P<msg>.*)$")
 
-    def _parse_ts(line: str) -> Optional[Tuple[datetime, str]]:
-        m = TS_MAIN.match(line)
+    def _parse_ts(line: str) -> tuple[datetime, str] | None:
+        m = ts_main.match(line)
         if m:
             ts_str = m.group("ts")
             msg = m.group("msg")
@@ -47,27 +45,27 @@ def parse_time_from_log(model: str, log_dir: Path) -> Dict[str, float]:
             return ts, msg
         return None
 
-    P_EXTRACT = re.compile(r"Extracting entities")
-    P_ONTOLOGY_SEARCH = re.compile(r"Selecting entities")
-    P_T2T = re.compile(r"text2term for field: cell_line")
-    P_SELECT = re.compile(r"Performing LLM selection")
-    P_COMPLETE = re.compile(r"Processing complete")
+    p_extract = re.compile(r"Extracting entities")
+    p_ontology_search = re.compile(r"Selecting entities")
+    p_t2t = re.compile(r"text2term for field: cell_line")
+    p_select = re.compile(r"Performing LLM selection")
+    p_complete = re.compile(r"Processing complete")
 
-    events = [_parse_ts(line) for line in log_lines]
-    events = [e for e in events if e]
+    raw_events = [_parse_ts(line) for line in log_lines]
+    events = [e for e in raw_events if e is not None]
 
     ts_extract = ts_ontology_search = ts_t2t = ts_select = ts_complete = None
 
-    for ts, msg in events:  # type: ignore
-        if ts_extract is None and P_EXTRACT.search(msg):
+    for ts, msg in events:
+        if ts_extract is None and p_extract.search(msg):
             ts_extract = ts
-        elif ts_ontology_search is None and P_ONTOLOGY_SEARCH.search(msg):
+        elif ts_ontology_search is None and p_ontology_search.search(msg):
             ts_ontology_search = ts
-        elif ts_t2t is None and P_T2T.search(msg):
+        elif ts_t2t is None and p_t2t.search(msg):
             ts_t2t = ts
-        elif ts_select is None and P_SELECT.search(msg):
+        elif ts_select is None and p_select.search(msg):
             ts_select = ts
-        elif ts_complete is None and P_COMPLETE.search(msg):
+        elif ts_complete is None and p_complete.search(msg):
             ts_complete = ts
 
     result = {}
@@ -86,7 +84,7 @@ def parse_time_from_log(model: str, log_dir: Path) -> Dict[str, float]:
     return result
 
 
-def load_answer_mapping() -> Dict[str, Optional[str]]:
+def load_answer_mapping() -> dict[str, str | None]:
     with MAPPING_FILE.open("r", encoding="utf-8") as f:
         lines = f.read().splitlines()
     answer_mapping = {}
@@ -101,13 +99,13 @@ def load_answer_mapping() -> Dict[str, Optional[str]]:
     return answer_mapping
 
 
-def load_predicted_mapping(model: str, run_name_base: str) -> Dict[str, Optional[str]]:
+def load_predicted_mapping(model: str, run_name_base: str) -> dict[str, str | None]:
     model_safe = model.replace(":", "_")
     run_name = f"{run_name_base}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
     select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
     select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
-    predicted_mapping: Dict[str, Optional[str]] = {}
+    predicted_mapping: dict[str, str | None] = {}
     for select_result in select_results:
         accession = select_result.accession
         results = select_result.results
@@ -122,10 +120,11 @@ def load_predicted_mapping(model: str, run_name_base: str) -> Dict[str, Optional
 
 
 def evaluate_mapping(
-    predicted_mapping: Dict[str, Optional[str]],
-    answer_mapping: Dict[str, Optional[str]],
-) -> Dict[str, Optional[float]]:
-    """\
+    predicted_mapping: dict[str, str | None],
+    answer_mapping: dict[str, str | None],
+) -> dict[str, float | None]:
+    """Evaluate predicted mapping against answer mapping.
+
     Evaluation rules:
 
     answer = "A"  / pred = "A"        -> correct
@@ -146,7 +145,6 @@ def evaluate_mapping(
     F1-score: harmonic mean of precision and recall.
         F1 = 2 * P * R / (P + R)
     """
-
     tp = 0  # correct string predictions
     fp = 0  # predicted string but incorrect
     fn = 0  # answer is string but model failed to predict it
@@ -155,7 +153,7 @@ def evaluate_mapping(
     total = len(answer_mapping)
 
     for key, answer in answer_mapping.items():
-        pred = predicted_mapping.get(key, None)
+        pred = predicted_mapping.get(key)
 
         # exact match for accuracy
         if pred == answer:
@@ -167,9 +165,8 @@ def evaluate_mapping(
                 tp += 1
             else:
                 fn += 1
-        else:  # answer is None
-            if pred is not None:
-                fp += 1
+        elif pred is not None:
+            fp += 1
 
     precision = tp / (tp + fp) if (tp + fp) > 0 else None
     recall = tp / (tp + fn) if (tp + fn) > 0 else None
@@ -194,7 +191,7 @@ def evaluate_mapping(
     }
 
 
-def count_results(model: str, run_name_base: str) -> Dict[str, int]:
+def count_results(model: str, run_name_base: str) -> dict[str, int]:
     model_safe = model.replace(":", "_")
     run_name = f"{run_name_base}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
@@ -233,7 +230,7 @@ def count_results(model: str, run_name_base: str) -> Dict[str, int]:
     }
 
 
-def get_ollama_model_info(model: str) -> Dict[str, Any]:
+def get_ollama_model_info(model: str) -> dict[str, Any]:
     url = f"{OLLAMA_HOST}/api/show"
     headers = {"Content-Type": "application/json"}
     payload = {"model": model}
@@ -252,7 +249,7 @@ def get_ollama_model_info(model: str) -> Dict[str, Any]:
     }
 
 
-def write_results_tsv(results: Dict[str, Dict[str, Any]], result_tsv_path: Path) -> None:
+def write_results_tsv(results: dict[str, dict[str, Any]], result_tsv_path: Path) -> None:
     header = [
         "Model",
         "Parameter Size",
@@ -270,7 +267,7 @@ def write_results_tsv(results: Dict[str, Dict[str, Any]], result_tsv_path: Path)
         "Final Fields (max: 3000)",
     ]
 
-    with open(result_tsv_path, "w", newline="", encoding="utf-8") as f:
+    with result_tsv_path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f, delimiter="\t")
         writer.writerow(header)
 
@@ -329,7 +326,7 @@ def main() -> None:
     results = {}
     for model in models:
         try:
-            result: Dict[str, Any] = {}
+            result: dict[str, Any] = {}
 
             time_results = parse_time_from_log(model, log_dir)
             result.update(time_results)

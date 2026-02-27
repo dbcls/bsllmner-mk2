@@ -2,8 +2,9 @@ import argparse
 import asyncio
 import json
 import re
+from collections.abc import Iterator
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Literal, Optional, Set
+from typing import Any, Literal
 
 import httpx
 from pydantic import BaseModel, Field
@@ -25,48 +26,47 @@ CHIP_ATLAS_EXPERIMENT_LIST_JSON_PATH = DATA_DIR.joinpath("experimentList.json")
 
 
 class ChipAtlasExperiment(BaseModel):
+    """Metadata for each experiment in ChIP-Atlas.
+
+    Ref.: https://github.com/inutano/chip-atlas/wiki#tables-summarizing-metadata-and-files.
     """
-    Metadata for each experiment in ChIP-Atlas.
-    ref.: https://github.com/inutano/chip-atlas/wiki#tables-summarizing-metadata-and-files
-    """
+
     srx: str = Field(
         ...,
         description="Experimental ID (SRX, ERX, DRX)",
         examples=["SRX000001"],
     )
-    genome_assembly: Optional[str] = Field(
+    genome_assembly: str | None = Field(
         None,
         description="Reference genome assembly",
         examples=["hg19"],
     )
-    track_type_class: Optional[str] = Field(
+    track_type_class: str | None = Field(
         None,
         description="Class of track type",
         examples=["TFs"],
     )
-    track_type: Optional[str] = Field(
+    track_type: str | None = Field(
         None,
         description="Specific track type",
         examples=["GATA2"],
     )
-    cell_type_class: Optional[str] = Field(
+    cell_type_class: str | None = Field(
         None,
         description="Class of cell type",
         examples=["Blood"],
     )
-    cell_type: Optional[str] = Field(
+    cell_type: str | None = Field(
         None,
         description="Specific cell type",
         examples=["K-562"],
     )
-    cell_type_description: Optional[str] = Field(
+    cell_type_description: str | None = Field(
         None,
         description="Detailed description of the cell type",
-        examples=[
-            "Primary Tissue=Blood|Tissue Diagnosis=Leukemia Chronic Myelogenous"
-        ],
+        examples=["Primary Tissue=Blood|Tissue Diagnosis=Leukemia Chronic Myelogenous"],
     )
-    processing_logs: Optional[str] = Field(
+    processing_logs: str | None = Field(
         None,
         description=(
             "Processing logs of sequencing. "
@@ -75,19 +75,19 @@ class ChipAtlasExperiment(BaseModel):
         ),
         examples=["30180878,82.3,42.1,6691"],
     )
-    title: Optional[str] = Field(
+    title: str | None = Field(
         None,
         description="Experiment title",
         examples=["GSM722415: GATA2 K562bmp r1 110325 3"],
     )
 
-    meta_fields: Dict[str, Optional[str]] = Field(
+    meta_fields: dict[str, str | None] = Field(
         default_factory=dict,
         description="Additional metadata fields as key-value pairs",
         examples=[{"antibody": "GATA2", "treatment": None}],
     )
 
-    biosample_id: Optional[str] = Field(
+    biosample_id: str | None = Field(
         None,
         description=(
             "BioSample ID associated with this experiment. "
@@ -101,34 +101,33 @@ class ChipAtlasExperiment(BaseModel):
 async def download_chip_atlas_experiment_list(
     url: str = CHIP_ATLAS_EXPERIMENT_LIST_URL,
     path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH,
-    force: bool = False
+    force: bool = False,
 ) -> None:
     if path.exists() and not force:
         LOGGER.info("%s already exists. Skipping download.", path.name)
-        return None
+        return
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
     LOGGER.info("Downloading %s from %s...", path.name, url)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            with path.open("wb") as file:
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    file.write(chunk)
+    async with httpx.AsyncClient(timeout=60.0) as client, client.stream("GET", url) as response:
+        response.raise_for_status()
+        with path.open("wb") as file:
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                file.write(chunk)
 
 
-def iterate_tsv(path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH) -> Iterator[List[str]]:
+def iterate_tsv(path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH) -> Iterator[list[str]]:
     with path.open("r", encoding="utf-8") as file:
         for line in file:
             yield line.rstrip("\n").split("\t")
 
 
-def parse_meta_field(element: str) -> Optional[tuple[str, str]]:
-    """
-    Parse a metadata field in the format "key=value".
-    note: sometimes the value is "NA".
+def parse_meta_field(element: str) -> tuple[str, str] | None:
+    """Parse a metadata field in the format "key=value".
+
+    Note: sometimes the value is "NA".
     """
     if "=" not in element:
         return None
@@ -137,7 +136,7 @@ def parse_meta_field(element: str) -> Optional[tuple[str, str]]:
     return key, value
 
 
-def normalize_field_value(value: Optional[str]) -> Optional[str]:
+def normalize_field_value(value: str | None) -> str | None:
     if value is None:
         return None
     value = value.strip()
@@ -148,8 +147,8 @@ def normalize_field_value(value: Optional[str]) -> Optional[str]:
 
 def parse_experiment_list(
     path: Path = CHIP_ATLAS_EXPERIMENT_LIST_PATH,
-    genome_assembly: Optional[str] = None,
-) -> List[ChipAtlasExperiment]:
+    genome_assembly: str | None = None,
+) -> list[ChipAtlasExperiment]:
     LOGGER.info("Parsing %s...", path)
 
     experiments = []
@@ -170,19 +169,21 @@ def parse_experiment_list(
                     key, value = parsed
                     meta_fields[key] = normalize_field_value(value)
 
-        experiments.append(ChipAtlasExperiment(
-            srx=srx,
-            genome_assembly=fields[1],
-            track_type_class=fields[2],
-            track_type=fields[3],
-            cell_type_class=fields[4],
-            cell_type=fields[5],
-            cell_type_description=fields[6],
-            processing_logs=fields[7],
-            title=fields[8],
-            meta_fields=meta_fields,
-            biosample_id=None,  # to be filled later
-        ))
+        experiments.append(
+            ChipAtlasExperiment(
+                srx=srx,
+                genome_assembly=fields[1],
+                track_type_class=fields[2],
+                track_type=fields[3],
+                cell_type_class=fields[4],
+                cell_type=fields[5],
+                cell_type_description=fields[6],
+                processing_logs=fields[7],
+                title=fields[8],
+                meta_fields=meta_fields,
+                biosample_id=None,  # to be filled later
+            ),
+        )
 
     return experiments
 
@@ -201,7 +202,7 @@ ID_INDEX = 0
 TYPE_INDEX = 6
 BIOSAMPLE_INDEX = 17
 BIOPROJECT_INDEX = 18
-TYPE_FILTERS: Dict[BioAccessionType, List[SraEntityType]] = {
+TYPE_FILTERS: dict[BioAccessionType, list[SraEntityType]] = {
     "bioproject": ["STUDY", "EXPERIMENT", "RUN"],
     "biosample": ["SAMPLE", "EXPERIMENT", "RUN"],
 }
@@ -210,35 +211,34 @@ TYPE_FILTERS: Dict[BioAccessionType, List[SraEntityType]] = {
 async def download_sra_accessions_file(
     path: Path = SRA_ACCESSIONS_FILE_PATH,
     url: str = SRA_ACCESSIONS_FILE_URL,
-    force: bool = False
+    force: bool = False,
 ) -> None:
     if path.exists() and not force:
         LOGGER.info("%s already exists. Skipping download.", path.name)
-        return None
+        return
 
     path.parent.mkdir(parents=True, exist_ok=True)
 
     LOGGER.info("Downloading %s from %s...", path.name, url)
 
-    async with httpx.AsyncClient(timeout=60.0) as client:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            with path.open("wb") as file:
-                async for chunk in response.aiter_bytes(chunk_size=8192):
-                    file.write(chunk)
+    async with httpx.AsyncClient(timeout=60.0) as client, client.stream("GET", url) as response:
+        response.raise_for_status()
+        with path.open("wb") as file:
+            async for chunk in response.aiter_bytes(chunk_size=8192):
+                file.write(chunk)
 
 
 def parse_sra_accessions_file(
     from_type: SraEntityType,
     to_type: BioAccessionType,
     path: Path = SRA_ACCESSIONS_FILE_PATH,
-) -> Dict[str, List[str]]:
+) -> dict[str, list[str]]:
     LOGGER.info("Parsing %s...", path)
 
     if from_type not in TYPE_FILTERS[to_type]:
         raise ValueError(f"Invalid from_type '{from_type}' for to_type '{to_type}'")
 
-    id_to_relation_ids: Dict[str, Set[str]] = {}
+    id_to_relation_ids: dict[str, set[str]] = {}
 
     line_count = 0
 
@@ -273,18 +273,17 @@ DDBJ_SEARCH_BASE_URL = "https://ddbj.nig.ac.jp/search/entry/biosample"
 BS_ENTRIES_FILE_PATH = DATA_DIR.joinpath("bs_entries.jsonl")
 
 
-async def download_bs_entry(accession: str) -> Optional[Any]:
+async def download_bs_entry(accession: str) -> Any | None:
     url = f"{DDBJ_SEARCH_BASE_URL}/{accession}.json"
     async with httpx.AsyncClient(timeout=30.0) as client:
         response = await client.get(url)
         if response.status_code == 200:
             return response.json()
-        elif response.status_code == 404:
+        if response.status_code == 404:
             LOGGER.info("BioSample entry not found for %s", accession)
             return None
-        else:
-            response.raise_for_status()
-            return None
+        response.raise_for_status()
+        return None
 
 
 def get_bs_entry_cache_path(accession: str) -> Path:
@@ -301,7 +300,7 @@ def get_bs_entry_cache_path(accession: str) -> Path:
     return DATA_DIR.joinpath("bs_entries", prefix, f"{accession}.json")
 
 
-def load_or_download_bs_entry(accession: str, force: bool = False) -> Optional[Any]:
+def load_or_download_bs_entry(accession: str, force: bool = False) -> Any | None:
     cache_path = get_bs_entry_cache_path(accession)
     cache_path.parent.mkdir(parents=True, exist_ok=True)
     if cache_path.exists() and not force:
@@ -329,13 +328,13 @@ class Args(BaseModel):
         False,
         description="Force re-download of files even if they already exist.",
     )
-    genome_assembly: Optional[str] = Field(
+    genome_assembly: str | None = Field(
         None,
         description="If given, filter experiments by genome_assembly (e.g. 'hg38').",
     )
 
 
-def parse_args(raw_args: Optional[List[str]] = None) -> Args:
+def parse_args(raw_args: list[str] | None = None) -> Args:
     parser = argparse.ArgumentParser(description="Prepare ChIP-Atlas caches")
 
     parser.add_argument(
@@ -368,7 +367,7 @@ def main() -> None:
             url=CHIP_ATLAS_EXPERIMENT_LIST_URL,
             path=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
             force=args.force,
-        )
+        ),
     )
 
     experiments = parse_experiment_list(
@@ -381,7 +380,7 @@ def main() -> None:
         download_sra_accessions_file(
             path=SRA_ACCESSIONS_FILE_PATH,
             force=args.force,
-        )
+        ),
     )
     srx_to_biosample = parse_sra_accessions_file(
         from_type="EXPERIMENT",
@@ -410,7 +409,7 @@ def main() -> None:
 
     # 4. Download BioSample entries
     bs_entries = []
-    bs_entries_set: Set[str] = set()
+    bs_entries_set: set[str] = set()
     for ex in experiments:
         if ex.biosample_id is not None:
             if ex.biosample_id in bs_entries_set:

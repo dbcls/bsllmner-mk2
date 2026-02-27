@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Extract で抽出されたが Select でマッピングできなかった値をリストアップする。
+"""List unmapped values from select results.
 
 Usage:
     python scripts/list_unmapped.py <select_result_file> [--json]
@@ -8,20 +7,19 @@ Usage:
 Options:
     --json  JSON 形式で出力（デフォルトはテキスト形式）
 """
-from __future__ import annotations
 
 import json
 import sys
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import TypeAdapter
 
 from bsllmner2.schema import SelectResult
 
 
-def normalize_values(v: Any) -> List[str]:
-    """Extract した値を文字列リストに正規化する。"""
+def normalize_values(v: Any) -> list[str]:
+    """Normalize extracted values to a string list."""
     if v is None:
         return []
     if isinstance(v, list):
@@ -29,14 +27,14 @@ def normalize_values(v: Any) -> List[str]:
     return [str(v)]
 
 
-def find_unmapped(select_results: List[SelectResult]) -> List[Dict[str, Any]]:
-    """
-    Select 結果から、extract で抽出されたがマッピングできなかった値を抽出する。
+def find_unmapped(select_results: list[SelectResult]) -> list[dict[str, Any]]:
+    """Extract unmapped values from select results.
 
     Returns:
-        List of dicts with keys: accession, field, value
+        List of dicts with keys: accession, field, value.
+
     """
-    unmapped: List[Dict[str, Any]] = []
+    unmapped: list[dict[str, Any]] = []
 
     for sr in select_results:
         if not isinstance(sr.extract_output, dict):
@@ -47,17 +45,19 @@ def find_unmapped(select_results: List[SelectResult]) -> List[Dict[str, Any]]:
             for value in values:
                 result = sr.results.get(field, {}).get(value)
                 if result is None:
-                    unmapped.append({
-                        "accession": sr.accession,
-                        "field": field,
-                        "value": value,
-                    })
+                    unmapped.append(
+                        {
+                            "accession": sr.accession,
+                            "field": field,
+                            "value": value,
+                        },
+                    )
 
     return unmapped
 
 
-def print_text(unmapped: List[Dict[str, Any]]) -> None:
-    """テキスト形式で出力する。"""
+def print_text(unmapped: list[dict[str, Any]]) -> None:
+    """Print unmapped values in text format."""
     if not unmapped:
         print("All extracted values were successfully mapped.")
         return
@@ -65,7 +65,7 @@ def print_text(unmapped: List[Dict[str, Any]]) -> None:
     print(f"Found {len(unmapped)} unmapped value(s):\n")
 
     # accession でグループ化して表示
-    by_accession: Dict[str, List[Dict[str, Any]]] = {}
+    by_accession: dict[str, list[dict[str, Any]]] = {}
     for item in unmapped:
         acc = item["accession"]
         by_accession.setdefault(acc, []).append(item)
@@ -77,8 +77,8 @@ def print_text(unmapped: List[Dict[str, Any]]) -> None:
         print()
 
 
-def print_json(unmapped: List[Dict[str, Any]]) -> None:
-    """JSON 形式で出力する。"""
+def print_json(unmapped: list[dict[str, Any]]) -> None:
+    """Print unmapped values in JSON format."""
     print(json.dumps(unmapped, ensure_ascii=False, indent=2))
 
 
@@ -108,17 +108,11 @@ def main() -> None:
     stripped = data.strip()
     if stripped.startswith("["):
         # JSON 配列形式
-        select_results: List[SelectResult] = TypeAdapter(
-            List[SelectResult]
-        ).validate_json(data)
+        select_results: list[SelectResult] = TypeAdapter(list[SelectResult]).validate_json(data)
     else:
         # JSONL 形式（各行が個別の JSON オブジェクト）
         adapter = TypeAdapter(SelectResult)
-        select_results = [
-            adapter.validate_json(line)
-            for line in stripped.splitlines()
-            if line.strip()
-        ]
+        select_results = [adapter.validate_json(line) for line in stripped.splitlines() if line.strip()]
 
     unmapped = find_unmapped(select_results)
 

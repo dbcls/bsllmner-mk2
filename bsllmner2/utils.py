@@ -5,28 +5,42 @@ import tempfile
 import traceback
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, cast
 
 import ijson
 import yaml
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import (EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR,
-                              SELECT_RESULT_DIR, Config)
+from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR, SELECT_RESULT_DIR, Config
 from bsllmner2.metrics import Metrics
-from bsllmner2.schema import (BsEntries, CliExtractArgs, CliSelectArgs,
-                              ErrorInfo, ErrorLog, Evaluation, LlmOutput,
-                              Mapping, MappingValue, Prompt, Result,
-                              RunMetadata, SelectConfig, SelectResult, WfInput)
+from bsllmner2.schema import (
+    BsEntries,
+    CliExtractArgs,
+    CliSelectArgs,
+    ErrorInfo,
+    ErrorLog,
+    Evaluation,
+    LlmOutput,
+    Mapping,
+    MappingValue,
+    Prompt,
+    Result,
+    RunMetadata,
+    SelectConfig,
+    SelectResult,
+    WfInput,
+)
 
 
 def load_bs_entries(path: Path) -> BsEntries:
-    """
-    Load and return a list of BioSample entries from a JSON or JSONL file.
+    """Load and return a list of BioSample entries from a JSON or JSONL file.
+
     If the file is JSONL, each line is treated as a separate JSON object.
     If the file is JSON, it is expected to be a list of dictionaries.
+
     Raises:
         ValueError: If the file is neither JSON nor JSONL.
+
     """
     if not path.exists():
         raise FileNotFoundError(f"File {path} does not exist.")
@@ -37,16 +51,15 @@ def load_bs_entries(path: Path) -> BsEntries:
             data = json.load(f)
             if isinstance(data, list) and all(isinstance(item, dict) for item in data):
                 return data
-            else:
-                raise ValueError(
-                    f"Invalid format in {path}:\n"
-                    f"  JSON file must contain a list of dictionaries.\n"
-                    f'  Expected: [{{"accession": "SAMD00000001", "title": "...", ...}}]'
-                )
+            raise ValueError(
+                f"Invalid format in {path}:\n"
+                f"  JSON file must contain a list of dictionaries.\n"
+                f'  Expected: [{{"accession": "SAMD00000001", "title": "...", ...}}]',
+            )
         except json.JSONDecodeError as outer_e:
             # If JSON fails, try to load as JSONL
             f.seek(0)
-            jl_data: List[Dict[str, Any]] = []
+            jl_data: list[dict[str, Any]] = []
             for line_no, raw in enumerate(f, start=1):
                 line = raw.strip()
                 if not line:
@@ -60,13 +73,13 @@ def load_bs_entries(path: Path) -> BsEntries:
                         f"  Line content: {line[:100]}{'...' if len(line) > 100 else ''}\n"
                         f"  Expected formats:\n"
                         f'    - JSON array: [{{"accession": "SAMD00000001", ...}}]\n'
-                        f'    - JSONL: one JSON object per line'
+                        f"    - JSONL: one JSON object per line",
                     ) from inner_e
                 if not isinstance(entry, dict):
                     raise ValueError(
                         f"Invalid entry in {path} at line {line_no}:\n"
                         f"  Each line in JSONL file must be a JSON object (dictionary).\n"
-                        f"  Got: {type(entry).__name__}"
+                        f"  Got: {type(entry).__name__}",
                     ) from outer_e
                 jl_data.append(entry)
             if not jl_data:
@@ -75,14 +88,14 @@ def load_bs_entries(path: Path) -> BsEntries:
                     f"  File contains no valid JSON objects.\n"
                     f"  Expected formats:\n"
                     f'    - JSON array: [{{"accession": "SAMD00000001", ...}}]\n'
-                    f'    - JSONL: one JSON object per line'
+                    f"    - JSONL: one JSON object per line",
                 ) from outer_e
             return jl_data
 
 
-def load_prompt_file(path: Path) -> List[Prompt]:
-    """
-    Load a prompt file from the given path.
+def load_prompt_file(path: Path) -> list[Prompt]:
+    """Load a prompt file from the given path.
+
     The file should be in YAML format, containing a dictionary where each key is a number as a string.
     """
     if not path.exists():
@@ -98,7 +111,13 @@ def load_prompt_file(path: Path) -> List[Prompt]:
 
 
 def load_mapping(path: Path) -> Mapping:
-    HEADERS = ["BioSample ID", "Experiment type", "extraction answer", "mapping answer ID", "mapping answer label"]
+    expected_headers = [
+        "BioSample ID",
+        "Experiment type",
+        "extraction answer",
+        "mapping answer ID",
+        "mapping answer label",
+    ]
 
     mapping: Mapping = {}
 
@@ -108,30 +127,32 @@ def load_mapping(path: Path) -> Mapping:
         return {}
 
     header_fields = lines[0].split("\t")
-    if header_fields != HEADERS:
-        raise ValueError(f"Header mismatch: expected {HEADERS}, got {header_fields}")
+    if header_fields != expected_headers:
+        raise ValueError(f"Header mismatch: expected {expected_headers}, got {header_fields}")
 
     for lineno, line in enumerate(lines[1:], start=2):
         fields = line.split("\t")
-        if len(fields) != len(HEADERS):
-            raise ValueError(f"The number of fields in line {lineno} does not match the header: {len(fields)} != {len(HEADERS)}")
+        if len(fields) != len(expected_headers):
+            raise ValueError(
+                f"The number of fields in line {lineno} does not match the header: {len(fields)} != {len(expected_headers)}",
+            )
         accession, experiment_type, extraction_answer, mapping_answer_id, mapping_answer_label = fields
         if accession in mapping:
             raise ValueError(f"Duplicate accession found: {accession} at line {lineno}")
 
         mapping[accession] = MappingValue(
             experiment_type=experiment_type,
-            extraction_answer=extraction_answer if extraction_answer else None,
-            mapping_answer_id=mapping_answer_id if mapping_answer_id else None,
-            mapping_answer_label=mapping_answer_label if mapping_answer_label else None,
+            extraction_answer=extraction_answer or None,
+            mapping_answer_id=mapping_answer_id or None,
+            mapping_answer_label=mapping_answer_label or None,
         )
 
     return mapping
 
 
 def load_format_schema(path: Path) -> JsonSchemaValue:
-    """
-    Load a JSON schema file from the given path.
+    """Load a JSON schema file from the given path.
+
     The file should contain a valid JSON schema.
     """
     if not path.exists():
@@ -143,12 +164,12 @@ def load_format_schema(path: Path) -> JsonSchemaValue:
         except json.JSONDecodeError as e:
             raise ValueError(f"Invalid JSON schema in file {path}: {e}") from e
 
-    return schema  # type: ignore
+    return cast("JsonSchemaValue", schema)
 
 
-def evaluate_output(output: List[LlmOutput], mapping: Mapping) -> List[Evaluation]:
-    """
-    Evaluate the LLM outputs against the mapping.
+def evaluate_output(output: list[LlmOutput], mapping: Mapping) -> list[Evaluation]:
+    """Evaluate the LLM outputs against the mapping.
+
     Returns a list of Evaluation objects containing the results.
     """
     evaluations = []
@@ -175,17 +196,17 @@ def evaluate_output(output: List[LlmOutput], mapping: Mapping) -> List[Evaluatio
 
 def to_result(
     bs_entries: BsEntries,
-    mapping: Optional[Mapping],
-    prompt: List[Prompt],
+    mapping: Mapping | None,
+    prompt: list[Prompt],
     model: str,
-    output: List[LlmOutput],
-    evaluation: List[Evaluation],
+    output: list[LlmOutput],
+    evaluation: list[Evaluation],
     config: Config,
     run_metadata: RunMetadata,
-    format_: Optional[JsonSchemaValue] = None,
-    thinking: Optional[bool] = None,
-    args: Optional[CliExtractArgs | CliSelectArgs] = None,
-    metrics: Optional[List[Metrics]] = None,
+    format_: JsonSchemaValue | None = None,
+    thinking: bool | None = None,
+    args: CliExtractArgs | CliSelectArgs | None = None,
+    metrics: list[Metrics] | None = None,
 ) -> Result:
     return Result(
         input=WfInput(
@@ -240,7 +261,7 @@ def dump_extract_result(result: Result, run_name: str) -> Path:
     return result_file
 
 
-def dump_select_result(result: List[SelectResult], run_name: str) -> Path:
+def dump_select_result(result: list[SelectResult], run_name: str) -> Path:
     SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
@@ -276,7 +297,7 @@ def load_run_metadata(path: Path) -> RunMetadata:
     return RunMetadata.model_validate(data)
 
 
-def list_run_metadata() -> List[RunMetadata]:
+def list_run_metadata() -> list[RunMetadata]:
     if not EXTRACT_RESULT_DIR.exists():
         return []
 
@@ -293,11 +314,12 @@ def list_run_metadata() -> List[RunMetadata]:
     return run_metadata_list
 
 
-def list_run_names() -> List[str]:
-    """
-    List all run names from the result directory.
+def list_run_names() -> list[str]:
+    """List all run names from the result directory.
+
     Returns:
         A list of run names (without file extensions).
+
     """
     if not EXTRACT_RESULT_DIR.exists():
         return []
@@ -305,12 +327,14 @@ def list_run_names() -> List[str]:
     return [file.name.removesuffix(".json") for file in EXTRACT_RESULT_DIR.glob("*.json") if file.is_file()]
 
 
-def load_progress_count(run_name: str) -> Optional[int]:
-    """
-    Load the progress count from a file in the PROGRESS_DIR.
+def load_progress_count(run_name: str) -> int | None:
+    """Load the progress count from a file in the PROGRESS_DIR.
+
     The file is named after the run_name and contains one accession per line.
+
     Returns:
         The number of processed entries.
+
     """
     progress_file = PROGRESS_DIR.joinpath(f"{run_name}.txt")
     if not progress_file.exists():
@@ -339,7 +363,7 @@ def build_select_schema(config: SelectConfig) -> JsonSchemaValue:
             "type": ["string", "null"],
             "description": f"Selected term ID for {field_name}",
         }
-        for field_name in config.fields.keys()
+        for field_name in config.fields
     }
 
     return {
@@ -351,7 +375,7 @@ def build_select_schema(config: SelectConfig) -> JsonSchemaValue:
     }
 
 
-def build_select_prompt(config: SelectConfig) -> List[Prompt]:
+def build_select_prompt(config: SelectConfig) -> list[Prompt]:
     description = "\n".join(
         f"- {field_name}: {field_config.prompt_description}"
         for field_name, field_config in config.fields.items()
@@ -371,7 +395,7 @@ def build_select_prompt(config: SelectConfig) -> List[Prompt]:
 
 
 def build_extract_schema_for_select(config: SelectConfig) -> JsonSchemaValue:
-    properties: Dict[str, JsonSchemaValue] = {}
+    properties: dict[str, JsonSchemaValue] = {}
 
     for field_name, field_config in config.fields.items():
         if field_config.value_type == "string":
@@ -397,8 +421,8 @@ def build_extract_schema_for_select(config: SelectConfig) -> JsonSchemaValue:
     }
 
 
-def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
-    category_lines: List[str] = []
+def build_extract_prompt_for_select(config: SelectConfig) -> list[Prompt]:
+    category_lines: list[str] = []
     for field_name, field_config in config.fields.items():
         if field_config.value_type == "array":
             type_note = "multiple values (array)"
@@ -409,16 +433,11 @@ def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
         else:
             desc = "A biological attribute to be extracted from the metadata."
 
-        category_lines.append(
-            f'- "{field_name} ({type_note})":\n'
-            f'  - {desc}'
-        )
+        category_lines.append(f'- "{field_name} ({type_note})":\n  - {desc}')
 
     categories_block = "\n".join(category_lines)
 
-    system_content = (
-        "You are a smart curator of biological data."
-    )
+    system_content = "You are a smart curator of biological data."
 
     user_content = (
         "I will input JSON formatted metadata of a sample for a biological experiment.\n"
@@ -451,7 +470,7 @@ def build_extract_prompt_for_select(config: SelectConfig) -> List[Prompt]:
     ]
 
 
-def load_extract_resume_file(run_name: str) -> List[LlmOutput]:
+def load_extract_resume_file(run_name: str) -> list[LlmOutput]:
     extract_resume_file_path = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
     if not extract_resume_file_path.exists():
         return []
@@ -463,7 +482,7 @@ def load_extract_resume_file(run_name: str) -> List[LlmOutput]:
     data = json.loads(content)
     if not isinstance(data, list):
         raise ValueError(f"Resume file {extract_resume_file_path} must contain a list of LLM outputs.")
-    outputs: List[LlmOutput] = []
+    outputs: list[LlmOutput] = []
     for item in data:
         output = LlmOutput.model_validate(item)
         outputs.append(output)
@@ -472,19 +491,19 @@ def load_extract_resume_file(run_name: str) -> List[LlmOutput]:
 
 
 def validate_extract_resume_file(
-    extract_outputs: List[LlmOutput],
+    extract_outputs: list[LlmOutput],
     run_name: str,
 ) -> set[str]:
-    """
-    Validate extract resume data and return done IDs.
+    """Validate extract resume data and return done IDs.
 
-    Checks for duplicates and logs warnings.
+    Check for duplicates and log warnings.
 
     Returns:
         Set of accession IDs that have been processed.
+
     """
     seen_ids: set[str] = set()
-    duplicates: List[str] = []
+    duplicates: list[str] = []
 
     for output in extract_outputs:
         if output.accession in seen_ids:
@@ -503,33 +522,25 @@ def validate_extract_resume_file(
     return seen_ids
 
 
-def dump_extract_resume_file(outputs: List[LlmOutput], run_name: str) -> Path:
+def dump_extract_resume_file(outputs: list[LlmOutput], run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     resume_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
 
-    fd, tmp_path = tempfile.mkstemp(
-        dir=EXTRACT_RESULT_DIR,
-        prefix=f"{run_name}_resume_",
-        suffix=".tmp"
-    )
+    fd, tmp_path = tempfile.mkstemp(dir=EXTRACT_RESULT_DIR, prefix=f"{run_name}_resume_", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json_str = json.dumps(
-                [output.model_dump() for output in outputs],
-                ensure_ascii=False,
-                indent=2
-            )
+            json_str = json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2)
             f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
         shutil.move(tmp_path, resume_file)
     except Exception:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if Path(tmp_path).exists():
+            Path(tmp_path).unlink()
         raise
 
     return resume_file
 
 
-def load_select_resume_file(run_name: str) -> List[SelectResult]:
+def load_select_resume_file(run_name: str) -> list[SelectResult]:
     select_resume_file_path = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
     if not select_resume_file_path.exists():
         return []
@@ -540,7 +551,7 @@ def load_select_resume_file(run_name: str) -> List[SelectResult]:
     data = json.loads(content)
     if not isinstance(data, list):
         raise ValueError(f"Resume file {select_resume_file_path} must contain a list of SelectResult objects.")
-    results: List[SelectResult] = []
+    results: list[SelectResult] = []
     for item in data:
         result = SelectResult.model_validate(item)
         results.append(result)
@@ -548,27 +559,19 @@ def load_select_resume_file(run_name: str) -> List[SelectResult]:
     return results
 
 
-def dump_select_resume_file(results: List[SelectResult], run_name: str) -> Path:
+def dump_select_resume_file(results: list[SelectResult], run_name: str) -> Path:
     SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     resume_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
 
-    fd, tmp_path = tempfile.mkstemp(
-        dir=SELECT_RESULT_DIR,
-        prefix=f"select_{run_name}_resume_",
-        suffix=".tmp"
-    )
+    fd, tmp_path = tempfile.mkstemp(dir=SELECT_RESULT_DIR, prefix=f"select_{run_name}_resume_", suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json_str = json.dumps(
-                [result.model_dump() for result in results],
-                ensure_ascii=False,
-                indent=2
-            )
+            json_str = json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2)
             f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
         shutil.move(tmp_path, resume_file)
     except Exception:
-        if os.path.exists(tmp_path):
-            os.remove(tmp_path)
+        if Path(tmp_path).exists():
+            Path(tmp_path).unlink()
         raise
 
     return resume_file
@@ -585,14 +588,13 @@ def remove_resume_files(run_name: str) -> None:
 
 
 def validate_resume_consistency(
-    extract_outputs: List[LlmOutput],
-    select_results: List[SelectResult],
+    extract_outputs: list[LlmOutput],
+    select_results: list[SelectResult],
     run_name: str,
 ) -> tuple[set[str], set[str]]:
-    """
-    Validate consistency between extract and select resume data.
+    """Validate consistency between extract and select resume data.
 
-    Detects orphaned entries (extract completed but select not completed)
+    Detect orphaned entries (extract completed but select not completed)
     and invalid entries (select exists but extract missing).
 
     Returns:
@@ -602,6 +604,7 @@ def validate_resume_consistency(
 
     Raises:
         ResumeDataError: If select has entries that extract doesn't have
+
     """
     from bsllmner2.errors import ResumeDataError
 
@@ -614,7 +617,7 @@ def validate_resume_consistency(
         raise ResumeDataError(
             run_name,
             f"Select resume contains {len(invalid_ids)} entries not found in extract resume: "
-            f"{sorted(invalid_ids)[:5]}{'...' if len(invalid_ids) > 5 else ''}"
+            f"{sorted(invalid_ids)[:5]}{'...' if len(invalid_ids) > 5 else ''}",
         )
 
     # IDs in both = completed

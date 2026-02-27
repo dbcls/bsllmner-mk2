@@ -1,5 +1,7 @@
 FROM python:3.10.18-bookworm
 
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
+
 RUN apt update && \
     apt install -y --no-install-recommends \
     curl \
@@ -15,7 +17,8 @@ RUN curl -Lo docker.tgz https://download.docker.com/linux/static/stable/x86_64/d
 
 WORKDIR /app
 COPY . .
-RUN python3 -m pip install --no-cache-dir --progress-bar off -U pip && \
-    python3 -m pip install --no-cache-dir --progress-bar off -e .[tests]
+RUN uv sync --frozen --all-extras
+
+ENV PATH="/app/.venv/bin:${PATH}"
 
 CMD ["sleep", "infinity"]

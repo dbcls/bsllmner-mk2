@@ -1,9 +1,9 @@
 """Tests for utility functions."""
+
 import json
-import tempfile
+from collections.abc import Callable
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Dict, List
 from unittest.mock import patch
 
 import pytest
@@ -11,15 +11,22 @@ import yaml
 
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.schema import LlmOutput, SelectResult
-from bsllmner2.utils import (build_extract_prompt_for_select,
-                             build_extract_schema_for_select,
-                             dump_extract_resume_file, dump_select_resume_file,
-                             get_now_str, load_bs_entries,
-                             load_extract_resume_file, load_format_schema,
-                             load_mapping, load_prompt_file,
-                             load_select_config, load_select_resume_file,
-                             validate_extract_resume_file,
-                             validate_resume_consistency)
+from bsllmner2.utils import (
+    build_extract_prompt_for_select,
+    build_extract_schema_for_select,
+    dump_extract_resume_file,
+    dump_select_resume_file,
+    get_now_str,
+    load_bs_entries,
+    load_extract_resume_file,
+    load_format_schema,
+    load_mapping,
+    load_prompt_file,
+    load_select_config,
+    load_select_resume_file,
+    validate_extract_resume_file,
+    validate_resume_consistency,
+)
 
 
 class TestLoadBsEntries:
@@ -202,7 +209,7 @@ class TestResumeFileFunctions:
         from ollama import ChatResponse
 
         # Create a minimal ChatResponse-like dict
-        chat_response: ChatResponse = {  # type: ignore
+        chat_response: ChatResponse = {  # type: ignore[assignment]
             "model": "test-model",
             "created_at": "2024-01-01T00:00:00Z",
             "message": {"role": "assistant", "content": "test"},
@@ -295,8 +302,8 @@ class TestBuildExtractSchemaForSelect:
                 "diseases": {
                     "value_type": "array",
                     "prompt_description": "List of diseases",
-                }
-            }
+                },
+            },
         }
         config_file = temp_dir / "array_config.json"
         with config_file.open("w") as f:
@@ -328,12 +335,12 @@ class TestValidateResumeConsistency:
     """Test cases for validate_resume_consistency function."""
 
     @pytest.fixture
-    def make_llm_output(self) -> callable:
-        """Factory to create LlmOutput instances."""
+    def make_llm_output(self) -> Callable[..., LlmOutput]:
+        """Create LlmOutput instances for testing."""
         from ollama import ChatResponse
 
         def _make(accession: str) -> LlmOutput:
-            chat_response: ChatResponse = {  # type: ignore
+            chat_response: ChatResponse = {  # type: ignore[assignment]
                 "model": "test-model",
                 "created_at": "2024-01-01T00:00:00Z",
                 "message": {"role": "assistant", "content": "test"},
@@ -344,20 +351,25 @@ class TestValidateResumeConsistency:
                 output={"cell_line": "Test"},
                 chat_response=chat_response,
             )
+
         return _make
 
     @pytest.fixture
-    def make_select_result(self) -> callable:
-        """Factory to create SelectResult instances."""
+    def make_select_result(self) -> Callable[..., SelectResult]:
+        """Create SelectResult instances for testing."""
+
         def _make(accession: str) -> SelectResult:
             return SelectResult(
                 accession=accession,
                 extract_output={"cell_line": "Test"},
             )
+
         return _make
 
     def test_consistent_data_returns_done_ids(
-        self, make_llm_output: callable, make_select_result: callable
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        make_select_result: Callable[..., SelectResult],
     ) -> None:
         """Test that consistent data returns done_ids and empty orphans."""
         extract_outputs = [
@@ -371,15 +383,15 @@ class TestValidateResumeConsistency:
             make_select_result("SAMN003"),
         ]
 
-        done_ids, orphan_ids = validate_resume_consistency(
-            extract_outputs, select_results, "test-run"
-        )
+        done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
 
         assert done_ids == {"SAMN001", "SAMN002", "SAMN003"}
         assert orphan_ids == set()
 
     def test_orphan_entries_detected(
-        self, make_llm_output: callable, make_select_result: callable
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        make_select_result: Callable[..., SelectResult],
     ) -> None:
         """Test that orphan entries (extract only) are detected."""
         extract_outputs = [
@@ -394,15 +406,15 @@ class TestValidateResumeConsistency:
             make_select_result("SAMN003"),
         ]
 
-        done_ids, orphan_ids = validate_resume_consistency(
-            extract_outputs, select_results, "test-run"
-        )
+        done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
 
         assert done_ids == {"SAMN001", "SAMN002", "SAMN003"}
         assert orphan_ids == {"SAMN004"}
 
     def test_multiple_orphans_detected(
-        self, make_llm_output: callable, make_select_result: callable
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        make_select_result: Callable[..., SelectResult],
     ) -> None:
         """Test that multiple orphan entries are detected."""
         extract_outputs = [
@@ -414,15 +426,15 @@ class TestValidateResumeConsistency:
             make_select_result("SAMN001"),
         ]
 
-        done_ids, orphan_ids = validate_resume_consistency(
-            extract_outputs, select_results, "test-run"
-        )
+        done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
 
         assert done_ids == {"SAMN001"}
         assert orphan_ids == {"SAMN002", "SAMN003"}
 
     def test_invalid_data_raises_error(
-        self, make_llm_output: callable, make_select_result: callable
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        make_select_result: Callable[..., SelectResult],
     ) -> None:
         """Test that select entries without extract raise ResumeDataError."""
         extract_outputs = [
@@ -448,18 +460,14 @@ class TestValidateResumeConsistency:
         assert done_ids == set()
         assert orphan_ids == set()
 
-    def test_extract_only_returns_all_orphans(
-        self, make_llm_output: callable
-    ) -> None:
+    def test_extract_only_returns_all_orphans(self, make_llm_output: Callable[..., LlmOutput]) -> None:
         """Test that extract-only data returns all as orphans."""
         extract_outputs = [
             make_llm_output("SAMN001"),
             make_llm_output("SAMN002"),
         ]
 
-        done_ids, orphan_ids = validate_resume_consistency(
-            extract_outputs, [], "test-run"
-        )
+        done_ids, orphan_ids = validate_resume_consistency(extract_outputs, [], "test-run")
 
         assert done_ids == set()
         assert orphan_ids == {"SAMN001", "SAMN002"}
@@ -469,12 +477,12 @@ class TestValidateExtractResumeFile:
     """Test cases for validate_extract_resume_file function."""
 
     @pytest.fixture
-    def make_llm_output(self) -> callable:
-        """Factory to create LlmOutput instances."""
+    def make_llm_output(self) -> Callable[..., LlmOutput]:
+        """Create LlmOutput instances for testing."""
         from ollama import ChatResponse
 
         def _make(accession: str) -> LlmOutput:
-            chat_response: ChatResponse = {  # type: ignore
+            chat_response: ChatResponse = {  # type: ignore[assignment]
                 "model": "test-model",
                 "created_at": "2024-01-01T00:00:00Z",
                 "message": {"role": "assistant", "content": "test"},
@@ -485,9 +493,10 @@ class TestValidateExtractResumeFile:
                 output={"cell_line": "Test"},
                 chat_response=chat_response,
             )
+
         return _make
 
-    def test_returns_all_ids(self, make_llm_output: callable) -> None:
+    def test_returns_all_ids(self, make_llm_output: Callable[..., LlmOutput]) -> None:
         """Test that all accession IDs are returned."""
         extract_outputs = [
             make_llm_output("SAMN001"),
@@ -505,7 +514,9 @@ class TestValidateExtractResumeFile:
         assert done_ids == set()
 
     def test_duplicate_entries_detected_and_logged(
-        self, make_llm_output: callable, caplog: pytest.LogCaptureFixture
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that duplicate entries are detected and logged as warning."""
         import logging
@@ -534,7 +545,9 @@ class TestValidateExtractResumeFile:
         assert "SAMN001" in caplog.text
 
     def test_multiple_duplicates_detected(
-        self, make_llm_output: callable, caplog: pytest.LogCaptureFixture
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that multiple duplicates are all detected."""
         import logging

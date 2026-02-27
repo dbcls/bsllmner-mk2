@@ -2,8 +2,8 @@ import csv
 import logging
 import re
 import unicodedata
+from collections.abc import Iterable
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional, Set, Tuple
 from urllib.parse import unquote, urlparse
 
 import text2term
@@ -16,7 +16,7 @@ logging.getLogger("text2term.t2t").setLevel(logging.DEBUG)
 
 # === Build ontology index ===
 
-DEFAULT_PREFIX_MAP: Dict[str, str] = {
+DEFAULT_PREFIX_MAP: dict[str, str] = {
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
     "skos": "http://www.w3.org/2004/02/skos",
     "oboInOwl": "http://www.geneontology.org/formats/oboInOwl#",
@@ -28,7 +28,7 @@ def _expand_prop_uri(prop: str) -> str:
         return prop
     if ":" in prop:
         prefix, local = prop.split(":", 1)
-        ns = DEFAULT_PREFIX_MAP.get(prefix, None)
+        ns = DEFAULT_PREFIX_MAP.get(prefix)
         if ns:
             return ns + local
 
@@ -38,7 +38,10 @@ def _expand_prop_uri(prop: str) -> str:
 class TermAnnotation(BaseModel):
     term_uri: str = Field(..., description="The term URI")
     term_id: str = Field(..., description="The term ID, e.g., CL:0000000")  # normalized
-    prop_uri: Optional[str] = Field(None, description="The property URI, e.g., http://www.w3.org/2000/01/rdf-schema#label")
+    prop_uri: str | None = Field(
+        None,
+        description="The property URI, e.g., http://www.w3.org/2000/01/rdf-schema#label",
+    )
     value: str = Field(..., description="The property value")
 
 
@@ -89,13 +92,16 @@ def _term_id_of(t: ThingClass) -> str:
 
 
 def _normalize_term_id(term_id: str) -> str:
-    """
-    Examples:
-      'CVCL_0384'                          -> 'CVCL:0384'
-      'CVCL_R965'                          -> 'CVCL:R965'
-      'CVCL:0384'                          -> 'CVCL:0384' (unchanged)
-      'OBO:CELLOSAURUS#CVCL_R965'          -> 'CVCL:R965'
-      'http://purl.obolibrary.org/obo/CVCL_R965' -> 'CVCL:R965'
+    """Normalize a term ID to a canonical form.
+
+    Examples::
+
+        'CVCL_0384'                          -> 'CVCL:0384'
+        'CVCL_R965'                          -> 'CVCL:R965'
+        'CVCL:0384'                          -> 'CVCL:0384' (unchanged)
+        'OBO:CELLOSAURUS#CVCL_R965'          -> 'CVCL:R965'
+        'http://purl.obolibrary.org/obo/CVCL_R965' -> 'CVCL:R965'
+
     """
     t = unicodedata.normalize("NFKC", term_id).strip()
     if not t:
@@ -122,7 +128,7 @@ def _normalize_term_id(term_id: str) -> str:
     return t
 
 
-def _match_additional_conditions(t: ThingClass, conditions: Dict[str, str]) -> bool:
+def _match_additional_conditions(t: ThingClass, conditions: dict[str, str]) -> bool:
     if not conditions:
         return True
     for key, condition_val in conditions.items():
@@ -139,7 +145,7 @@ def _match_additional_conditions(t: ThingClass, conditions: Dict[str, str]) -> b
 
 def iter_term_annotations(
     ontology: Ontology,
-    additional_conditions: Optional[Dict[str, str]] = None,
+    additional_conditions: dict[str, str] | None = None,
 ) -> Iterable[TermAnnotation]:
     rdfs = DEFAULT_PREFIX_MAP["rdfs"]
     rdfs_ns = ontology.get_namespace(rdfs)
@@ -179,8 +185,8 @@ def iter_term_annotations(
 
 
 class OntologyIndex(BaseModel):
-    term_id_to_labels: Dict[str, List[str]] = Field(default_factory=dict)
-    value_to_annotations: Dict[str, List[TermAnnotation]] = Field(default_factory=dict)  # key is _normalize_key(value)
+    term_id_to_labels: dict[str, list[str]] = Field(default_factory=dict)
+    value_to_annotations: dict[str, list[TermAnnotation]] = Field(default_factory=dict)  # key is _normalize_key(value)
 
 
 LABEL_URI_PROPS = {
@@ -189,7 +195,7 @@ LABEL_URI_PROPS = {
 }
 
 
-def _is_label_prop(prop_uri: Optional[str]) -> bool:
+def _is_label_prop(prop_uri: str | None) -> bool:
     if not prop_uri:
         return False
     return prop_uri in LABEL_URI_PROPS
@@ -197,11 +203,11 @@ def _is_label_prop(prop_uri: Optional[str]) -> bool:
 
 def build_index(
     ontology: Ontology,
-    additional_conditions: Optional[Dict[str, str]] = None,
+    additional_conditions: dict[str, str] | None = None,
 ) -> OntologyIndex:
-    term_id_to_labels: Dict[str, List[str]] = {}
-    term_id_label_norms: Dict[str, Set[str]] = {}
-    value_to_annotations: Dict[str, List[TermAnnotation]] = {}
+    term_id_to_labels: dict[str, list[str]] = {}
+    term_id_label_norms: dict[str, set[str]] = {}
+    value_to_annotations: dict[str, list[TermAnnotation]] = {}
 
     for ann in iter_term_annotations(ontology, additional_conditions):
         key = _normalize_key(ann.value)
@@ -222,14 +228,14 @@ def build_index(
 
 def build_index_from_owl(
     owl_file: Path,
-    additional_conditions: Optional[Dict[str, str]] = None,
+    additional_conditions: dict[str, str] | None = None,
 ) -> OntologyIndex:
     world = World()
     ontology = world.get_ontology(owl_file.as_uri()).load()
     return build_index(ontology, additional_conditions=additional_conditions)
 
 
-def _iter_rows(file_path: Path) -> Iterable[Tuple[str, str, str]]:
+def _iter_rows(file_path: Path) -> Iterable[tuple[str, str, str]]:
     delimiter = "\t" if file_path.suffix == ".tsv" else None
     with file_path.open("r", encoding="utf-8") as f:
         if delimiter is None:
@@ -252,9 +258,9 @@ def _iter_rows(file_path: Path) -> Iterable[Tuple[str, str, str]]:
 def build_index_from_table(
     file_path: Path,
 ) -> OntologyIndex:
-    term_id_to_labels: Dict[str, List[str]] = {}
-    term_id_label_norms: Dict[str, Set[str]] = {}
-    value_to_annotations: Dict[str, List[TermAnnotation]] = {}
+    term_id_to_labels: dict[str, list[str]] = {}
+    term_id_label_norms: dict[str, set[str]] = {}
+    value_to_annotations: dict[str, list[TermAnnotation]] = {}
 
     for term_id, prop_raw, raw_value in _iter_rows(file_path):
         prop_uri = _expand_prop_uri(prop_raw)
@@ -284,10 +290,10 @@ def build_index_from_table(
 
 
 class SearchResult(TermAnnotation):
-    label: Optional[str] = None
+    label: str | None = None
     exact_match: bool
-    text2term_score: Optional[float] = None
-    reasoning: Optional[str] = None
+    text2term_score: float | None = None
+    reasoning: str | None = None
 
 
 WS_SPLIT_RE = re.compile(r"[ \t\n\r]+")
@@ -296,58 +302,53 @@ CAMEL_BOUNDARY_RE = re.compile(r"(?<=[a-z])(?=[A-Z])")
 ALNUM_BOUNDARY_RE = re.compile(r"(?<=[A-Za-z])(?=\d)|(?<=\d)(?=[A-Za-z])")
 
 
-def _split_ws(text: str) -> List[str]:
+def _split_ws(text: str) -> list[str]:
     test = text.strip()
     if not test:
         return []
     return [w for w in WS_SPLIT_RE.split(test) if w]
 
 
-def _tokenize_atom(atom: str) -> List[str]:
-    """
-    Tokenize a single whitespace-separated atom:
-      1) Split CamelCase boundary
-      2) Split alphabet<->digit boundaries
-      3) Split by default delimiters
+def _tokenize_atom(atom: str) -> list[str]:
+    """Tokenize a single whitespace-separated atom.
+
+    1) Split CamelCase boundary
+    2) Split alphabet<->digit boundaries
+    3) Split by default delimiters
     """
     if not atom:
         return []
     s = CAMEL_BOUNDARY_RE.sub(" ", atom)
     s = ALNUM_BOUNDARY_RE.sub(" ", s)
 
-    parts: List[str] = []
+    parts: list[str] = []
     for p in [s]:
         parts.extend([x for x in BASE_DELIMS_RE.split(p) if x])
 
     return parts
 
 
-def _collect_joiners(query: str) -> List[str]:
-    """
-    Return joiners to produce joined n-gram variants.
+def _collect_joiners(query: str) -> list[str]:
+    """Return joiners to produce joined n-gram variants.
+
     Always include space; add delimiters that actually appear in the original query.
     """
-    joiners: List[str] = [" "]
-    for j in ["-", "/", "_", "+"]:
-        if j in query:
-            joiners.append(j)
-    return joiners
+    return [" "] + [j for j in ["-", "/", "_", "+"] if j in query]
 
 
-def _generate_windows(tokens: List[str], max_ngram: int) -> Iterable[Tuple[int, int]]:
+def _generate_windows(tokens: list[str], max_ngram: int) -> Iterable[tuple[int, int]]:
     """Yield (start, end) windows for n-grams, from longer to shorter."""
     nmax = min(max_ngram, len(tokens))
     for n in range(nmax, 0, -1):  # longest first
-        for i in range(0, len(tokens) - n + 1):
+        for i in range(len(tokens) - n + 1):
             yield (i, i + n)
 
 
 def build_word_combinations(
     query: str,
     max_ngram: int = 7,
-) -> List[str]:
-    """
-    Build robust word combinations for search from a free-text query.
+) -> list[str]:
+    """Build robust word combinations for search from a free-text query.
 
     Features:
       - NFKC normalization
@@ -363,6 +364,7 @@ def build_word_combinations(
 
     Returns:
       A list of combinations (longest first), with duplicates removed.
+
     """
     if not query or not query.strip() or max_ngram <= 0:
         return []
@@ -370,7 +372,7 @@ def build_word_combinations(
     q_norm = _normalize_key(query)
 
     atoms = _split_ws(q_norm)
-    tokens: List[str] = []
+    tokens: list[str] = []
     for a in atoms:
         tokens.extend(_tokenize_atom(a))
 
@@ -379,8 +381,8 @@ def build_word_combinations(
 
     joiners = _collect_joiners(q_norm)
 
-    results: List[str] = []
-    seen: Set[str] = set()
+    results: list[str] = []
+    seen: set[str] = set()
 
     # Always keep the normalized original query as the first element
     if q_norm not in seen:
@@ -392,7 +394,7 @@ def build_word_combinations(
 
         # Always create a space-joined form
         joined = " ".join(window)
-        if not joined in seen:
+        if joined not in seen:
             results.append(joined)
             seen.add(joined)
 
@@ -401,7 +403,7 @@ def build_word_combinations(
             if jn == " ":
                 continue
             variant = jn.join(window)
-            if not variant in seen:
+            if variant not in seen:
                 results.append(variant)
                 seen.add(variant)
 
@@ -412,18 +414,18 @@ def search_terms(
     index: OntologyIndex,
     queries: Iterable[str],
     max_ngram: int = 7,
-) -> Dict[str, List[SearchResult]]:
+) -> dict[str, list[SearchResult]]:
     if not queries:
         return {}
 
-    results: Dict[str, List[SearchResult]] = {}
+    results: dict[str, list[SearchResult]] = {}
 
     for query in queries:
         combinations = build_word_combinations(query, max_ngram=max_ngram)
         if not combinations:
             continue
 
-        seen: Set[Tuple[str, Optional[str], str]] = set()  # (term_id, prop_uri, value)
+        seen: set[tuple[str, str | None, str]] = set()  # (term_id, prop_uri, value)
 
         for comb in combinations:
             anns = index.value_to_annotations.get(comb, [])
@@ -445,7 +447,7 @@ def search_terms(
                     prop_uri=ann.prop_uri,
                     value=ann.value,
                     label=label,
-                    exact_match=(_normalize_key(query) == _normalize_key(ann.value))
+                    exact_match=(_normalize_key(query) == _normalize_key(ann.value)),
                 )
                 results.setdefault(query, []).append(result)
 
@@ -458,7 +460,7 @@ def search_terms(
 def search_terms_with_text2term(
     queries: Iterable[str],
     owl_file: Path,
-) -> Dict[str, List[SearchResult]]:
+) -> dict[str, list[SearchResult]]:
     df = text2term.map_terms(
         source_terms=list(queries),
         target_ontology=str(owl_file),
@@ -466,15 +468,14 @@ def search_terms_with_text2term(
     required = ["Source Term", "Mapped Term Label", "Mapped Term IRI", "Mapped Term CURIE", "Mapping Score"]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        raise ValueError(f"Expected columns missing from text2term output: {missing}. "
-                         f"Have: {list(df.columns)}")
+        raise ValueError(f"Expected columns missing from text2term output: {missing}. Have: {list(df.columns)}")
 
     index = build_index_from_owl(owl_file)
 
-    results: Dict[str, List[SearchResult]] = {q: [] for q in queries}
+    results: dict[str, list[SearchResult]] = {q: [] for q in queries}
 
     for query, group in df.groupby("Source Term"):
-        seen: Set[Tuple[str, str]] = set()
+        seen: set[tuple[str, str]] = set()
         for _, row in group.iterrows():
             raw_value = row["Mapped Term Label"]
             value_key = _normalize_key(raw_value)
@@ -489,10 +490,9 @@ def search_terms_with_text2term(
             seen.add(id_val)
 
             # Find the property URI from the index (owl file)
-            prop_uri: Optional[str] = None
-            candidates: List[TermAnnotation] = [
-                ann for ann in index.value_to_annotations.get(value_key, [])  # pylint: disable=E1101
-                if ann.term_id == term_id
+            prop_uri: str | None = None
+            candidates: list[TermAnnotation] = [
+                ann for ann in index.value_to_annotations.get(value_key, []) if ann.term_id == term_id
             ]
             if len(candidates) == 1:
                 prop_uri = candidates[0].prop_uri
@@ -505,7 +505,7 @@ def search_terms_with_text2term(
                     prop_uri = candidates[0].prop_uri  # fallback to the first one
 
             # Find the label from the index (owl file)
-            label_list = index.term_id_to_labels.get(term_id, [])  # pylint: disable=E1101
+            label_list = index.term_id_to_labels.get(term_id, [])
             label = label_list[0] if label_list else None
 
             if prop_uri is None or label is None:
@@ -526,21 +526,11 @@ def search_terms_with_text2term(
 
 
 if __name__ == "__main__":
-    # TEST_QUERIES = {"HeLa", "MCF-7", "A549"}
-    # OWL_FILE_PATH = Path("/app/ontology/cellosaurus.owl").resolve()
-    # TEST_QUERIES = {"GSK1210151A"}
-    # OWL_FILE_PATH = Path("/app/ontology/chebi.owl").resolve()
     TEST_QUERIES = {"NEAT1", "SOX11", "DNMT3b", "SERPINE2", "PAF1"}
     OWL_FILE_PATH = Path("/app/ontology/ncbi_gene_human.owl").resolve()
-    index = build_index_from_owl(
-        OWL_FILE_PATH,
-        # additional_conditions={"hasDbXref": "NCBI_TaxID:9606"}
-    )
+    index = build_index_from_owl(OWL_FILE_PATH)
     results = search_terms(index, TEST_QUERIES)
-    # results = search_terms_with_text2term(TEST_QUERIES, OWL_FILE_PATH)
-    serializable = {
-        q: [r.model_dump() for r in rs]
-        for q, rs in results.items()
-    }
+    serializable = {q: [r.model_dump() for r in rs] for q, rs in results.items()}
     import json
+
     print(json.dumps(serializable, indent=2, ensure_ascii=False))

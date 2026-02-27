@@ -1,6 +1,7 @@
 """Tests for configuration module."""
+
 import os
-from typing import Generator
+from collections.abc import Generator
 
 import pytest
 
@@ -29,9 +30,9 @@ class TestGetConfig:
     """Test cases for get_config function."""
 
     @pytest.fixture(autouse=True)
-    def _clean_env(self, clean_env: Generator[None, None, None]) -> Generator[None, None, None]:
+    def _clean_env(self, clean_env: Generator[None, None, None]) -> None:
         """Ensure clean environment for each test."""
-        yield
+        return
 
     def test_default_config_no_env(self) -> None:
         """Test get_config returns defaults when no env vars are set."""
@@ -83,9 +84,9 @@ class TestGetConfigDebugParsing:
     """Test cases for debug flag parsing with various string values."""
 
     @pytest.fixture(autouse=True)
-    def _clean_env(self, clean_env: Generator[None, None, None]) -> Generator[None, None, None]:
+    def _clean_env(self, clean_env: Generator[None, None, None]) -> None:
         """Ensure clean environment for each test."""
-        yield
+        return
 
     def test_debug_false_string(self) -> None:
         """BSLLMNER2_DEBUG='false' correctly sets debug=False."""

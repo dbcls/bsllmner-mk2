@@ -8,7 +8,7 @@ import time
 from datetime import datetime, timezone
 from functools import lru_cache
 from pathlib import Path
-from typing import List, Literal, Optional
+from typing import Literal
 
 import yaml
 from pydantic import BaseModel
@@ -20,22 +20,20 @@ METRICS_OUTPUT_FILE = RESULT_DIR.joinpath("metrics.yaml")
 
 
 def parse_bytes(size_str: str) -> float:
-    """
-    Convert strings like '3.62GB' or '42.5GB' to bytes as a float.
-    """
+    """Convert strings like '3.62GB' or '42.5GB' to bytes as a float."""
     size_str = size_str.strip()
     units = {
-        'B': 1,
-        'KB': 1024,
-        'MB': 1024 ** 2,
-        'GB': 1024 ** 3,
-        'TB': 1024 ** 4,
-        'KIB': 1024,
-        'MIB': 1024 ** 2,
-        'GIB': 1024 ** 3,
-        'TIB': 1024 ** 4,
+        "B": 1,
+        "KB": 1024,
+        "MB": 1024**2,
+        "GB": 1024**3,
+        "TB": 1024**4,
+        "KIB": 1024,
+        "MIB": 1024**2,
+        "GIB": 1024**3,
+        "TIB": 1024**4,
     }
-    match = re.match(r'([\d\.]+)\s*([A-Za-z]+)', size_str)
+    match = re.match(r"([\d\.]+)\s*([A-Za-z]+)", size_str)
     if not match:
         raise ValueError(f"Invalid size format: {size_str}")
     num, unit = match.groups()
@@ -43,11 +41,9 @@ def parse_bytes(size_str: str) -> float:
 
 
 def parse_percentage(perc_str: str) -> float:
-    """
-    Convert strings like '8.16%' to a float.
-    """
+    """Convert strings like '8.16%' to a float."""
     perc_str = perc_str.strip()
-    if perc_str.endswith('%'):
+    if perc_str.endswith("%"):
         return float(perc_str[:-1])
     raise ValueError(f"Invalid percentage format: {perc_str}")
 
@@ -55,24 +51,21 @@ def parse_percentage(perc_str: str) -> float:
 @lru_cache(maxsize=1)
 def check_ollama_container_exists(container_name: str = OLLAMA_CONTAINER_NAME) -> bool:
     try:
-        result = subprocess.check_output([
-            "docker",
-            "ps",
-            "-q",
-            "-f",
-            f"name={container_name}"
-        ])
+        result = subprocess.check_output(["docker", "ps", "-q", "-f", f"name={container_name}"])
         return bool(result.strip())
     except subprocess.CalledProcessError:
         return False
 
 
 class DockerStatsResponse(BaseModel):
+    """Response schema for ``docker stats --format '{{json .}}'``.
+
+    Example::
+
+        {"BlockIO": "3.62GB / 42.5GB", "CPUPerc": "0.00%", "Container": "bsllmner-mk2-ollama", "ID": "8a8678a1dd25", "MemPerc": "8.16%",
+            "MemUsage": "41.09GiB / 503.6GiB", "Name": "bsllmner-mk2-ollama", "NetIO": "42.8GB / 88.8MB", "PIDs": "26"}
     """
-    $ docker stats bsllmner-mk2-ollama --no-stream --format "{{json .}}"
-    {"BlockIO": "3.62GB / 42.5GB", "CPUPerc": "0.00%", "Container": "bsllmner-mk2-ollama", "ID": "8a8678a1dd25", "MemPerc": "8.16%",
-        "MemUsage": "41.09GiB / 503.6GiB", "Name": "bsllmner-mk2-ollama", "NetIO": "42.8GB / 88.8MB", "PIDs": "26"}
-    """
+
     BlockIO: str
     CPUPerc: str
     Container: str
@@ -85,24 +78,20 @@ class DockerStatsResponse(BaseModel):
 
 
 def docker_stats(container_name: str) -> DockerStatsResponse:
-    result = subprocess.check_output([
-        "docker",
-        "stats",
-        container_name,
-        "--no-stream",
-        "--format",
-        "{{json .}}"
-    ])
+    result = subprocess.check_output(["docker", "stats", container_name, "--no-stream", "--format", "{{json .}}"])
     raw = json.loads(result.decode("utf-8"))
     return DockerStatsResponse(**raw)
 
 
 class NvidiaSmiResponse(BaseModel):
+    """Response schema for ``nvidia-smi --query-gpu=... --format=csv``.
+
+    Example::
+
+        GPU-415f6582-1df0-82e8-67fe-4577cce30c15, NVIDIA RTX 6000 Ada Generation, 37, 49140, 0, 5.24
+        GPU-5b0aaa0f-cd30-62ac-a444-d489e55fe266, NVIDIA RTX 6000 Ada Generation, 18, 49140, 0, 8.43
     """
-    docker exec bsllmner-mk2-ollama nvidia-smi --query-gpu=uuid,name,memory.used,memory.total,utilization.gpu,power.draw --format=csv,noheader,nounits
-    GPU-415f6582-1df0-82e8-67fe-4577cce30c15, NVIDIA RTX 6000 Ada Generation, 37, 49140, 0, 5.24
-    GPU-5b0aaa0f-cd30-62ac-a444-d489e55fe266, NVIDIA RTX 6000 Ada Generation, 18, 49140, 0, 8.43
-    """
+
     uuid: str
     name: str
     memory_used_bytes: float  # MiB to bytes
@@ -112,28 +101,32 @@ class NvidiaSmiResponse(BaseModel):
 
 
 def nvidia_smi(container_name: str) -> list[NvidiaSmiResponse]:
-    result = subprocess.check_output([
-        "docker",
-        "exec",
-        container_name,
-        "nvidia-smi",
-        "--query-gpu=uuid,name,memory.used,memory.total,utilization.gpu,power.draw",
-        "--format=csv,noheader,nounits"
-    ])
+    result = subprocess.check_output(
+        [
+            "docker",
+            "exec",
+            container_name,
+            "nvidia-smi",
+            "--query-gpu=uuid,name,memory.used,memory.total,utilization.gpu,power.draw",
+            "--format=csv,noheader,nounits",
+        ],
+    )
     raw_lines = result.decode("utf-8").strip().split("\n")
     gpus = []
     for line in raw_lines:
         if not line.strip():
             continue
         uuid, name, mem_used, mem_total, util_gpu, power = [x.strip() for x in line.split(",")]
-        gpus.append(NvidiaSmiResponse(
-            uuid=uuid,
-            name=name,
-            memory_used_bytes=parse_bytes(f"{mem_used}MiB"),
-            memory_total_bytes=parse_bytes(f"{mem_total}MiB"),
-            utilization_gpu=int(util_gpu),
-            power_draw=float(power)
-        ))
+        gpus.append(
+            NvidiaSmiResponse(
+                uuid=uuid,
+                name=name,
+                memory_used_bytes=parse_bytes(f"{mem_used}MiB"),
+                memory_total_bytes=parse_bytes(f"{mem_total}MiB"),
+                utilization_gpu=int(util_gpu),
+                power_draw=float(power),
+            ),
+        )
 
     return gpus
 
@@ -190,7 +183,7 @@ class LiveMetricsCollector:
         self.container_name = container_name
         self.interval_sec = interval_sec
         self.count = 0
-        self.records: List[Metrics] = []
+        self.records: list[Metrics] = []
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._collect_loop)
         self._enabled = check_ollama_container_exists(container_name)
@@ -216,7 +209,7 @@ class LiveMetricsCollector:
 
             self.count += 1
 
-    def get_records(self) -> List[Metrics]:
+    def get_records(self) -> list[Metrics]:
         if not self._enabled:
             return []
         return self.records
@@ -226,19 +219,19 @@ class LiveMetricsCollector:
 
 
 class IndentDumper(yaml.SafeDumper):
-    def increase_indent(self, flow=False, indentless=False) -> None:  # type: ignore
+    def increase_indent(self, flow: bool = False, _indentless: bool = False) -> None:
         return super().increase_indent(flow, False)
 
 
 class Args(BaseModel):
     container_name: str = OLLAMA_CONTAINER_NAME
     interval_sec: int = 5
-    count: Optional[int] = None
+    count: int | None = None
     output: Literal["yaml", "stdout"] = "stdout"
     output_file: Path
 
 
-def parse_args(args: List[str]) -> Args:
+def parse_args(args: list[str]) -> Args:
     parser = argparse.ArgumentParser(
         description="Collect various metrics from a Docker container running the ollama service.",
     )
@@ -288,7 +281,9 @@ def parse_args(args: List[str]) -> Args:
 def main() -> None:
     args = parse_args(sys.argv[1:])
     if args.output == "yaml":
-        print(f"Collecting metrics from container '{args.container_name}' every {args.interval_sec} seconds and saving to '{args.output_file}'")
+        print(
+            f"Collecting metrics from container '{args.container_name}' every {args.interval_sec} seconds and saving to '{args.output_file}'",
+        )
         f = args.output_file.open("w", encoding="utf-8")
     else:
         f = None
@@ -308,12 +303,14 @@ def main() -> None:
                     default_flow_style=False,
                 )
             elif args.output == "stdout":
-                print(yaml.dump(
-                    metrics.model_dump(),
-                    Dumper=IndentDumper,
-                    sort_keys=False,
-                    allow_unicode=True,
-                ))
+                print(
+                    yaml.dump(
+                        metrics.model_dump(),
+                        Dumper=IndentDumper,
+                        sort_keys=False,
+                        allow_unicode=True,
+                    ),
+                )
                 print("-" * 40)
 
             next_time += args.interval_sec

@@ -1,9 +1,11 @@
 """Common CLI utilities shared between extract and select modes."""
+
 import argparse
 import math
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, Awaitable, Callable, Dict, List, TypeVar
+from typing import Any, TypeVar
 
 from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, default_config
 
@@ -15,15 +17,14 @@ def str_to_bool(v: str) -> bool:
 
     Raises:
         argparse.ArgumentTypeError: If the value is not a valid boolean string.
+
     """
     lower = v.lower()
     if lower in ("true", "1", "yes", "on"):
         return True
     if lower in ("false", "0", "no", "off"):
         return False
-    raise argparse.ArgumentTypeError(
-        f"Invalid boolean value: '{v}'. Use 'true' or 'false'."
-    )
+    raise argparse.ArgumentTypeError(f"Invalid boolean value: '{v}'. Use 'true' or 'false'.")
 
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -95,9 +96,7 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
 def validate_common_args(parsed_args: argparse.Namespace) -> None:
     """Validate common arguments and raise errors if invalid."""
     if not parsed_args.bs_entries.exists():
-        raise FileNotFoundError(
-            f"BioSample entries file {parsed_args.bs_entries} does not exist."
-        )
+        raise FileNotFoundError(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
 
 
 @dataclass
@@ -108,18 +107,17 @@ class BatchInfo:
     total_batches: int
     start_idx: int
     end_idx: int
-    entries: List[Dict[str, Any]]
+    entries: list[dict[str, Any]]
 
 
 async def process_batches(
-    entries: List[Dict[str, Any]],
+    entries: list[dict[str, Any]],
     batch_size: int,
     process_fn: Callable[[BatchInfo], Awaitable[T]],
     on_batch_complete: Callable[[int, T], None],
     log_prefix: str = "Processing",
-) -> List[T]:
-    """
-    Generic batch processing loop.
+) -> list[T]:
+    """Process entries in batches.
 
     Args:
         entries: List of entries to process
@@ -130,12 +128,13 @@ async def process_batches(
 
     Returns:
         List of results from each batch
+
     """
     if not entries:
         return []
 
     total_batches = math.ceil(len(entries) / batch_size)
-    results: List[T] = []
+    results: list[T] = []
 
     LOGGER.info("%s %d entries in %d batches...", log_prefix, len(entries), total_batches)
 

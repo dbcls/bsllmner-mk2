@@ -2,32 +2,38 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
-from bsllmner2.cli_common import (BatchInfo, add_common_arguments,
-                                  process_batches, validate_common_args)
+from bsllmner2.cli_common import BatchInfo, add_common_arguments, process_batches, validate_common_args
 from bsllmner2.client.ollama import build_index_map, ner, select
 from bsllmner2.config import LOGGER, Config, get_config, set_logging_level
 from bsllmner2.metrics import LiveMetricsCollector
-from bsllmner2.schema import (CliSelectArgs, LlmOutput, RunMetadata,
-                              SelectResult)
-from bsllmner2.utils import (build_extract_prompt_for_select,
-                             build_extract_schema_for_select,
-                             dump_extract_result, dump_extract_resume_file,
-                             dump_select_result, dump_select_resume_file,
-                             evaluate_output, get_now_str, load_bs_entries,
-                             load_extract_resume_file, load_mapping,
-                             load_select_config, load_select_resume_file,
-                             remove_resume_files, to_result,
-                             validate_resume_consistency)
+from bsllmner2.schema import CliSelectArgs, LlmOutput, RunMetadata, SelectResult
+from bsllmner2.utils import (
+    build_extract_prompt_for_select,
+    build_extract_schema_for_select,
+    dump_extract_result,
+    dump_extract_resume_file,
+    dump_select_result,
+    dump_select_resume_file,
+    evaluate_output,
+    get_now_str,
+    load_bs_entries,
+    load_extract_resume_file,
+    load_mapping,
+    load_select_config,
+    load_select_resume_file,
+    remove_resume_files,
+    to_result,
+    validate_resume_consistency,
+)
 
 
-def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
-    """
-    Parse command-line arguments for the bsllmner2 CLI select mode.
+def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
+    """Parse command-line arguments for the bsllmner2 CLI select mode.
 
     Returns:
         Tuple of Config and CliSelectArgs.
+
     """
     parser = argparse.ArgumentParser(
         description="Named Entity Recognition (NER) and ontology mapping for BioSample records using LLMs.",
@@ -81,9 +87,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliSelectArgs]:
 
 
 async def run_cli_select_async() -> None:
-    """
-    Run the CLI for bsllmner2 select mode.
-    """
+    """Run the CLI for bsllmner2 select mode."""
     from bsllmner2.errors import Bsllmner2Error
 
     LOGGER.info("Starting bsllmner2 CLI select mode...")
@@ -108,26 +112,23 @@ async def run_cli_select_async() -> None:
 
     bs_entries = load_bs_entries(args.bs_entries)
     if args.max_entries is not None:
-        bs_entries = bs_entries[:args.max_entries]
+        bs_entries = bs_entries[: args.max_entries]
 
-    extract_outputs: List[LlmOutput] = []
-    select_results: List[SelectResult] = []
+    extract_outputs: list[LlmOutput] = []
+    select_results: list[SelectResult] = []
     if args.resume:
         resume_extract_outputs = load_extract_resume_file(run_name)
         resume_select_results = load_select_resume_file(run_name)
 
         # Validate consistency and detect orphans
-        done_ids, orphan_ids = validate_resume_consistency(
-            resume_extract_outputs, resume_select_results, run_name
-        )
+        done_ids, orphan_ids = validate_resume_consistency(resume_extract_outputs, resume_select_results, run_name)
 
         if orphan_ids:
             LOGGER.warning(
-                "Found %d orphan entries (extract completed but select not completed). "
-                "These will be reprocessed: %s%s",
+                "Found %d orphan entries (extract completed but select not completed). These will be reprocessed: %s%s",
                 len(orphan_ids),
                 sorted(orphan_ids)[:5],
-                "..." if len(orphan_ids) > 5 else ""
+                "..." if len(orphan_ids) > 5 else "",
             )
 
         # Keep only fully completed entries
@@ -148,13 +149,12 @@ async def run_cli_select_async() -> None:
     status = "completed"
     end_time = None
     try:
+
         async def process_select_batch(
             batch_info: BatchInfo,
-        ) -> Tuple[List[LlmOutput], List[SelectResult]]:
+        ) -> tuple[list[LlmOutput], list[SelectResult]]:
             LOGGER.info("Extracting entities...")
-            batch_extract_outputs = await ner(
-                config, batch_info.entries, prompt, format_, args.model, args.thinking
-            )
+            batch_extract_outputs = await ner(config, batch_info.entries, prompt, format_, args.model, args.thinking)
             LOGGER.info("Selecting entities...")
             batch_select_results = await select(
                 config,
@@ -169,8 +169,8 @@ async def run_cli_select_async() -> None:
             return batch_extract_outputs, batch_select_results
 
         def on_select_batch_complete(
-            batch_idx: int,
-            batch_result: Tuple[List[LlmOutput], List[SelectResult]],
+            _batch_idx: int,
+            batch_result: tuple[list[LlmOutput], list[SelectResult]],
         ) -> None:
             batch_extract_outputs, batch_select_results = batch_result
             extract_outputs.extend(batch_extract_outputs)
@@ -215,7 +215,7 @@ async def run_cli_select_async() -> None:
         thinking=args.thinking,
         start_time=start_time,
         end_time=end_time,
-        status=status
+        status=status,
     )
     result = to_result(
         bs_entries=bs_entries,
@@ -239,9 +239,7 @@ async def run_cli_select_async() -> None:
 
 
 def run_cli_select() -> None:
-    """
-    Run the CLI for bsllmner2 select mode in an event loop.
-    """
+    """Run the CLI for bsllmner2 select mode in an event loop."""
     asyncio.run(run_cli_select_async())
 
 

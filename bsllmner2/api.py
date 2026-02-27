@@ -3,28 +3,38 @@ import shutil
 import subprocess
 import sys
 import tempfile
+from collections.abc import Callable
 from enum import Enum
 from pathlib import Path
-from typing import (Any, Callable, List, Literal, NoReturn, Optional, Tuple,
-                    TypeVar)
+from typing import Any, Literal, NoReturn, TypeVar
 
 import uvicorn
 import yaml
-from fastapi import (APIRouter, FastAPI, File, Form, HTTPException, Query,
-                     Response, UploadFile, status)
+from fastapi import APIRouter, FastAPI, File, Form, HTTPException, Query, Response, UploadFile, status
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import (EXTRACT_RESULT_DIR, MODULE_ROOT,
-                              PROMPT_EXTRACT_FILE_PATH, REPO_ROOT,
-                              SCHEMA_CELL_LINE_FILE_PATH, get_config,
-                              set_logging_level)
+from bsllmner2.config import (
+    EXTRACT_RESULT_DIR,
+    MODULE_ROOT,
+    PROMPT_EXTRACT_FILE_PATH,
+    REPO_ROOT,
+    SCHEMA_CELL_LINE_FILE_PATH,
+    get_config,
+    set_logging_level,
+)
 from bsllmner2.metrics import check_ollama_container_exists
-from bsllmner2.schema import (API_VERSION, BsEntries, Mapping, Prompt, Result,
-                              RunMetadata, ServiceInfo)
-from bsllmner2.utils import (dump_extract_result, get_now_str,
-                             list_run_metadata, list_run_names,
-                             load_bs_entries, load_extract_result,
-                             load_format_schema, load_mapping, to_result)
+from bsllmner2.schema import API_VERSION, BsEntries, Mapping, Prompt, Result, RunMetadata, ServiceInfo
+from bsllmner2.utils import (
+    dump_extract_result,
+    get_now_str,
+    list_run_metadata,
+    list_run_names,
+    load_bs_entries,
+    load_extract_result,
+    load_format_schema,
+    load_mapping,
+    to_result,
+)
 
 SMALL_TEST_DATA = {
     "bs_entries": REPO_ROOT.joinpath("tests/test-data/cell_line_example.biosample.json"),
@@ -60,9 +70,9 @@ async def service_info() -> ServiceInfo:
 
 @router.get(
     "/default-extract-prompt",
-    response_model=List[Prompt],
+    response_model=list[Prompt],
 )
-async def read_default_extract_prompt() -> List[Prompt]:
+async def read_default_extract_prompt() -> list[Prompt]:
     if not PROMPT_EXTRACT_FILE_PATH.exists():
         raise HTTPException(
             status_code=404,
@@ -110,14 +120,16 @@ def _never() -> NoReturn:
 async def _prepare_input_data(
     use_small_test_data: bool,
     use_large_test_data: bool,
-    bs_entries: Optional[UploadFile],
-    mapping: Optional[UploadFile],
-) -> Tuple[BsEntries, Mapping]:
-    num_sources = sum([
-        use_small_test_data,
-        use_large_test_data,
-        bool(bs_entries and mapping),
-    ])
+    bs_entries: UploadFile | None,
+    mapping: UploadFile | None,
+) -> tuple[BsEntries, Mapping]:
+    num_sources = sum(
+        [
+            use_small_test_data,
+            use_large_test_data,
+            bool(bs_entries and mapping),
+        ],
+    )
     if num_sources != 1:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -148,15 +160,15 @@ async def _prepare_input_data(
 async def extract(
     use_small_test_data: bool = Form(False),
     use_large_test_data: bool = Form(False),
-    bs_entries: Optional[UploadFile] = File(None),
-    mapping: Optional[UploadFile] = File(None),
+    bs_entries: UploadFile | None = File(None),
+    mapping: UploadFile | None = File(None),
     prompt: str = Form(...),
     model: str = Form(...),
-    format_: Optional[str] = Form(None, alias="format"),
-    thinking: Optional[bool] = Form(None),
-    max_entries: Optional[int] = Form(None),
-    username: Optional[str] = Form(None),
-    run_name: Optional[str] = Form(None),
+    format_: str | None = Form(None, alias="format"),
+    thinking: bool | None = Form(None),
+    max_entries: int | None = Form(None),
+    username: str | None = Form(None),
+    run_name: str | None = Form(None),
 ) -> Result:
     bs_entries_data, mapping_data = await _prepare_input_data(
         use_small_test_data,
@@ -198,7 +210,6 @@ async def extract(
     # Save the initial state of the result
     queue_file = dump_extract_result(queue_obj, run_name)
 
-    # pylint: disable=consider-using-with
     subprocess.Popen(
         [
             sys.executable,
@@ -224,28 +235,29 @@ class RunSortOrder(str, Enum):
     DESC = "desc"
 
 
-def make_none_safe_key(reverse: bool) -> Callable[[Any], Tuple[int, Any]]:
-    def _key(val: Any) -> Tuple[int, Any]:
+def make_none_safe_key(reverse: bool) -> Callable[[Any], tuple[int, Any]]:
+    def _key(val: Any) -> tuple[int, Any]:
         if val is None:
             return (0 if reverse else 1, None)
         return (1 if reverse else 0, val)
+
     return _key
 
 
 @router.get(
     "/extract/runs",
-    response_model=List[RunMetadata],
+    response_model=list[RunMetadata],
 )
 async def list_extract_runs(
     response: Response,
-    username: Optional[str] = Query(None),
-    model: Optional[str] = Query(None),
+    username: str | None = Query(None),
+    model: str | None = Query(None),
     run_status: Literal["running", "completed", "failed"] = Query(None),
     sort_by: RunSortBy = Query(RunSortBy.START_TIME),
     sort_order: RunSortOrder = Query(RunSortOrder.DESC),
     page: int = Query(1, description="1-based page number"),
-    page_size: int = Query(10, description="Number of results per page")
-) -> List[RunMetadata]:
+    page_size: int = Query(10, description="Number of results per page"),
+) -> list[RunMetadata]:
     metadata = list_run_metadata()
 
     # Filtering
@@ -292,9 +304,9 @@ async def get_extract_run(
 
 @router.get(
     "/extract/run-names",
-    response_model=List[str],
+    response_model=list[str],
 )
-async def list_extract_run_names() -> List[str]:
+async def list_extract_run_names() -> list[str]:
     return list_run_names()
 
 

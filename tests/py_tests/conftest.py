@@ -1,30 +1,20 @@
 import json
 import os
-import sys
 import tempfile
+from collections.abc import Generator
 from pathlib import Path
-from typing import Any, Dict, Generator, List
-from unittest.mock import patch
+from typing import Any
 
 import pytest
 import yaml
 
-
-# Patch INDEX_CACHE_DIR before importing bsllmner2 modules
-# This is necessary because client/ollama.py creates the directory on import
-@pytest.fixture(scope="session", autouse=True)
-def patch_index_cache_dir() -> Generator[None, None, None]:
-    """Patch INDEX_CACHE_DIR to use a temp directory for tests.
-
-    This is needed because client/ollama.py has a module-level side effect
-    that creates INDEX_CACHE_DIR on import, which fails in test environments
-    without write access to /app/ontology.
-    """
-    with tempfile.TemporaryDirectory() as tmpdir:
-        # We need to patch this before the module is imported
-        # Since conftest.py is loaded first, we can set up the patch here
-        os.environ["BSLLMNER2_INDEX_CACHE_DIR"] = tmpdir
-        yield
+# Patch INDEX_CACHE_DIR before any bsllmner2 module is imported.
+# client/ollama.py runs INDEX_CACHE_DIR.mkdir() at import time, which fails
+# outside Docker where /app/ontology does not exist.
+# conftest.py is evaluated before test modules are collected, so setting
+# the env var here ensures the module-level side effect uses a temp dir.
+_INDEX_CACHE_TMPDIR = tempfile.mkdtemp()
+os.environ.setdefault("BSLLMNER2_INDEX_CACHE_DIR", _INDEX_CACHE_TMPDIR)
 
 
 @pytest.fixture
@@ -35,7 +25,7 @@ def temp_dir() -> Generator[Path, None, None]:
 
 
 @pytest.fixture
-def sample_bs_entries() -> List[Dict[str, Any]]:
+def sample_bs_entries() -> list[dict[str, Any]]:
     """Sample BioSample entries for testing."""
     return [
         {
@@ -52,7 +42,7 @@ def sample_bs_entries() -> List[Dict[str, Any]]:
 
 
 @pytest.fixture
-def bs_entries_json_file(temp_dir: Path, sample_bs_entries: List[Dict[str, Any]]) -> Path:
+def bs_entries_json_file(temp_dir: Path, sample_bs_entries: list[dict[str, Any]]) -> Path:
     """Create a temporary JSON file with BioSample entries."""
     file_path = temp_dir / "bs_entries.json"
     with file_path.open("w", encoding="utf-8") as f:
@@ -61,7 +51,7 @@ def bs_entries_json_file(temp_dir: Path, sample_bs_entries: List[Dict[str, Any]]
 
 
 @pytest.fixture
-def bs_entries_jsonl_file(temp_dir: Path, sample_bs_entries: List[Dict[str, Any]]) -> Path:
+def bs_entries_jsonl_file(temp_dir: Path, sample_bs_entries: list[dict[str, Any]]) -> Path:
     """Create a temporary JSONL file with BioSample entries."""
     file_path = temp_dir / "bs_entries.jsonl"
     with file_path.open("w", encoding="utf-8") as f:
@@ -71,7 +61,7 @@ def bs_entries_jsonl_file(temp_dir: Path, sample_bs_entries: List[Dict[str, Any]
 
 
 @pytest.fixture
-def sample_prompt() -> List[Dict[str, str]]:
+def sample_prompt() -> list[dict[str, str]]:
     """Sample prompt for testing."""
     return [
         {"role": "system", "content": "You are a helpful assistant."},
@@ -80,7 +70,7 @@ def sample_prompt() -> List[Dict[str, str]]:
 
 
 @pytest.fixture
-def prompt_file(temp_dir: Path, sample_prompt: List[Dict[str, str]]) -> Path:
+def prompt_file(temp_dir: Path, sample_prompt: list[dict[str, str]]) -> Path:
     """Create a temporary prompt YAML file."""
     file_path = temp_dir / "prompt.yml"
     with file_path.open("w", encoding="utf-8") as f:
@@ -89,21 +79,19 @@ def prompt_file(temp_dir: Path, sample_prompt: List[Dict[str, str]]) -> Path:
 
 
 @pytest.fixture
-def sample_format_schema() -> Dict[str, Any]:
+def sample_format_schema() -> dict[str, Any]:
     """Sample JSON schema for output format."""
     return {
         "$schema": "http://json-schema.org/draft-07/schema#",
         "type": "object",
-        "properties": {
-            "cell_line": {"type": ["string", "null"]}
-        },
+        "properties": {"cell_line": {"type": ["string", "null"]}},
         "required": ["cell_line"],
         "additionalProperties": False,
     }
 
 
 @pytest.fixture
-def format_schema_file(temp_dir: Path, sample_format_schema: Dict[str, Any]) -> Path:
+def format_schema_file(temp_dir: Path, sample_format_schema: dict[str, Any]) -> Path:
     """Create a temporary JSON schema file."""
     file_path = temp_dir / "format.schema.json"
     with file_path.open("w", encoding="utf-8") as f:
@@ -112,7 +100,7 @@ def format_schema_file(temp_dir: Path, sample_format_schema: Dict[str, Any]) -> 
 
 
 @pytest.fixture
-def sample_select_config() -> Dict[str, Any]:
+def sample_select_config() -> dict[str, Any]:
     """Sample select configuration for testing."""
     return {
         "fields": {
@@ -120,13 +108,13 @@ def sample_select_config() -> Dict[str, Any]:
                 "ontology_file": None,
                 "prompt_description": "Cell line name",
                 "value_type": "string",
-            }
-        }
+            },
+        },
     }
 
 
 @pytest.fixture
-def select_config_file(temp_dir: Path, sample_select_config: Dict[str, Any]) -> Path:
+def select_config_file(temp_dir: Path, sample_select_config: dict[str, Any]) -> Path:
     """Create a temporary select config file."""
     file_path = temp_dir / "select_config.json"
     with file_path.open("w", encoding="utf-8") as f:

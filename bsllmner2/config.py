@@ -24,9 +24,8 @@ OLLAMA_CONTAINER_NAME = "bsllmner2-ollama"
 
 
 class Config(BaseModel):
-    """
-    Application configuration for bsllmner2.
-    """
+    """Application configuration for bsllmner2."""
+
     ollama_host: str = "http://localhost:11434"
     debug: bool = False
     api_host: str = "127.0.0.1"
@@ -46,12 +45,13 @@ def _parse_bool_env(value: str | bool) -> bool:
 
 
 def get_config() -> Config:
-    """
-    Get the application configuration.
+    """Get the application configuration.
+
     This function can be extended to load configuration from environment variable.
 
     Returns:
         Config: The current application configuration.
+
     """
     debug_env = os.environ.get(f"{ENV_PREFIX}DEBUG")
     debug = _parse_bool_env(debug_env) if debug_env is not None else default_config.debug
@@ -61,11 +61,12 @@ def get_config() -> Config:
         debug=debug,
         api_host=os.environ.get(f"{ENV_PREFIX}API_HOST", default_config.api_host),
         api_port=int(os.environ.get(f"{ENV_PREFIX}API_PORT", default_config.api_port)),
-        api_url_prefix=os.environ.get(f"{ENV_PREFIX}API_URL_PREFIX", default_config.api_url_prefix)
+        api_url_prefix=os.environ.get(f"{ENV_PREFIX}API_URL_PREFIX", default_config.api_url_prefix),
     )
 
 
 # === logging ===
+
 
 def set_logging_config() -> None:
     config = {
@@ -74,23 +75,13 @@ def set_logging_config() -> None:
         "formatters": {
             "default": {
                 "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-                "datefmt": "%Y-%m-%d %H:%M:%S"
-            }
+                "datefmt": "%Y-%m-%d %H:%M:%S",
+            },
         },
         "handlers": {
-            "default": {
-                "class": "logging.StreamHandler",
-                "formatter": "default",
-                "stream": "ext://sys.stderr"
-            }
+            "default": {"class": "logging.StreamHandler", "formatter": "default", "stream": "ext://sys.stderr"},
         },
-        "loggers": {
-            "bsllmner2": {
-                "handlers": ["default"],
-                "level": "INFO",
-                "propagate": False
-            }
-        }
+        "loggers": {"bsllmner2": {"handlers": ["default"], "level": "INFO", "propagate": False}},
     }
 
     logging.config.dictConfig(config)
@@ -101,10 +92,11 @@ LOGGER = logging.getLogger("bsllmner2")
 
 
 def set_logging_level(debug: bool = False) -> None:
-    """
-    Set the logging level for the application.
+    """Set the logging level for the application.
+
     Args:
         debug (bool): If True, set logging level to DEBUG; otherwise, set to INFO.
+
     """
     level = logging.DEBUG if debug else logging.INFO
     LOGGER.setLevel(level)

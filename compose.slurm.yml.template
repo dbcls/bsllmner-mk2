@@ -6,6 +6,7 @@ services:
     container_name: bsllmner-mk2-app
     volumes:
       - ${PWD}:/app
+      - venv:/app/.venv:rw
       - /var/run/docker.sock:/var/run/docker.sock # For docker inspect
     environment:
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
@@ -40,6 +41,9 @@ services:
         capabilities: [ gpu ]
     networks:
       - bsllmner-mk2-network
+
+volumes:
+  venv: {}
 
 networks:
   bsllmner-mk2-network:

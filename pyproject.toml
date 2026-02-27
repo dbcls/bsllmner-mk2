@@ -1,13 +1,16 @@
 [build-system]
-requires = ["setuptools>=61.0", "wheel"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["bsllmner2"]
 
 [project]
 name = "bsllmner-mk2"
 authors = [{ name = "DBCLS" }]
 description = "Named Entity Recognition (NER) of biological terms in BioSample records using LLMs, developed as bsllmner-mk2."
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.8"
+requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
   "fastapi",
@@ -31,12 +34,14 @@ Repository = "https://github.com/dbcls/bsllmner-mk2.git"
 
 [project.optional-dependencies]
 tests = [
-  "isort",
+  "hypothesis",
+  "mutmut",
   "mypy",
-  "pylint",
-  "pytest-cov",
-  "pytest-mock",
   "pytest",
+  "pytest-asyncio",
+  "pytest-mock",
+  "pytest-randomly",
+  "ruff",
   "types-PyYAML",
 ]
 
@@ -46,39 +51,129 @@ bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
 bsllmner2_api = "bsllmner2.api:run_api"
 bsllmner2_metrics = "bsllmner2.metrics:main"
 
-[tool.setuptools]
-packages = ["bsllmner2", "bsllmner2.bs", "bsllmner2.client"]
-include-package-data = true
-
-[tool.setuptools.package-data]
-bsllmner2 = ["bs/filter_keys.json", "prompt/*", "format/*", "py.typed"]
-
 [tool.pytest.ini_options]
-addopts = "--cov=bsllmner2 --cov-report=html:tests/htmlcov"
+addopts = "-v --tb=short --strict-markers"
 testpaths = ["tests/py_tests"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
+markers = [
+  "slow: marks tests as slow",
+]
 
 [tool.mypy]
-files = ["./bsllmner2/**/*.py"]
+files = ["./bsllmner2/**/*.py", "./tests/**/*.py"]
 follow_imports = "silent"
 strict = true
 plugins = ["pydantic.mypy"]
 ignore_missing_imports = true
+explicit_package_bases = true
+mypy_path = "."
 
-[tool.pylint.messages_control]
-disable = [
-  "W0621", # Redefining name from outer scope
-  "C0114", # Missing module docstring
-  "C0115", # Missing class docstring
-  "C0116", # Missing function or method docstring
-  "C0301", # Line too long
-  "R0401", # Cyclic import
-  "R0903", # Too few public methods
-  "R0911", # Too many return statements
-  "R0912", # Too many branches
-  "R0913", # Too many arguments
-  "R0914", # Too many local variables
-  "R0915", # Too many statements
-  "R1705", # Unnecessary "else" after "return"
+[tool.ruff]
+target-version = "py310"
+line-length = 120
+
+[tool.ruff.lint]
+select = ["ALL"]
+ignore = [
+  # Formatter conflicts
+  "COM812",
+  "ISC001",
+
+  # Docstring (not required in this project)
+  "D100",
+  "D101",
+  "D102",
+  "D103",
+  "D104",
+  "D105",
+  "D107",
+  "D203",
+  "D213",
+
+  # Type annotations / type-checking imports (mypy handles this)
+  "ANN",
+  "TC",
+
+  # Complexity
+  "C901",
+  "PLR0911",
+  "PLR0912",
+  "PLR0913",
+  "PLR0914",
+  "PLR0915",
+  "PLR0917",
+
+  # Style preferences
+  "E501",
+  "PLR2004",
+  "RET505",
+  "SIM108",
+  "PERF203",
+  "N815",
+  "PLC0415",
+  "RUF002",
+  "RUF003",
+
+  # Boolean arguments (FastAPI Query/Depends pattern)
+  "FBT001",
+  "FBT002",
+  "FBT003",
+
+  # Exception handling
+  "BLE001",
+  "EM101",
+  "EM102",
+  "TRY003",
+  "TRY004",
+  "TRY301",
+
+  # FastAPI patterns
+  "B008",
+  "FAST001",
+  "FAST002",
+
+  # Security (false positives / intentional)
+  "S104",
+  "S108",
+  "S110",
+  "S301",
+  "S324",
+  "S603",
+  "S607",
+
+  # Async (sync IO in async context is intentional)
+  "ASYNC220",
+  "ASYNC230",
+  "ASYNC240",
+
+  # Datetime (format string lacks timezone)
+  "DTZ007",
+
+  # TODO comments
+  "FIX002",
+  "TD003",
+
+  # Custom exception class (not required)
+  "TRY002",
 ]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**/*.py" = [
+  "ARG001",
+  "ARG002",
+  "ARG005",
+  "INP001",
+  "PT011",
+  "S101",
+  "T201",
+]
+"scripts/**/*.py" = ["INP001", "T201"]
+"bsllmner2/metrics.py" = ["T201"]
+"bsllmner2/utils.py" = ["T201"]
+"bsllmner2/ontology_search.py" = ["T201"]
+"bsllmner2/prompt/utils.py" = ["INP001"]
+
+[tool.mutmut]
+paths_to_mutate = "bsllmner2/"
+tests_dir = "tests/py_tests/"

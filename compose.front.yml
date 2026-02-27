@@ -6,6 +6,7 @@ services:
     container_name: bsllmner-mk2-api
     volumes:
       - ${PWD}:/app
+      - venv:/app/.venv:rw
       - /var/run/docker.sock:/var/run/docker.sock # For docker inspect
     environment:
       - BSLLMNER2_API_HOST=0.0.0.0
@@ -74,6 +75,7 @@ services:
 
 volumes:
   node_modules: {}
+  venv: {}
 
 networks:
   bsllmner-mk2-network:

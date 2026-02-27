@@ -1,4 +1,7 @@
 """Tests for CLI common utilities."""
+
+from typing import Any
+
 import pytest
 
 from bsllmner2.cli_common import BatchInfo, process_batches
@@ -29,10 +32,14 @@ class TestProcessBatches:
     @pytest.mark.asyncio
     async def test_empty_entries(self) -> None:
         """Test that empty entries returns empty list."""
-        results = await process_batches(
+
+        async def _noop(x: BatchInfo) -> list[Any]:
+            return []
+
+        results: list[list[Any]] = await process_batches(
             entries=[],
             batch_size=10,
-            process_fn=lambda x: x,  # type: ignore
+            process_fn=_noop,
             on_batch_complete=lambda idx, result: None,
         )
         assert results == []
@@ -73,9 +80,7 @@ class TestProcessBatches:
     @pytest.mark.asyncio
     async def test_multiple_batches(self) -> None:
         """Test processing multiple batches."""
-        entries = [
-            {"accession": f"SAMN{i:03d}"} for i in range(1, 8)
-        ]  # 7 entries
+        entries = [{"accession": f"SAMN{i:03d}"} for i in range(1, 8)]  # 7 entries
         processed_batches: list[BatchInfo] = []
         completed_batches: list[tuple[int, list[str]]] = []
 
@@ -140,11 +145,10 @@ class TestProcessBatches:
     async def test_batch_entries_are_correct_slices(self) -> None:
         """Test that batch entries are correct slices of the original."""
         entries = [{"id": i} for i in range(5)]
-        batch_entries_list: list[list[dict]] = []
+        batch_entries_list: list[list[dict[str, Any]]] = []
 
         async def process_fn(batch_info: BatchInfo) -> None:
             batch_entries_list.append(batch_info.entries)
-            return None
 
         await process_batches(
             entries=entries,

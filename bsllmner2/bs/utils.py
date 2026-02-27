@@ -1,6 +1,6 @@
 import json
 from pathlib import Path
-from typing import Any, Dict, List
+from typing import Any
 
 from pydantic import BaseModel
 
@@ -8,7 +8,7 @@ from bsllmner2.config import FILTER_KEYS_PATH
 
 
 class FilterKeys(BaseModel):
-    filter_keys: List[str] = []
+    filter_keys: list[str] = []
 
 
 def _load_filter_keys(path: Path) -> FilterKeys:
@@ -17,24 +17,25 @@ def _load_filter_keys(path: Path) -> FilterKeys:
     return FilterKeys(**data)
 
 
-def is_ebi_format(bs_entry: Dict[str, Any]) -> bool:
-    """
-    Check if the BioSample entry is in EBI format.
+def is_ebi_format(bs_entry: dict[str, Any]) -> bool:
+    """Check if the BioSample entry is in EBI format.
+
     EBI format is identified by the presence of a 'characteristics' key that is a dictionary.
     """
     return "characteristics" in bs_entry and isinstance(bs_entry["characteristics"], dict)
 
 
-def construct_llm_input_json(entry: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Construct minimized input JSON for LLM calls from a list of BioSample JSON objects.
-    This function filters out keys that are not relevant for LLM processing.
+def construct_llm_input_json(entry: dict[str, Any]) -> dict[str, Any]:
+    """Construct minimized input JSON for LLM calls from a BioSample JSON object.
+
+    Filter out keys that are not relevant for LLM processing.
 
     Args:
-        bs_entry (Dict[str, Any]): A single BioSample JSON object.
+        entry: A single BioSample JSON object.
 
     Returns:
-        Dict[str, Any]: A filtered dictionary containing only relevant keys for LLM processing.
+        A filtered dictionary containing only relevant keys for LLM processing.
+
     """
     filter_keys = _load_filter_keys(FILTER_KEYS_PATH)
 

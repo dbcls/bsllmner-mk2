@@ -2,29 +2,34 @@ import argparse
 import asyncio
 import sys
 from pathlib import Path
-from typing import List, Tuple
 
-from bsllmner2.cli_common import (BatchInfo, add_common_arguments,
-                                  process_batches, validate_common_args)
+from bsllmner2.cli_common import BatchInfo, add_common_arguments, process_batches, validate_common_args
 from bsllmner2.client.ollama import ner
-from bsllmner2.config import (LOGGER, PROMPT_EXTRACT_FILE_PATH, Config,
-                              get_config, set_logging_level)
+from bsllmner2.config import LOGGER, PROMPT_EXTRACT_FILE_PATH, Config, get_config, set_logging_level
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.schema import CliExtractArgs, LlmOutput, RunMetadata
-from bsllmner2.utils import (dump_extract_result, dump_extract_resume_file,
-                             evaluate_output, get_now_str, load_bs_entries,
-                             load_extract_resume_file, load_format_schema,
-                             load_mapping, load_prompt_file,
-                             remove_resume_files, to_result,
-                             validate_extract_resume_file)
+from bsllmner2.utils import (
+    dump_extract_result,
+    dump_extract_resume_file,
+    evaluate_output,
+    get_now_str,
+    load_bs_entries,
+    load_extract_resume_file,
+    load_format_schema,
+    load_mapping,
+    load_prompt_file,
+    remove_resume_files,
+    to_result,
+    validate_extract_resume_file,
+)
 
 
-def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
-    """
-    Parse command-line arguments for the bsllmner2 CLI extract mode.
+def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
+    """Parse command-line arguments for the bsllmner2 CLI extract mode.
 
     Returns:
         Tuple of Config and CliExtractArgs.
+
     """
     parser = argparse.ArgumentParser(
         description="Named Entity Recognition (NER) of biological terms in BioSample records using LLMs.",
@@ -81,9 +86,7 @@ def parse_args(args: List[str]) -> Tuple[Config, CliExtractArgs]:
 
 
 async def run_cli_extract_async() -> None:
-    """
-    Run the CLI for bsllmner2 extract mode.
-    """
+    """Run the CLI for bsllmner2 extract mode."""
     from bsllmner2.errors import Bsllmner2Error
 
     LOGGER.info("Starting bsllmner2 CLI extract mode...")
@@ -104,9 +107,9 @@ async def run_cli_extract_async() -> None:
 
     bs_entries = load_bs_entries(args.bs_entries)
     if args.max_entries is not None:
-        bs_entries = bs_entries[:args.max_entries]
+        bs_entries = bs_entries[: args.max_entries]
 
-    extract_outputs: List[LlmOutput] = []
+    extract_outputs: list[LlmOutput] = []
     if args.resume:
         resume_extract_outputs = load_extract_resume_file(run_name)
         done_ids = validate_extract_resume_file(resume_extract_outputs, run_name)
@@ -123,12 +126,11 @@ async def run_cli_extract_async() -> None:
     status = "completed"
     end_time = None
     try:
-        async def process_extract_batch(batch_info: BatchInfo) -> List[LlmOutput]:
-            return await ner(
-                config, batch_info.entries, prompt, format_, args.model, args.thinking
-            )
 
-        def on_extract_batch_complete(_batch_idx: int, batch_outputs: List[LlmOutput]) -> None:
+        async def process_extract_batch(batch_info: BatchInfo) -> list[LlmOutput]:
+            return await ner(config, batch_info.entries, prompt, format_, args.model, args.thinking)
+
+        def on_extract_batch_complete(_batch_idx: int, batch_outputs: list[LlmOutput]) -> None:
             extract_outputs.extend(batch_outputs)
             dump_extract_resume_file(extract_outputs, run_name)
 
@@ -168,7 +170,7 @@ async def run_cli_extract_async() -> None:
         thinking=args.thinking,
         start_time=start_time,
         end_time=end_time,
-        status=status
+        status=status,
     )
     result = to_result(
         bs_entries=bs_entries,
@@ -191,9 +193,7 @@ async def run_cli_extract_async() -> None:
 
 
 def run_cli_extract() -> None:
-    """
-    Run the CLI for bsllmner2 extract mode in an event loop.
-    """
+    """Run the CLI for bsllmner2 extract mode in an event loop."""
     asyncio.run(run_cli_extract_async())
 
 

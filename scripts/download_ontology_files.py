@@ -1,4 +1,5 @@
 import asyncio
+import contextlib
 from pathlib import Path
 
 import httpx
@@ -12,22 +13,19 @@ DATA_DIR.mkdir(exist_ok=True, parents=True)
 async def download_file(url: str, dest: Path) -> None:
     dest.parent.mkdir(parents=True, exist_ok=True)
 
-    async with httpx.AsyncClient(
-        follow_redirects=True,
-        timeout=httpx.Timeout(120.0, connect=10.0)
-    ) as client:
-        async with client.stream("GET", url) as response:
-            response.raise_for_status()
-            try:
-                with dest.open("wb") as file:
-                    async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):  # 1 MB
-                        file.write(chunk)
-            except Exception:
-                try:
-                    dest.unlink()
-                except Exception:  # pylint: disable=broad-except
-                    pass
-                raise
+    async with (
+        httpx.AsyncClient(follow_redirects=True, timeout=httpx.Timeout(120.0, connect=10.0)) as client,
+        client.stream("GET", url) as response,
+    ):
+        response.raise_for_status()
+        try:
+            with dest.open("wb") as file:
+                async for chunk in response.aiter_bytes(chunk_size=1024 * 1024):  # 1 MB
+                    file.write(chunk)
+        except Exception:
+            with contextlib.suppress(Exception):
+                dest.unlink()
+            raise
 
 
 async def download_file_mapper(file_name: str, url: str) -> None:
@@ -76,7 +74,7 @@ async def main() -> None:
             # https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.owl
             "file_name": "chebi.owl",
             "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.owl",
-        }
+        },
     ]
 
     for file_info in download_files:
