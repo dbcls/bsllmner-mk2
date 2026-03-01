@@ -7,6 +7,7 @@ from typing import Any
 
 import pytest
 import yaml
+from ollama import ChatResponse, Message
 
 # Patch INDEX_CACHE_DIR before any bsllmner2 module is imported.
 # client/ollama.py runs INDEX_CACHE_DIR.mkdir() at import time, which fails
@@ -15,6 +16,22 @@ import yaml
 # the env var here ensures the module-level side effect uses a temp dir.
 _INDEX_CACHE_TMPDIR = tempfile.mkdtemp()
 os.environ.setdefault("BSLLMNER2_INDEX_CACHE_DIR", _INDEX_CACHE_TMPDIR)
+
+
+def make_chat_response(content: str) -> ChatResponse:
+    """Build a minimal ChatResponse with the given assistant content."""
+    return ChatResponse(
+        model="test-model",
+        message=Message(role="assistant", content=content),
+        done=True,
+        done_reason="stop",
+        total_duration=0,
+        load_duration=0,
+        prompt_eval_count=0,
+        prompt_eval_duration=0,
+        eval_count=0,
+        eval_duration=0,
+    )
 
 
 @pytest.fixture

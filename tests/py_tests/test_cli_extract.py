@@ -1,11 +1,15 @@
-"""Tests for CLI extract mode argument parsing."""
+"""Tests for CLI extract mode argument parsing and async execution."""
 
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
-from bsllmner2.cli_extract import parse_args
+from bsllmner2.cli_extract import parse_args, run_cli_extract_async
 from bsllmner2.config import RESUME_BATCH_SIZE
+from bsllmner2.models import LlmOutput, Prompt
+from tests.py_tests.conftest import make_chat_response
 
 
 class TestParseArgsExtract:
@@ -179,3 +183,58 @@ class TestParseArgsExtract:
         """Test that missing required arguments causes SystemExit."""
         with pytest.raises(SystemExit):
             parse_args([])
+
+
+# === CLI async integration test ===
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestRunCliExtractAsync:
+    async def test_basic_run(
+        self,
+        bs_entries_json_file: Path,
+        prompt_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Smoke test: run_cli_extract_async completes with all externals mocked."""
+        fake_response = make_chat_response('{"cell_line": "HeLa"}')
+
+        async def fake_ner(
+            backend: Any,
+            bs_entries: Any,
+            prompt: Any,
+            format_: Any,
+            model: str,
+            thinking: Any = None,
+            progress_file_path: Any = None,
+        ) -> list[LlmOutput]:
+            return [
+                LlmOutput(
+                    accession=e["accession"],
+                    output={"cell_line": "HeLa"},
+                    chat_response=fake_response,
+                )
+                for e in bs_entries
+                if e.get("accession")
+            ]
+
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--prompt",
+            str(prompt_file),
+        ]
+
+        result_dir = tmp_path / "results"
+        result_dir.mkdir()
+
+        with (
+            patch("bsllmner2.cli_extract.sys") as mock_sys,
+            patch("bsllmner2.cli_extract.ner", side_effect=fake_ner),
+            patch("bsllmner2.cli_extract.OllamaBackend"),
+            patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
+            patch("bsllmner2.cli_extract.dump_extract_resume_file"),
+            patch("bsllmner2.cli_extract.remove_resume_files"),
+        ):
+            mock_sys.argv = ["bsllmner2-extract", *cli_args]
+            await run_cli_extract_async()

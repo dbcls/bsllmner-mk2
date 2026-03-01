@@ -18,7 +18,7 @@ logging.getLogger("text2term.t2t").setLevel(logging.DEBUG)
 
 DEFAULT_PREFIX_MAP: dict[str, str] = {
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
-    "skos": "http://www.w3.org/2004/02/skos",
+    "skos": "http://www.w3.org/2004/02/skos/core#",
     "oboInOwl": "http://www.geneontology.org/formats/oboInOwl#",
 }
 
@@ -274,8 +274,8 @@ def build_index_from_table(
         value_to_annotations.setdefault(key, []).append(ann)
 
         if _is_label_prop(prop_uri):
-            labels = term_id_to_labels.setdefault(term_id, [])
-            norms = term_id_label_norms.setdefault(term_id, set())
+            labels = term_id_to_labels.setdefault(ann.term_id, [])
+            norms = term_id_label_norms.setdefault(ann.term_id, set())
             if key not in norms:
                 labels.append(raw_value)
                 norms.add(key)
@@ -371,10 +371,11 @@ def build_word_combinations(
 
     q_norm = _normalize_key(query)
 
-    atoms = _split_ws(q_norm)
+    q_stripped = unicodedata.normalize("NFKC", query).strip()
+    atoms_orig = _split_ws(q_stripped)
     tokens: list[str] = []
-    for a in atoms:
-        tokens.extend(_tokenize_atom(a))
+    for a in atoms_orig:
+        tokens.extend(t.casefold() for t in _tokenize_atom(a))
 
     if not tokens:
         return [q_norm]

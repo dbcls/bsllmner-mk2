@@ -4,24 +4,31 @@ import sys
 from pathlib import Path
 
 from bsllmner2.cli_common import BatchInfo, add_common_arguments, process_batches, validate_common_args
-from bsllmner2.client.ollama import ner
-from bsllmner2.config import LOGGER, PROMPT_EXTRACT_FILE_PATH, Config, get_config, set_logging_level
-from bsllmner2.metrics import LiveMetricsCollector
-from bsllmner2.schema import CliExtractArgs, LlmOutput, RunMetadata
-from bsllmner2.utils import (
+from bsllmner2.config import (
+    LOGGER,
+    PROGRESS_DIR,
+    PROMPT_EXTRACT_FILE_PATH,
+    Config,
+    get_config,
+    set_logging_config,
+    set_logging_level,
+)
+from bsllmner2.errors import Bsllmner2Error
+from bsllmner2.io import (
     dump_extract_result,
     dump_extract_resume_file,
-    evaluate_output,
-    get_now_str,
     load_bs_entries,
     load_extract_resume_file,
     load_format_schema,
     load_mapping,
     load_prompt_file,
     remove_resume_files,
-    to_result,
     validate_extract_resume_file,
 )
+from bsllmner2.llm import OllamaBackend, ner
+from bsllmner2.metrics import LiveMetricsCollector
+from bsllmner2.models import CliExtractArgs, LlmOutput, RunMetadata
+from bsllmner2.pipeline import evaluate_output, get_now_str, to_result
 
 
 def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
@@ -87,13 +94,13 @@ def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
 
 async def run_cli_extract_async() -> None:
     """Run the CLI for bsllmner2 extract mode."""
-    from bsllmner2.errors import Bsllmner2Error
-
     LOGGER.info("Starting bsllmner2 CLI extract mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
     LOGGER.info("Config:\n%s", config.model_dump_json(indent=2))
     LOGGER.info("Args:\n%s", args.model_dump_json(indent=2))
+
+    backend = OllamaBackend(config.ollama_host)
 
     mapping = load_mapping(args.mapping) if args.mapping else None
     prompt = load_prompt_file(args.prompt)
@@ -128,7 +135,7 @@ async def run_cli_extract_async() -> None:
     try:
 
         async def process_extract_batch(batch_info: BatchInfo) -> list[LlmOutput]:
-            return await ner(config, batch_info.entries, prompt, format_, args.model, args.thinking)
+            return await ner(backend, batch_info.entries, prompt, format_, args.model, args.thinking)
 
         def on_extract_batch_complete(_batch_idx: int, batch_outputs: list[LlmOutput]) -> None:
             extract_outputs.extend(batch_outputs)
@@ -194,6 +201,8 @@ async def run_cli_extract_async() -> None:
 
 def run_cli_extract() -> None:
     """Run the CLI for bsllmner2 extract mode in an event loop."""
+    set_logging_config()
+    PROGRESS_DIR.mkdir(parents=True, exist_ok=True)
     asyncio.run(run_cli_extract_async())
 
 

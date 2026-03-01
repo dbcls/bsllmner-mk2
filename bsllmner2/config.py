@@ -7,7 +7,7 @@ from pydantic import BaseModel
 
 MODULE_ROOT = Path(__file__).parent.resolve()
 REPO_ROOT = MODULE_ROOT.parent
-FILTER_KEYS_PATH = MODULE_ROOT.joinpath("bs", "filter_keys.json")
+FILTER_KEYS_PATH = MODULE_ROOT.joinpath("filter_keys.json")
 PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
 PROMPT_SELECT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_select.yml")
 SCHEMA_CELL_LINE_FILE_PATH = MODULE_ROOT.joinpath("format", "cell_line.schema.json")
@@ -16,7 +16,6 @@ EXTRACT_RESULT_DIR = RESULT_DIR.joinpath("extract")
 SELECT_RESULT_DIR = RESULT_DIR.joinpath("select")
 TMP_DIR = Path("/tmp/bsllmner2")
 PROGRESS_DIR = TMP_DIR.joinpath("progress")
-PROGRESS_DIR.mkdir(parents=True, exist_ok=True)
 
 RESUME_BATCH_SIZE = 1024
 
@@ -28,9 +27,6 @@ class Config(BaseModel):
 
     ollama_host: str = "http://localhost:11434"
     debug: bool = False
-    api_host: str = "127.0.0.1"
-    api_port: int = 8000
-    api_url_prefix: str = ""
 
 
 default_config = Config()
@@ -59,9 +55,6 @@ def get_config() -> Config:
     return Config(
         ollama_host=os.environ.get("OLLAMA_HOST", default_config.ollama_host),
         debug=debug,
-        api_host=os.environ.get(f"{ENV_PREFIX}API_HOST", default_config.api_host),
-        api_port=int(os.environ.get(f"{ENV_PREFIX}API_PORT", default_config.api_port)),
-        api_url_prefix=os.environ.get(f"{ENV_PREFIX}API_URL_PREFIX", default_config.api_url_prefix),
     )
 
 
@@ -87,7 +80,6 @@ def set_logging_config() -> None:
     logging.config.dictConfig(config)
 
 
-set_logging_config()
 LOGGER = logging.getLogger("bsllmner2")
 
 

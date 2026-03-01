@@ -9,8 +9,6 @@ from bsllmner2.config import Config
 from bsllmner2.metrics import Metrics
 from bsllmner2.ontology_search import SearchResult
 
-API_VERSION = "1.0.0"
-
 
 class CliExtractArgs(BaseModel):
     """Command-line arguments for the bsllmner2 CLI extract mode."""
@@ -31,7 +29,7 @@ class CliExtractArgs(BaseModel):
         examples=["prompt/prompt_extract.yml"],
     )
     format: Path | None = Field(
-        ...,
+        None,
         description="Path to the JSON schema file for the output format.",
         examples=["format/cell_line.schema.json"],
     )
@@ -41,7 +39,7 @@ class CliExtractArgs(BaseModel):
     with_metrics: bool = False
     run_name: str | None = None
     resume: bool = False
-    batch_size: int
+    batch_size: int = Field(..., gt=0)
 
 
 class SelectConfigField(BaseModel):
@@ -92,7 +90,7 @@ class CliSelectArgs(BaseModel):
     with_metrics: bool = False
     run_name: str | None = None
     resume: bool = False
-    batch_size: int
+    batch_size: int = Field(..., gt=0)
 
     select_config: Path = Field(
         ...,
@@ -100,19 +98,6 @@ class CliSelectArgs(BaseModel):
         examples=["config/select_config.json"],
     )
     include_reasoning: bool = True
-
-
-class ServiceInfo(BaseModel):
-    api_version: str = Field(
-        ...,
-        description="API version of this api service",
-        examples=[API_VERSION],
-    )
-    metrics: bool = Field(
-        ...,
-        description="Whether the service supports metrics collection",
-        examples=[True],
-    )
 
 
 class Prompt(BaseModel):
@@ -144,8 +129,8 @@ Mapping = dict[str, MappingValue]  # key: bs_entry accession
 class WfInput(BaseModel):
     bs_entries: BsEntries
     mapping: Mapping | None = None
-    prompt: list[Prompt]
-    model: str
+    prompt: list[Prompt] = Field(..., min_length=1)
+    model: str = Field(..., min_length=1)
     thinking: bool | None = None
     format: JsonSchemaValue | None = None
     config: Config

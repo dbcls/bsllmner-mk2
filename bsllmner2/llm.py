@@ -4,16 +4,17 @@ import hashlib
 import json
 import os
 import pickle
-import re
 from pathlib import Path
-from typing import IO, Any
+from typing import IO, Any, Protocol, runtime_checkable
 
 import ollama
 from ollama import ChatResponse, Message, Options
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.bs import construct_llm_input_json, is_ebi_format
-from bsllmner2.config import LOGGER, Config
+from bsllmner2.biosample import construct_llm_input_json, is_ebi_format
+from bsllmner2.config import LOGGER
+from bsllmner2.errors import OllamaConnectionError
+from bsllmner2.models import BsEntries, LlmOutput, Prompt, SelectConfig, SelectResult
 from bsllmner2.ontology_search import (
     OntologyIndex,
     SearchResult,
@@ -23,51 +24,107 @@ from bsllmner2.ontology_search import (
     search_terms,
     search_terms_with_text2term,
 )
-from bsllmner2.schema import BsEntries, LlmOutput, Prompt, SelectConfig, SelectResult
 
 OLLAMA_OPTIONS = Options(
     seed=0,
     temperature=0.0,
 )
 
-
-def fetch_ollama_models(config: Config) -> list[str]:
-    """Fetch the list of available models from the Ollama server."""
-    client = ollama.Client(host=config.ollama_host)
-    models = client.list()
-    return [model.name for model in models]  # type: ignore[attr-defined]
+INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontology/index_cache"))
 
 
-async def ensure_model_available(config: Config, model: str) -> None:
-    """Ensure the specified model is available on the Ollama server.
+# === LLM Backend Protocol ===
 
-    If not available, pull it automatically.
-    """
-    client = ollama.AsyncClient(host=config.ollama_host)
 
-    # Check if model exists
-    models_response = await client.list()
-    available_models = [m.model for m in models_response.models]
+@runtime_checkable
+class LlmBackend(Protocol):
+    async def chat(
+        self,
+        model: str,
+        messages: list[Message],
+        *,
+        options: Options | None = None,
+        think: bool | None = None,
+        format_: JsonSchemaValue | None = None,
+    ) -> ChatResponse: ...
 
-    # Normalize model name for comparison (e.g., "llama3.1:70b" matches "llama3.1:70b")
-    if model in available_models:
-        LOGGER.debug("Model %s is already available", model)
-        return
+    async def ensure_model(self, model: str) -> None: ...
 
-    # Model not found, pull it
-    LOGGER.info("Model %s not found locally, pulling...", model)
-    try:
-        async for progress in await client.pull(model, stream=True):
-            if progress.status:
-                if progress.completed and progress.total:
-                    pct = (progress.completed / progress.total) * 100
-                    LOGGER.info("Pulling %s: %s (%.1f%%)", model, progress.status, pct)
-                else:
-                    LOGGER.info("Pulling %s: %s", model, progress.status)
-        LOGGER.info("Model %s pulled successfully", model)
-    except ollama.ResponseError as e:
-        LOGGER.error("Failed to pull model %s: %s", model, e)
-        raise
+    def list_models(self) -> list[str]: ...
+
+
+# === Ollama implementation ===
+
+
+class OllamaBackend:
+    def __init__(self, host: str, semaphore_limit: int = 256) -> None:
+        self._host = host
+        self._semaphore = asyncio.Semaphore(semaphore_limit)
+
+    @property
+    def host(self) -> str:
+        return self._host
+
+    async def chat(
+        self,
+        model: str,
+        messages: list[Message],
+        *,
+        options: Options | None = None,
+        think: bool | None = None,
+        format_: JsonSchemaValue | None = None,
+    ) -> ChatResponse:
+        async with self._semaphore:
+            client = ollama.AsyncClient(host=self._host)
+
+            return await client.chat(
+                model=model,
+                messages=messages,
+                options=options,
+                think=think,
+                format=format_,
+            )
+
+    async def ensure_model(self, model: str) -> None:
+        """Ensure the specified model is available on the Ollama server.
+
+        If not available, pull it automatically.
+        """
+        client = ollama.AsyncClient(host=self._host)
+
+        # Check if model exists
+        models_response = await client.list()
+        available_models = [m.model for m in models_response.models]
+
+        if model in available_models:
+            LOGGER.debug("Model %s is already available", model)
+
+            return
+
+        # Model not found, pull it
+        LOGGER.info("Model %s not found locally, pulling...", model)
+        try:
+            async for progress in await client.pull(model, stream=True):
+                if progress.status:
+                    if progress.completed and progress.total:
+                        pct = (progress.completed / progress.total) * 100
+                        LOGGER.info("Pulling %s: %s (%.1f%%)", model, progress.status, pct)
+                    else:
+                        LOGGER.info("Pulling %s: %s", model, progress.status)
+            LOGGER.info("Model %s pulled successfully", model)
+        except ollama.ResponseError as e:
+            LOGGER.error("Failed to pull model %s: %s", model, e)
+            raise
+
+    def list_models(self) -> list[str]:
+        """Fetch the list of available models from the Ollama server."""
+        client = ollama.Client(host=self._host)
+        models = client.list()
+
+        return [model.name for model in models]  # type: ignore[attr-defined]
+
+
+# === Private helpers ===
 
 
 def _construct_messages(prompts: list[Prompt]) -> list[Message]:
@@ -76,17 +133,22 @@ def _construct_messages(prompts: list[Prompt]) -> list[Message]:
 
 
 def _extract_last_json(text: str) -> str | None:
-    json_candidates = re.findall(r"(\{.*?\}|\[.*?\])", text, re.DOTALL)
+    decoder = json.JSONDecoder()
+    last_obj = None
+    i = 0
+    while i < len(text):
+        if text[i] in ("{", "["):
+            try:
+                obj, end = decoder.raw_decode(text, i)
+                last_obj = obj
+                i = end
+            except json.JSONDecodeError:
+                i += 1
+        else:
+            i += 1
 
-    if not json_candidates:
-        return None
-
-    for candidate in reversed(json_candidates):
-        try:
-            json_obj = json.loads(candidate)
-            return json.dumps(json_obj, ensure_ascii=False)
-        except json.JSONDecodeError:
-            continue
+    if last_obj is not None:
+        return json.dumps(last_obj, ensure_ascii=False)
 
     return None
 
@@ -101,7 +163,7 @@ def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> 
     if res_text_json is not None:
         try:
             output_obj = json.loads(res_text_json) if res_text_json else None
-            if output_obj is not None:
+            if isinstance(output_obj, dict):
                 for k, v in output_obj.items():
                     if isinstance(v, str) and v in ("null", "None"):
                         output_obj[k] = None
@@ -130,8 +192,11 @@ def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> 
     return output_ins
 
 
+# === NER function ===
+
+
 async def ner(
-    config: Config,
+    backend: LlmBackend,
     bs_entries: BsEntries,
     prompt: list[Prompt],
     format_: JsonSchemaValue | None,
@@ -139,12 +204,9 @@ async def ner(
     thinking: bool | None = None,
     progress_file_path: Path | None = None,
 ) -> list[LlmOutput]:
-    from bsllmner2.errors import OllamaConnectionError
-
     # Ensure model is available, pull if necessary
-    await ensure_model_available(config, model)
+    await backend.ensure_model(model)
 
-    client = ollama.AsyncClient(host=config.ollama_host)
     messages = _construct_messages(prompt)
     outputs: list[LlmOutput] = []
     error_count = 0
@@ -154,47 +216,48 @@ async def ner(
     if progress_file_path:
         progress_file = progress_file_path.open("w", encoding="utf-8")
 
-    sem = asyncio.Semaphore(256)
-
     async def _process_entry(entry: dict[str, Any]) -> LlmOutput | None:
         nonlocal error_count, connection_tested
-        async with sem:
-            accession = entry.get("accession")
-            if accession is None:
-                LOGGER.warning("Entry without accession found, skipping.")
-                return None
-            LOGGER.debug("[NER] Processing entry: %s", accession)
-            entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
-            messages_copy = copy.deepcopy(messages)
-            if messages_copy[-1].content is not None:
-                messages_copy[-1].content += "\n" + entry_str
-            try:
-                response: ChatResponse = await client.chat(
-                    model=model,
-                    messages=messages_copy,
-                    options=OLLAMA_OPTIONS,
-                    think=thinking,
-                    format=format_,
-                )
-                connection_tested = True
-            except (ConnectionError, OSError) as e:
-                if not connection_tested:
-                    raise OllamaConnectionError(config.ollama_host, e) from e
-                LOGGER.error("Connection error for entry %s: %s", accession, e)
-                error_count += 1
-                return None
-            except Exception as e:
-                LOGGER.error("Error processing entry %s: %s", accession, e)
-                error_count += 1
-                return None
+        accession = entry.get("accession")
+        if accession is None:
+            LOGGER.warning("Entry without accession found, skipping.")
 
-            output = _construct_output(entry, response)
+            return None
+        LOGGER.debug("[NER] Processing entry: %s", accession)
+        entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
+        messages_copy = copy.deepcopy(messages)
+        if messages_copy[-1].content is not None:
+            messages_copy[-1].content += "\n" + entry_str
+        try:
+            response: ChatResponse = await backend.chat(
+                model=model,
+                messages=messages_copy,
+                options=OLLAMA_OPTIONS,
+                think=thinking,
+                format_=format_,
+            )
+            connection_tested = True
+        except (ConnectionError, OSError) as e:
+            if not connection_tested:
+                host = getattr(backend, "host", "unknown")
+                raise OllamaConnectionError(host, e) from e
+            LOGGER.error("Connection error for entry %s: %s", accession, e)
+            error_count += 1
 
-            if progress_file:
-                progress_file.write(f"{accession}\n")
-                progress_file.flush()
+            return None
+        except Exception as e:
+            LOGGER.error("Error processing entry %s: %s", accession, e)
+            error_count += 1
 
-            return output
+            return None
+
+        output = _construct_output(entry, response)
+
+        if progress_file:
+            progress_file.write(f"{accession}\n")
+            progress_file.flush()
+
+        return output
 
     try:
         results = await asyncio.gather(*(_process_entry(entry) for entry in bs_entries))
@@ -214,7 +277,7 @@ async def ner(
     return outputs
 
 
-# === select mode ===
+# === Select mode ===
 
 
 def _pick_exact_match_search_result(
@@ -239,19 +302,18 @@ def _pick_exact_match_search_result(
     return exact_matches[0]
 
 
-INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontology/index_cache"))
-INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-
 def _compute_filter_hash(ontology_filter: dict[str, str] | None) -> str:
     """Compute a hash of the ontology filter for cache key."""
     if ontology_filter is None:
         return "nofilter"
     filter_str = json.dumps(ontology_filter, sort_keys=True)
+
     return hashlib.md5(filter_str.encode()).hexdigest()[:12]
 
 
 def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
+    INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+
     mapping: dict[Path, OntologyIndex] = {}
 
     for field_config in select_config.fields.values():
@@ -557,6 +619,7 @@ def _build_select_system_message(reasoning: bool) -> Message:
             "cite the exact evidence from the provided text, compare the top candidates, "
             "and state why others were rejected do not use outside knowledge."
         )
+
     return Message(role="system", content=base)
 
 
@@ -640,20 +703,27 @@ def _parse_output_object(chat_response: ChatResponse) -> dict[str, Any] | None:
     if res_text_json is not None:
         try:
             output_obj = json.loads(res_text_json) if res_text_json else None
-            if output_obj is not None:
+            if isinstance(output_obj, dict):
                 for k, v in output_obj.items():
-                    if v in ("null", "None"):
+                    if isinstance(v, str) and v in ("null", "None"):
                         output_obj[k] = None
+            else:
+                output_obj = None
         except Exception as e:
             LOGGER.error("Error parsing JSON response: %s", e)
+
             return None
         else:
             return output_obj
+
     return None
 
 
+# === Select function ===
+
+
 async def select(
-    config: Config,
+    backend: LlmBackend,
     bs_entries: BsEntries,
     model: str,
     extract_outputs: list[LlmOutput],
@@ -663,7 +733,7 @@ async def select(
     index_map: dict[Path, OntologyIndex] | None = None,
 ) -> list[SelectResult]:
     # Ensure model is available, pull if necessary
-    await ensure_model_available(config, model)
+    await backend.ensure_model(model)
 
     fields = select_config.fields.keys()
     no_select_fields = [f for f in fields if select_config.fields[f].ontology_file is None]
@@ -684,21 +754,12 @@ async def select(
         intermediate_results.append(sr)
 
     # 1. Perform ontology search for each field specified in the select configuration.
-    #   1.1 If no matches are found, proceed to step 2.
-    #   1.2 If exactly one match is found, use that result as the final result for that field.
-    #   1.3 If multiple matches are found, proceed to step 2.
     _ontology_search_wrapper(intermediate_results, select_config, index_map=index_map)
 
     # 2. Perform text2term search for each field specified in the select configuration.
-    #   2.1 If no matches are found, proceed to step 3.
-    #   2.2 If exactly one match is found, use that result as the final result for that field.
-    #   2.3 If multiple matches are found, proceed to step 3.
     _text2term_wrapper(intermediate_results, select_config)
 
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
-    #   The LLM prompt should include the original field value, the list of candidate matches from steps 1 and 2, and bs_entry context.
-    client = ollama.AsyncClient(host=config.ollama_host)
-    sem = asyncio.Semaphore(256)
 
     async def _process_field_selection(
         accession: str,
@@ -707,26 +768,28 @@ async def select(
         messages: list[Message],
         schema: JsonSchemaValue,
     ) -> tuple[str, str, str, ChatResponse | None]:
-        async with sem:
-            try:
-                LOGGER.debug("[Select] Processing entry: %s, field: %s", accession, field_name)
-                response: ChatResponse | None = await client.chat(
-                    model=model,
-                    messages=messages,
-                    options=OLLAMA_OPTIONS,
-                    think=thinking,
-                    format=schema,
-                )
-            except Exception as e:
-                LOGGER.error("Error during select step: %s", e)
-                response = None
+        try:
+            LOGGER.debug("[Select] Processing entry: %s, field: %s", accession, field_name)
+            response: ChatResponse | None = await backend.chat(
+                model=model,
+                messages=messages,
+                options=OLLAMA_OPTIONS,
+                think=thinking,
+                format_=schema,
+            )
+        except Exception as e:
+            LOGGER.error("Error during select step: %s", e)
+            response = None
 
-            return (accession, field_name, value, response)
+        return (accession, field_name, value, response)
 
     tasks = []
-    # bs_entries and intermediate_results are aligned by accession
-    for bs_entry, select_result in zip(bs_entries, intermediate_results, strict=False):
+    bs_entry_map = {e.get("accession"): e for e in bs_entries if e.get("accession") is not None}
+    for select_result in intermediate_results:
         accession = select_result.accession
+        bs_entry = bs_entry_map.get(accession)
+        if bs_entry is None:
+            continue
         field_prompts_and_schemas = _build_select_prompt_and_schema(
             bs_entry,
             select_result,

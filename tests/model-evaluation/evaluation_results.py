@@ -8,7 +8,7 @@ from typing import Any
 
 import httpx
 
-from bsllmner2.schema import SelectResult
+from bsllmner2.models import SelectResult
 
 HERE = Path(__file__).parent
 SELECT_RESULTS_DIR = Path("/app/bsllmner2-results/select")

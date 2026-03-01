@@ -20,17 +20,13 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-  "fastapi",
-  "httpx",
   "ijson",
   "ollama",
   "owlready2",
   "pydantic",
-  "python-multipart",
   "pyyaml",
   "rdflib",
   "text2term",
-  "uvicorn[standard]",
 ]
 dynamic = ["version"]
 
@@ -46,6 +42,7 @@ tests = [
   "mypy",
   "pytest",
   "pytest-asyncio",
+  "pytest-cov",
   "pytest-mock",
   "pytest-randomly",
   "ruff",
@@ -55,14 +52,13 @@ tests = [
 [project.scripts]
 bsllmner2_extract = "bsllmner2.cli_extract:run_cli_extract"
 bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
-bsllmner2_api = "bsllmner2.api:run_api"
 bsllmner2_metrics = "bsllmner2.metrics:main"
 
 [dependency-groups]
 dev = ["mkdocs-material>=9.7.1"]
 
 [tool.pytest.ini_options]
-addopts = "-v --tb=short --strict-markers"
+addopts = "-v --tb=short --strict-markers --cov=bsllmner2 --cov-report=term-missing"
 testpaths = ["tests/py_tests"]
 asyncio_mode = "strict"
 asyncio_default_fixture_loop_scope = "function"
@@ -125,7 +121,7 @@ ignore = [
   "RUF002",
   "RUF003",
 
-  # Boolean arguments (FastAPI Query/Depends pattern)
+  # Boolean arguments
   "FBT001",
   "FBT002",
   "FBT003",
@@ -137,11 +133,6 @@ ignore = [
   "TRY003",
   "TRY004",
   "TRY301",
-
-  # FastAPI patterns
-  "B008",
-  "FAST001",
-  "FAST002",
 
   # Security (false positives / intentional)
   "S104",
@@ -180,10 +171,11 @@ ignore = [
 ]
 "scripts/**/*.py" = ["INP001", "T201"]
 "bsllmner2/metrics.py" = ["T201"]
-"bsllmner2/utils.py" = ["T201"]
+"bsllmner2/io.py" = ["T201"]
 "bsllmner2/ontology_search.py" = ["T201"]
-"bsllmner2/prompt/utils.py" = ["INP001"]
 
 [tool.mutmut]
-paths_to_mutate = "bsllmner2/"
-tests_dir = "tests/py_tests/"
+paths_to_mutate = ["bsllmner2/"]
+tests_dir = ["tests/py_tests/"]
+pytest_add_cli_args = ["--no-cov", "-p", "no:randomly"]
+also_copy = ["README.md"]

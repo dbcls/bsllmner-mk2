@@ -1,9 +1,8 @@
 import json
 import os
+import re
 import shutil
 import tempfile
-import traceback
-from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
@@ -11,15 +10,10 @@ import ijson
 import yaml
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR, SELECT_RESULT_DIR, Config
-from bsllmner2.metrics import Metrics
-from bsllmner2.schema import (
+from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR, SELECT_RESULT_DIR
+from bsllmner2.errors import ResumeDataError
+from bsllmner2.models import (
     BsEntries,
-    CliExtractArgs,
-    CliSelectArgs,
-    ErrorInfo,
-    ErrorLog,
-    Evaluation,
     LlmOutput,
     Mapping,
     MappingValue,
@@ -28,8 +22,14 @@ from bsllmner2.schema import (
     RunMetadata,
     SelectConfig,
     SelectResult,
-    WfInput,
 )
+
+_SURROGATE_RE = re.compile("[\ud800-\udfff]")
+
+
+def _replace_surrogates(s: str) -> str:
+    """Replace lone surrogate characters with U+FFFD replacement character."""
+    return _SURROGATE_RE.sub("\ufffd", s)
 
 
 def load_bs_entries(path: Path) -> BsEntries:
@@ -90,6 +90,7 @@ def load_bs_entries(path: Path) -> BsEntries:
                     f'    - JSON array: [{{"accession": "SAMD00000001", ...}}]\n'
                     f"    - JSONL: one JSON object per line",
                 ) from outer_e
+
             return jl_data
 
 
@@ -167,88 +168,17 @@ def load_format_schema(path: Path) -> JsonSchemaValue:
     return cast("JsonSchemaValue", schema)
 
 
-def evaluate_output(output: list[LlmOutput], mapping: Mapping) -> list[Evaluation]:
-    """Evaluate the LLM outputs against the mapping.
+def load_select_config(path: Path) -> SelectConfig:
+    if not path.exists():
+        raise FileNotFoundError(f"Select configuration file {path} does not exist.")
 
-    Returns a list of Evaluation objects containing the results.
-    """
-    evaluations = []
-    for entry in output:
-        accession = entry.accession
-        if entry.output is None or not isinstance(entry.output, dict):
-            actual = None
-        else:
-            actual = entry.output.get("cell_line", None)
-        if accession not in mapping:
-            expected = None
-        else:
-            expected = mapping[accession].extraction_answer
-        evaluation = Evaluation(
-            accession=accession,
-            expected=expected,
-            actual=actual,
-            match=(actual == expected),
-        )
-        evaluations.append(evaluation)
+    with path.open("r", encoding="utf-8") as f:
+        try:
+            data = json.load(f)
+        except json.JSONDecodeError as e:
+            raise ValueError(f"Invalid JSON in select configuration file {path}: {e}") from e
 
-    return evaluations
-
-
-def to_result(
-    bs_entries: BsEntries,
-    mapping: Mapping | None,
-    prompt: list[Prompt],
-    model: str,
-    output: list[LlmOutput],
-    evaluation: list[Evaluation],
-    config: Config,
-    run_metadata: RunMetadata,
-    format_: JsonSchemaValue | None = None,
-    thinking: bool | None = None,
-    args: CliExtractArgs | CliSelectArgs | None = None,
-    metrics: list[Metrics] | None = None,
-) -> Result:
-    return Result(
-        input=WfInput(
-            bs_entries=bs_entries,
-            mapping=mapping,
-            prompt=prompt,
-            model=model,
-            thinking=thinking,
-            format=format_,
-            config=config,
-            cli_args=args,
-        ),
-        output=output,
-        evaluation=evaluation,
-        metrics=metrics,
-        run_metadata=run_metadata,
-    )
-
-
-def get_now_str() -> str:
-    """Return current UTC time as string in YYYYMMDD_HHMMSS format."""
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-
-
-def compute_processing_time(start_time: str, end_time: str) -> float:
-    dt_format = "%Y%m%d_%H%M%S"
-    start_dt = datetime.strptime(start_time, dt_format)
-    end_dt = datetime.strptime(end_time, dt_format)
-    return (end_dt - start_dt).total_seconds()
-
-
-def build_error_log(
-    exc: Exception,
-) -> ErrorLog:
-    return ErrorLog(
-        timestamp=get_now_str(),
-        error=ErrorInfo(
-            type=type(exc).__name__,
-            message=str(exc),
-            traceback=traceback.format_exc(),
-        ),
-    )
+    return SelectConfig.model_validate(data)
 
 
 def dump_extract_result(result: Result, run_name: str) -> Path:
@@ -256,7 +186,7 @@ def dump_extract_result(result: Result, run_name: str) -> Path:
     result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
         json_str = json.dumps(result.model_dump(), ensure_ascii=False, indent=2)
-        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+        f.write(_replace_surrogates(json_str))
 
     return result_file
 
@@ -266,7 +196,7 @@ def dump_select_result(result: list[SelectResult], run_name: str) -> Path:
     result_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
         json_str = json.dumps([res.model_dump() for res in result], ensure_ascii=False, indent=2)
-        f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+        f.write(_replace_surrogates(json_str))
 
     return result_file
 
@@ -344,132 +274,6 @@ def load_progress_count(run_name: str) -> int | None:
         return sum(1 for _ in f)
 
 
-def load_select_config(path: Path) -> SelectConfig:
-    if not path.exists():
-        raise FileNotFoundError(f"Select configuration file {path} does not exist.")
-
-    with path.open("r", encoding="utf-8") as f:
-        try:
-            data = json.load(f)
-        except json.JSONDecodeError as e:
-            raise ValueError(f"Invalid JSON in select configuration file {path}: {e}") from e
-
-    return SelectConfig.model_validate(data)
-
-
-def build_select_schema(config: SelectConfig) -> JsonSchemaValue:
-    properties = {
-        field_name: {
-            "type": ["string", "null"],
-            "description": f"Selected term ID for {field_name}",
-        }
-        for field_name in config.fields
-    }
-
-    return {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": properties,
-        "required": list(config.fields.keys()),
-        "additionalProperties": False,
-    }
-
-
-def build_select_prompt(config: SelectConfig) -> list[Prompt]:
-    description = "\n".join(
-        f"- {field_name}: {field_config.prompt_description}"
-        for field_name, field_config in config.fields.items()
-        if field_config.prompt_description
-    )
-    system_content = (
-        "You are an expert in biomedical ontologies. "
-        "Based on the provided information, select the most appropriate term for each of the following fields:\n"
-        f"{description}\n"
-        "Provide your answers in JSON format with the field names as keys and the selected term IDs as values. "
-        "If no appropriate term is found, use null."
-    )
-    return [
-        Prompt(role="system", content=system_content),
-        Prompt(role="user", content="Here is the information: {{ner_extraction}}"),
-    ]
-
-
-def build_extract_schema_for_select(config: SelectConfig) -> JsonSchemaValue:
-    properties: dict[str, JsonSchemaValue] = {}
-
-    for field_name, field_config in config.fields.items():
-        if field_config.value_type == "string":
-            properties[field_name] = {
-                "type": ["string", "null"],
-            }
-        elif field_config.value_type == "array":
-            properties[field_name] = {
-                "type": ["array", "null"],
-                "items": {
-                    "type": "string",
-                },
-            }
-        else:
-            raise ValueError(f"Unsupported value_type {field_config.value_type} for field {field_name}")
-
-    return {
-        "$schema": "http://json-schema.org/draft-07/schema#",
-        "type": "object",
-        "properties": properties,
-        "required": list(config.fields.keys()),
-        "additionalProperties": False,
-    }
-
-
-def build_extract_prompt_for_select(config: SelectConfig) -> list[Prompt]:
-    category_lines: list[str] = []
-    for field_name, field_config in config.fields.items():
-        if field_config.value_type == "array":
-            type_note = "multiple values (array)"
-        else:
-            type_note = "single value"
-        if field_config.prompt_description:
-            desc = field_config.prompt_description
-        else:
-            desc = "A biological attribute to be extracted from the metadata."
-
-        category_lines.append(f'- "{field_name} ({type_note})":\n  - {desc}')
-
-    categories_block = "\n".join(category_lines)
-
-    system_content = "You are a smart curator of biological data."
-
-    user_content = (
-        "I will input JSON formatted metadata of a sample for a biological experiment.\n"
-        "Your task is to extract relevant biological information (if present) from the input data and format it according to the specified schema.\n"
-        "\n"
-        "---\n"
-        "Categories to extract:\n"
-        f"{categories_block}\n"
-        "\n"
-        "---\n"
-        "Output rules:\n"
-        "  - Return only JSON, matching the provided schema (via the `format` option).\n"
-        "  - For categories with `string` value_type:\n"
-        "      - If you can identify a value, output a single concise canonical name (not a free-form description).\n"
-        "      - If no value can be found, output null.\n"
-        "  - For categories with `array` value_type:\n"
-        "      - If you can identify one or more values, output an array of concise canonical names.\n"
-        "      - If no values can be found, output null (not an empty array).\n"
-        "  - Prefer exact mentions in the input; if multiple candidates exist, pick the most specific and widely recognized.\n"
-        "  - Do not hallucinate or infer values that are absent from the input.\n"
-        "  - Do not mix different kinds of concepts in the same category.\n"
-        "\n"
-        "---\n"
-        "Here is the input metadata:\n"
-    )
-
-    return [
-        Prompt(role="system", content=system_content),
-        Prompt(role="user", content=user_content),
-    ]
-
-
 def load_extract_resume_file(run_name: str) -> list[LlmOutput]:
     extract_resume_file_path = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
     if not extract_resume_file_path.exists():
@@ -530,7 +334,7 @@ def dump_extract_resume_file(outputs: list[LlmOutput], run_name: str) -> Path:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json_str = json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2)
-            f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+            f.write(_replace_surrogates(json_str))
         shutil.move(tmp_path, resume_file)
     except Exception:
         if Path(tmp_path).exists():
@@ -567,7 +371,7 @@ def dump_select_resume_file(results: list[SelectResult], run_name: str) -> Path:
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json_str = json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2)
-            f.write(json_str.encode("utf-8", errors="replace").decode("utf-8"))
+            f.write(_replace_surrogates(json_str))
         shutil.move(tmp_path, resume_file)
     except Exception:
         if Path(tmp_path).exists():
@@ -606,8 +410,6 @@ def validate_resume_consistency(
         ResumeDataError: If select has entries that extract doesn't have
 
     """
-    from bsllmner2.errors import ResumeDataError
-
     extract_ids = {output.accession for output in extract_outputs}
     select_ids = {result.accession for result in select_results}
 

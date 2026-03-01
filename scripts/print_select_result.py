@@ -6,7 +6,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from bsllmner2.schema import SelectResult
+from bsllmner2.models import SelectResult
 
 HERE: Path = Path(__file__).parent.resolve()
 

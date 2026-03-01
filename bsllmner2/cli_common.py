@@ -19,7 +19,7 @@ def str_to_bool(v: str) -> bool:
         argparse.ArgumentTypeError: If the value is not a valid boolean string.
 
     """
-    lower = v.lower()
+    lower = v.strip().lower()
     if lower in ("true", "1", "yes", "on"):
         return True
     if lower in ("false", "0", "no", "off"):

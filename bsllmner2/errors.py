@@ -18,9 +18,12 @@ class OllamaConnectionError(Bsllmner2Error):
             "  2. The model is available (run: ollama pull <model-name>)\n"
             "  3. Host URL is correct (--ollama-host <url>)"
         )
-        if original_error:
+        if original_error is not None:
             message += f"\n\nOriginal error: {original_error}"
         super().__init__(message)
+
+    def __reduce__(self) -> tuple[type, tuple[str, Exception | None]]:
+        return (type(self), (self.host, self.original_error))
 
 
 class OllamaProcessingError(Bsllmner2Error):
@@ -32,6 +35,9 @@ class OllamaProcessingError(Bsllmner2Error):
         message = f"Error processing entry {accession}: {original_error}"
         super().__init__(message)
 
+    def __reduce__(self) -> tuple[type, tuple[str, Exception]]:
+        return (type(self), (self.accession, self.original_error))
+
 
 class ConfigurationError(Bsllmner2Error):
     """Raised when there's a configuration problem."""
@@ -42,5 +48,9 @@ class ResumeDataError(Bsllmner2Error):
 
     def __init__(self, run_name: str, message: str):
         self.run_name = run_name
+        self._detail = message
         full_message = f"Resume data error for run '{run_name}': {message}"
         super().__init__(full_message)
+
+    def __reduce__(self) -> tuple[type, tuple[str, str]]:
+        return (type(self), (self.run_name, self._detail))

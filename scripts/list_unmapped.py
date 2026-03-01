@@ -15,7 +15,7 @@ from typing import Any
 
 from pydantic import TypeAdapter
 
-from bsllmner2.schema import SelectResult
+from bsllmner2.models import SelectResult
 
 
 def normalize_values(v: Any) -> list[str]:

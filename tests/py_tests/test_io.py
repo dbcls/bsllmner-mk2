@@ -1,8 +1,8 @@
-"""Tests for utility functions."""
+"""Tests for io module (file I/O + resume)."""
 
 import json
+import logging
 from collections.abc import Callable
-from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -10,22 +10,33 @@ import pytest
 import yaml
 
 from bsllmner2.errors import ResumeDataError
-from bsllmner2.schema import LlmOutput, SelectResult
-from bsllmner2.utils import (
-    build_extract_prompt_for_select,
-    build_extract_schema_for_select,
+from bsllmner2.io import (
+    dump_extract_result,
     dump_extract_resume_file,
+    dump_select_result,
     dump_select_resume_file,
-    get_now_str,
+    list_run_names,
     load_bs_entries,
+    load_extract_result,
     load_extract_resume_file,
     load_format_schema,
     load_mapping,
     load_prompt_file,
+    load_run_metadata,
     load_select_config,
     load_select_resume_file,
+    remove_resume_files,
     validate_extract_resume_file,
     validate_resume_consistency,
+)
+from bsllmner2.models import (
+    Config,
+    LlmOutput,
+    Prompt,
+    Result,
+    RunMetadata,
+    SelectResult,
+    WfInput,
 )
 
 
@@ -162,34 +173,6 @@ class TestLoadSelectConfig:
             load_select_config(file_path)
 
 
-class TestGetNowStr:
-    """Test cases for get_now_str function."""
-
-    def test_format(self) -> None:
-        """Test that the output format is correct."""
-        result = get_now_str()
-        # Should match YYYYMMDD_HHMMSS format
-        datetime.strptime(result, "%Y%m%d_%H%M%S")
-
-    def test_returns_current_utc_time(self) -> None:
-        """Test that get_now_str returns UTC time close to now."""
-        before = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        result = get_now_str()
-        after = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
-        # Result should be between before and after (or equal)
-        assert before <= result <= after
-
-    def test_uses_utc_time(self) -> None:
-        """Verify that get_now_str uses UTC time for consistency."""
-        utc_now = datetime.now(timezone.utc)
-        result = get_now_str()
-        result_dt = datetime.strptime(result, "%Y%m%d_%H%M%S")
-
-        # The result should be within 1 second of UTC time
-        utc_diff = abs((result_dt - utc_now.replace(microsecond=0, tzinfo=None)).total_seconds())
-        assert utc_diff <= 1  # Should be within 1 second of UTC time
-
-
 class TestResumeFileFunctions:
     """Test cases for resume file load/dump functions."""
 
@@ -215,6 +198,7 @@ class TestResumeFileFunctions:
             "message": {"role": "assistant", "content": "test"},
             "done": True,
         }
+
         return LlmOutput(
             accession="SAMN00000001",
             output={"cell_line": "HeLa"},
@@ -235,7 +219,7 @@ class TestResumeFileFunctions:
         sample_llm_output: LlmOutput,
     ) -> None:
         """Test dumping and loading extract resume files."""
-        with patch("bsllmner2.utils.EXTRACT_RESULT_DIR", temp_dir):
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
             # Dump
             outputs = [sample_llm_output]
             dump_extract_resume_file(outputs, "test-run")
@@ -252,7 +236,7 @@ class TestResumeFileFunctions:
 
     def test_load_extract_resume_missing_file(self, temp_dir: Path) -> None:
         """Test that loading missing resume file returns empty list."""
-        with patch("bsllmner2.utils.EXTRACT_RESULT_DIR", temp_dir):
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
             loaded = load_extract_resume_file("nonexistent-run")
             assert loaded == []
 
@@ -262,7 +246,7 @@ class TestResumeFileFunctions:
         sample_select_result: SelectResult,
     ) -> None:
         """Test dumping and loading select resume files."""
-        with patch("bsllmner2.utils.SELECT_RESULT_DIR", temp_dir):
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
             # Dump
             results = [sample_select_result]
             dump_select_resume_file(results, "test-run")
@@ -278,57 +262,9 @@ class TestResumeFileFunctions:
 
     def test_load_select_resume_missing_file(self, temp_dir: Path) -> None:
         """Test that loading missing resume file returns empty list."""
-        with patch("bsllmner2.utils.SELECT_RESULT_DIR", temp_dir):
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
             loaded = load_select_resume_file("nonexistent-run")
             assert loaded == []
-
-
-class TestBuildExtractSchemaForSelect:
-    """Test cases for build_extract_schema_for_select function."""
-
-    def test_string_field(self, select_config_file: Path) -> None:
-        """Test schema generation for string field."""
-        config = load_select_config(select_config_file)
-        schema = build_extract_schema_for_select(config)
-
-        assert schema["type"] == "object"
-        assert "cell_line" in schema["properties"]
-        assert schema["properties"]["cell_line"]["type"] == ["string", "null"]
-
-    def test_array_field(self, temp_dir: Path) -> None:
-        """Test schema generation for array field."""
-        config_data = {
-            "fields": {
-                "diseases": {
-                    "value_type": "array",
-                    "prompt_description": "List of diseases",
-                },
-            },
-        }
-        config_file = temp_dir / "array_config.json"
-        with config_file.open("w") as f:
-            json.dump(config_data, f)
-
-        config = load_select_config(config_file)
-        schema = build_extract_schema_for_select(config)
-
-        assert "diseases" in schema["properties"]
-        assert schema["properties"]["diseases"]["type"] == ["array", "null"]
-        assert schema["properties"]["diseases"]["items"]["type"] == "string"
-
-
-class TestBuildExtractPromptForSelect:
-    """Test cases for build_extract_prompt_for_select function."""
-
-    def test_prompt_generation(self, select_config_file: Path) -> None:
-        """Test prompt generation for select mode."""
-        config = load_select_config(select_config_file)
-        prompts = build_extract_prompt_for_select(config)
-
-        assert len(prompts) == 2
-        assert prompts[0].role == "system"
-        assert prompts[1].role == "user"
-        assert "cell_line" in prompts[1].content
 
 
 class TestValidateResumeConsistency:
@@ -346,6 +282,7 @@ class TestValidateResumeConsistency:
                 "message": {"role": "assistant", "content": "test"},
                 "done": True,
             }
+
             return LlmOutput(
                 accession=accession,
                 output={"cell_line": "Test"},
@@ -488,6 +425,7 @@ class TestValidateExtractResumeFile:
                 "message": {"role": "assistant", "content": "test"},
                 "done": True,
             }
+
             return LlmOutput(
                 accession=accession,
                 output={"cell_line": "Test"},
@@ -519,8 +457,6 @@ class TestValidateExtractResumeFile:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that duplicate entries are detected and logged as warning."""
-        import logging
-
         extract_outputs = [
             make_llm_output("SAMN001"),
             make_llm_output("SAMN002"),
@@ -550,8 +486,6 @@ class TestValidateExtractResumeFile:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that multiple duplicates are all detected."""
-        import logging
-
         extract_outputs = [
             make_llm_output("SAMN001"),
             make_llm_output("SAMN001"),  # Duplicate 1
@@ -571,3 +505,294 @@ class TestValidateExtractResumeFile:
 
         assert done_ids == {"SAMN001", "SAMN002"}
         assert "3 duplicate" in caplog.text
+
+
+# === Helpers for Phase 2 tests ===
+
+
+def _make_chat_response() -> dict:
+    """Minimal ChatResponse-like dict for building LlmOutput / Result."""
+    return {
+        "model": "test-model",
+        "created_at": "2024-01-01T00:00:00Z",
+        "message": {"role": "assistant", "content": '{"cell_line": "HeLa"}'},
+        "done": True,
+    }
+
+
+def _make_result(run_name: str = "test-run") -> Result:
+    return Result(
+        input=WfInput(
+            bs_entries=[{"accession": "SAMN001", "title": "s1"}],
+            prompt=[Prompt(role="system", content="test")],
+            model="test-model",
+            config=Config(),
+        ),
+        output=[
+            LlmOutput(
+                accession="SAMN001",
+                output={"cell_line": "HeLa"},
+                chat_response=_make_chat_response(),
+            ),
+        ],
+        run_metadata=RunMetadata(
+            run_name=run_name,
+            model="test-model",
+            start_time="2024-01-01T00:00:00Z",
+        ),
+    )
+
+
+# === TestDumpExtractResult ===
+
+
+class TestDumpExtractResult:
+    def test_dump_creates_file(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            dump_extract_result(_make_result(), "my-run")
+        assert (temp_dir / "my-run.json").exists()
+
+    def test_dump_content_is_valid_json(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            dump_extract_result(_make_result(), "my-run")
+        data = json.loads((temp_dir / "my-run.json").read_text())
+        assert "run_metadata" in data
+
+    def test_dump_roundtrip_preserves_accession(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            dump_extract_result(_make_result(), "my-run")
+        data = json.loads((temp_dir / "my-run.json").read_text())
+        assert data["output"][0]["accession"] == "SAMN001"
+
+    def test_dump_surrogate_characters_replaced(self, temp_dir: Path) -> None:
+        """Surrogate chars in LLM output are replaced with U+FFFD."""
+        result = _make_result()
+        result.output[0].output = {"cell_line": "bad\ud800char"}
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            dump_extract_result(result, "surr-run")
+        content = (temp_dir / "surr-run.json").read_text()
+        assert "\ud800" not in content
+        assert "bad\ufffdchar" in content
+
+    def test_dump_returns_correct_path(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            path = dump_extract_result(_make_result(), "my-run")
+        assert path == temp_dir / "my-run.json"
+
+    def test_dump_creates_parent_dir(self, temp_dir: Path) -> None:
+        nested = temp_dir / "sub" / "dir"
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", nested):
+            dump_extract_result(_make_result(), "my-run")
+        assert (nested / "my-run.json").exists()
+
+
+# === TestDumpSelectResult ===
+
+
+class TestDumpSelectResult:
+    def test_dump_creates_file(self, temp_dir: Path) -> None:
+        sr = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
+            dump_select_result([sr], "my-run")
+        assert (temp_dir / "select_my-run.json").exists()
+
+    def test_dump_content_is_valid_json(self, temp_dir: Path) -> None:
+        sr = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
+            dump_select_result([sr], "my-run")
+        data = json.loads((temp_dir / "select_my-run.json").read_text())
+        assert isinstance(data, list)
+        assert data[0]["accession"] == "SAMN001"
+
+    def test_dump_empty_list(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
+            dump_select_result([], "my-run")
+        data = json.loads((temp_dir / "select_my-run.json").read_text())
+        assert data == []
+
+    def test_dump_returns_correct_path(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
+            path = dump_select_result([], "my-run")
+        assert path == temp_dir / "select_my-run.json"
+
+
+# === TestLoadExtractResult ===
+
+
+class TestLoadExtractResult:
+    def test_load_roundtrip(self, temp_dir: Path) -> None:
+        with (
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
+            patch("bsllmner2.io.PROGRESS_DIR", temp_dir),
+        ):
+            dump_extract_result(_make_result("rt-run"), "rt-run")
+            loaded = load_extract_result(temp_dir / "rt-run.json")
+        assert loaded.output[0].accession == "SAMN001"
+        assert loaded.run_metadata.model == "test-model"
+
+    def test_load_with_progress_file(self, temp_dir: Path) -> None:
+        with (
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
+            patch("bsllmner2.io.PROGRESS_DIR", temp_dir),
+        ):
+            dump_extract_result(_make_result("prog-run"), "prog-run")
+            progress = temp_dir / "prog-run.txt"
+            progress.write_text("SAMN001\nSAMN002\nSAMN003\n")
+            loaded = load_extract_result(temp_dir / "prog-run.json")
+        assert loaded.run_metadata.completed_count == 3
+
+    def test_load_without_progress_file(self, temp_dir: Path) -> None:
+        with (
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
+            patch("bsllmner2.io.PROGRESS_DIR", temp_dir),
+        ):
+            dump_extract_result(_make_result("noprog-run"), "noprog-run")
+            loaded = load_extract_result(temp_dir / "noprog-run.json")
+        assert loaded.run_metadata.completed_count is None
+
+    def test_load_file_not_found(self) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_extract_result(Path("/nonexistent/result.json"))
+
+
+# === TestLoadRunMetadata ===
+
+
+class TestLoadRunMetadata:
+    def test_load_existing_metadata(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            dump_extract_result(_make_result("meta-run"), "meta-run")
+        metadata = load_run_metadata(temp_dir / "meta-run.json")
+        assert metadata.run_name == "meta-run"
+        assert metadata.model == "test-model"
+
+    def test_load_file_not_found(self) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_run_metadata(Path("/nonexistent/result.json"))
+
+    def test_load_missing_run_metadata_key(self, temp_dir: Path) -> None:
+        path = temp_dir / "no_metadata.json"
+        path.write_text(json.dumps({"output": []}))
+        with pytest.raises(ValueError, match="No run metadata"):
+            load_run_metadata(path)
+
+    def test_load_empty_json_object(self, temp_dir: Path) -> None:
+        path = temp_dir / "empty.json"
+        path.write_text("{}")
+        with pytest.raises(ValueError, match="No run metadata"):
+            load_run_metadata(path)
+
+
+# === TestListRunNames ===
+
+
+class TestListRunNames:
+    def test_list_existing_runs(self, temp_dir: Path) -> None:
+        for name in ["run1", "run2", "run3"]:
+            (temp_dir / f"{name}.json").write_text("{}")
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            names = list_run_names()
+        assert sorted(names) == ["run1", "run2", "run3"]
+
+    def test_empty_directory(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            assert list_run_names() == []
+
+    def test_directory_not_exists(self, temp_dir: Path) -> None:
+        missing = temp_dir / "nonexistent"
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", missing):
+            assert list_run_names() == []
+
+    def test_non_json_files_excluded(self, temp_dir: Path) -> None:
+        (temp_dir / "run1.json").write_text("{}")
+        (temp_dir / "notes.txt").write_text("hello")
+        (temp_dir / "data.csv").write_text("a,b")
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            names = list_run_names()
+        assert names == ["run1"]
+
+
+# === TestRemoveResumeFiles ===
+
+
+class TestRemoveResumeFiles:
+    def test_remove_both_existing(self, temp_dir: Path) -> None:
+        extract_f = temp_dir / "my-run_resume.json"
+        select_f = temp_dir / "select_my-run_resume.json"
+        extract_f.write_text("[]")
+        select_f.write_text("[]")
+        with (
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
+            patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir),
+        ):
+            remove_resume_files("my-run")
+        assert not extract_f.exists()
+        assert not select_f.exists()
+
+    def test_remove_nonexistent_files(self, temp_dir: Path) -> None:
+        with (
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
+            patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir),
+        ):
+            remove_resume_files("ghost-run")  # should not raise
+
+    def test_remove_only_extract_exists(self, temp_dir: Path) -> None:
+        extract_f = temp_dir / "my-run_resume.json"
+        extract_f.write_text("[]")
+        with (
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
+            patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir),
+        ):
+            remove_resume_files("my-run")
+        assert not extract_f.exists()
+
+
+# === TestLoadBsEntries additional cases ===
+
+
+class TestLoadBsEntriesAdditional:
+    def test_jsonl_non_dict_line(self, temp_dir: Path) -> None:
+        """A JSONL file where one line is a list (not a dict) must raise."""
+        path = temp_dir / "bad.jsonl"
+        # Two lines: first is valid dict, second is a list.
+        # This triggers the JSONL parser (invalid as a single JSON value)
+        # and then the non-dict check on the second line.
+        path.write_text('{"accession": "SAMN001"}\n[1, 2, 3]\n')
+        with pytest.raises(ValueError, match="must be a JSON object"):
+            load_bs_entries(path)
+
+
+# === TestLoadMapping additional cases ===
+
+
+class TestLoadMappingAdditional:
+    def test_empty_file(self, temp_dir: Path) -> None:
+        path = temp_dir / "empty.tsv"
+        path.write_text("")
+        assert load_mapping(path) == {}
+
+    def test_header_only(self, temp_dir: Path) -> None:
+        path = temp_dir / "header_only.tsv"
+        path.write_text(
+            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+        )
+        assert load_mapping(path) == {}
+
+
+# === TestLoadExtractResumeFile additional cases ===
+
+
+class TestLoadExtractResumeFileAdditional:
+    def test_non_list_json(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            path = temp_dir / "bad_resume.json"
+            path.write_text('{"key": "val"}')
+            with pytest.raises(ValueError, match="must contain a list"):
+                load_extract_resume_file("bad")
+
+    def test_empty_whitespace_content(self, temp_dir: Path) -> None:
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            path = temp_dir / "ws_resume.json"
+            path.write_text("   \n  \t  ")
+            result = load_extract_resume_file("ws")
+        assert result == []

@@ -4,27 +4,30 @@ import sys
 from pathlib import Path
 
 from bsllmner2.cli_common import BatchInfo, add_common_arguments, process_batches, validate_common_args
-from bsllmner2.client.ollama import build_index_map, ner, select
-from bsllmner2.config import LOGGER, Config, get_config, set_logging_level
-from bsllmner2.metrics import LiveMetricsCollector
-from bsllmner2.schema import CliSelectArgs, LlmOutput, RunMetadata, SelectResult
-from bsllmner2.utils import (
-    build_extract_prompt_for_select,
-    build_extract_schema_for_select,
+from bsllmner2.config import LOGGER, PROGRESS_DIR, Config, get_config, set_logging_config, set_logging_level
+from bsllmner2.errors import Bsllmner2Error
+from bsllmner2.io import (
     dump_extract_result,
     dump_extract_resume_file,
     dump_select_result,
     dump_select_resume_file,
-    evaluate_output,
-    get_now_str,
     load_bs_entries,
     load_extract_resume_file,
     load_mapping,
     load_select_config,
     load_select_resume_file,
     remove_resume_files,
-    to_result,
     validate_resume_consistency,
+)
+from bsllmner2.llm import OllamaBackend, build_index_map, ner, select
+from bsllmner2.metrics import LiveMetricsCollector
+from bsllmner2.models import CliSelectArgs, LlmOutput, RunMetadata, SelectResult
+from bsllmner2.pipeline import (
+    build_extract_prompt_for_select,
+    build_extract_schema_for_select,
+    evaluate_output,
+    get_now_str,
+    to_result,
 )
 
 
@@ -88,13 +91,13 @@ def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
 
 async def run_cli_select_async() -> None:
     """Run the CLI for bsllmner2 select mode."""
-    from bsllmner2.errors import Bsllmner2Error
-
     LOGGER.info("Starting bsllmner2 CLI select mode...")
     config, args = parse_args(sys.argv[1:])
     set_logging_level(config.debug)
     LOGGER.info("Config:\n%s", config.model_dump_json(indent=2))
     LOGGER.info("Args:\n%s", args.model_dump_json(indent=2))
+
+    backend = OllamaBackend(config.ollama_host)
 
     # for Select mode
     select_config = load_select_config(args.select_config)
@@ -154,10 +157,10 @@ async def run_cli_select_async() -> None:
             batch_info: BatchInfo,
         ) -> tuple[list[LlmOutput], list[SelectResult]]:
             LOGGER.info("Extracting entities...")
-            batch_extract_outputs = await ner(config, batch_info.entries, prompt, format_, args.model, args.thinking)
+            batch_extract_outputs = await ner(backend, batch_info.entries, prompt, format_, args.model, args.thinking)
             LOGGER.info("Selecting entities...")
             batch_select_results = await select(
-                config,
+                backend,
                 batch_info.entries,
                 args.model,
                 batch_extract_outputs,
@@ -240,6 +243,8 @@ async def run_cli_select_async() -> None:
 
 def run_cli_select() -> None:
     """Run the CLI for bsllmner2 select mode in an event loop."""
+    set_logging_config()
+    PROGRESS_DIR.mkdir(parents=True, exist_ok=True)
     asyncio.run(run_cli_select_async())
 
 

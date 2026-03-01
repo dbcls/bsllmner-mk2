@@ -47,7 +47,13 @@ def construct_llm_input_json(entry: dict[str, Any]) -> dict[str, Any]:
     for key, value in attrs.items():
         if key not in filter_keys.filter_keys:
             if is_ebi_format(entry):
-                filtered_entry[key] = value[0]["text"]
+                if (
+                    isinstance(value, list)
+                    and len(value) > 0
+                    and isinstance(value[0], dict)
+                    and "text" in value[0]
+                ):
+                    filtered_entry[key] = value[0]["text"]
             else:
                 filtered_entry[key] = value
 

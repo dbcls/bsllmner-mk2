@@ -1,5 +1,6 @@
 import argparse
 import json
+import math
 import re
 import subprocess
 import sys
@@ -37,14 +38,29 @@ def parse_bytes(size_str: str) -> float:
     if not match:
         raise ValueError(f"Invalid size format: {size_str}")
     num, unit = match.groups()
-    return float(num) * units.get(unit.upper(), 1)
+    unit_upper = unit.upper()
+    if unit_upper not in units:
+        raise ValueError(f"Unknown size unit: {unit}")
+    try:
+        value = float(num)
+    except ValueError:
+        raise ValueError(f"Invalid size format: {size_str}") from None
+
+    return value * units[unit_upper]
 
 
 def parse_percentage(perc_str: str) -> float:
     """Convert strings like '8.16%' to a float."""
     perc_str = perc_str.strip()
     if perc_str.endswith("%"):
-        return float(perc_str[:-1])
+        num_part = perc_str[:-1]
+        try:
+            value = float(num_part)
+        except ValueError:
+            pass
+        else:
+            if math.isfinite(value):
+                return value
     raise ValueError(f"Invalid percentage format: {perc_str}")
 
 

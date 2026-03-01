@@ -1,11 +1,15 @@
-"""Tests for CLI select mode argument parsing."""
+"""Tests for CLI select mode argument parsing and async execution."""
 
 from pathlib import Path
+from typing import Any
+from unittest.mock import patch
 
 import pytest
 
-from bsllmner2.cli_select import parse_args
+from bsllmner2.cli_select import parse_args, run_cli_select_async
 from bsllmner2.config import RESUME_BATCH_SIZE
+from bsllmner2.models import LlmOutput, SelectResult
+from tests.py_tests.conftest import make_chat_response
 
 
 class TestParseArgsSelect:
@@ -223,3 +227,78 @@ class TestThinkingTypeConsistency:
         assert extract_thinking_type is bool
         assert select_thinking_type is bool
         assert extract_thinking_type is select_thinking_type
+
+
+# === CLI async integration test ===
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestRunCliSelectAsync:
+    async def test_basic_run(
+        self,
+        bs_entries_json_file: Path,
+        select_config_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Smoke test: run_cli_select_async completes with all externals mocked."""
+        fake_response = make_chat_response('{"cell_line": "HeLa"}')
+
+        async def fake_ner(
+            backend: Any,
+            bs_entries: Any,
+            prompt: Any,
+            format_: Any,
+            model: str,
+            thinking: Any = None,
+            progress_file_path: Any = None,
+        ) -> list[LlmOutput]:
+            return [
+                LlmOutput(
+                    accession=e["accession"],
+                    output={"cell_line": "HeLa"},
+                    chat_response=fake_response,
+                )
+                for e in bs_entries
+                if e.get("accession")
+            ]
+
+        async def fake_select(
+            backend: Any,
+            bs_entries: Any,
+            model: str,
+            extract_outputs: list[LlmOutput],
+            select_config: Any,
+            thinking: Any = None,
+            include_reasoning: bool = True,
+            index_map: Any = None,
+        ) -> list[SelectResult]:
+            return [
+                SelectResult(
+                    accession=o.accession,
+                    extract_output=o.output,
+                    results={"cell_line": "HeLa"},
+                )
+                for o in extract_outputs
+            ]
+
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+        ]
+
+        with (
+            patch("bsllmner2.cli_select.sys") as mock_sys,
+            patch("bsllmner2.cli_select.ner", side_effect=fake_ner),
+            patch("bsllmner2.cli_select.select", side_effect=fake_select),
+            patch("bsllmner2.cli_select.OllamaBackend"),
+            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.dump_extract_result", return_value=tmp_path / "extract.json"),
+            patch("bsllmner2.cli_select.dump_select_result", return_value=tmp_path / "select.json"),
+            patch("bsllmner2.cli_select.dump_extract_resume_file"),
+            patch("bsllmner2.cli_select.dump_select_resume_file"),
+            patch("bsllmner2.cli_select.remove_resume_files"),
+        ):
+            mock_sys.argv = ["bsllmner2-select", *cli_args]
+            await run_cli_select_async()
