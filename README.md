@@ -23,6 +23,8 @@ For a complete walkthrough including ontology setup and Select mode, see [Gettin
 
 ## Documentation
 
+Full documentation is available at **<https://dbcls.github.io/bsllmner-mk2>**.
+
 **Basics**
 
 - [Getting Started](docs/getting-started.md) -- First run walkthrough with ontology setup

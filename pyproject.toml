@@ -36,7 +36,7 @@ dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/dbcls/bsllmner-mk2"
-Documentation = "https://github.com/dbcls/bsllmner-mk2/blob/main/README.md"
+Documentation = "https://dbcls.github.io/bsllmner-mk2"
 Repository = "https://github.com/dbcls/bsllmner-mk2.git"
 
 [project.optional-dependencies]
@@ -57,6 +57,9 @@ bsllmner2_extract = "bsllmner2.cli_extract:run_cli_extract"
 bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
 bsllmner2_api = "bsllmner2.api:run_api"
 bsllmner2_metrics = "bsllmner2.metrics:main"
+
+[dependency-groups]
+dev = ["mkdocs-material>=9.7.1"]
 
 [tool.pytest.ini_options]
 addopts = "-v --tb=short --strict-markers"

@@ -1,0 +1,58 @@
+site_name: bsllmner-mk2 Documentation
+site_url: https://dbcls.github.io/bsllmner-mk2
+repo_name: dbcls/bsllmner-mk2
+repo_url: https://github.com/dbcls/bsllmner-mk2
+edit_uri: edit/main/docs/
+copyright: Copyright &copy; DBCLS
+
+theme:
+  name: material
+  palette:
+    primary: teal
+    accent: amber
+  features:
+    - navigation.instant
+    - navigation.instant.progress
+    - navigation.tracking
+    - navigation.top
+    - content.code.copy
+    - content.code.annotate
+    - search.suggest
+    - search.highlight
+
+markdown_extensions:
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.highlight:
+      anchor_linenums: true
+  - pymdownx.inlinehilite
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
+nav:
+  - Home: index.md
+  - Getting Started: getting-started.md
+  - Installation: installation.md
+  - Extract Mode: extract-mode.md
+  - Select Mode: select-mode.md
+  - Data Formats: data-formats.md
+  - Configuration: configuration.md
+  - ChIP-Atlas: chip-atlas.md
+  - NIG Slurm: nig-slurm.md
+  - Development: development.md
+  - Testing: testing.md
+
+extra:
+  social:
+    - icon: fontawesome/brands/github
+      link: https://github.com/dbcls/bsllmner-mk2
+
+# README.md (index.md) contains links relative to the repo root (e.g., docs/installation.md)
+# which are correct for GitHub but unresolvable in MkDocs. The nav bar provides navigation.
+validation:
+  links:
+    not_found: info
