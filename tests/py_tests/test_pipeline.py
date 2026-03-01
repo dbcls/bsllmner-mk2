@@ -16,6 +16,7 @@ from bsllmner2.models import (
     SelectConfigField,
 )
 from bsllmner2.pipeline import (
+    build_error_log,
     build_extract_prompt_for_select,
     build_extract_schema_for_select,
     compute_processing_time,
@@ -387,7 +388,172 @@ class TestBuildExtractSchemaForSelectAdditional:
         assert set(schema["required"]) == {"a", "b"}
 
     def test_additional_properties_false(self) -> None:
-        """additionalProperties is always False."""
+        """Field additionalProperties is always False."""
         config = SelectConfig(fields={"f": SelectConfigField()})
         schema = build_extract_schema_for_select(config)
         assert schema["additionalProperties"] is False
+
+
+# === build_extract_prompt_for_select: mutation-killing ===
+
+
+class TestBuildExtractPromptForSelectMutations:
+    """Mutation-killing tests for build_extract_prompt_for_select."""
+
+    def test_none_description_uses_fallback(self) -> None:
+        """When prompt_description is None, a default fallback text is used.
+
+        Kills mutation on the `if field_config.prompt_description:` guard.
+        """
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    value_type="string",
+                    prompt_description=None,
+                ),
+            },
+        )
+        prompts = build_extract_prompt_for_select(config)
+        assert "A biological attribute to be extracted" in prompts[1].content
+
+    def test_custom_description_overrides_fallback(self) -> None:
+        """When prompt_description is set, it replaces the fallback."""
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    value_type="string",
+                    prompt_description="Name of the cell line used in the experiment",
+                ),
+            },
+        )
+        prompts = build_extract_prompt_for_select(config)
+        assert "Name of the cell line used in the experiment" in prompts[1].content
+        assert "A biological attribute to be extracted" not in prompts[1].content
+
+    def test_array_type_noted_in_prompt(self) -> None:
+        """Array value_type produces 'multiple values (array)' in prompt."""
+        config = SelectConfig(
+            fields={
+                "diseases": SelectConfigField(
+                    value_type="array",
+                    prompt_description="List of diseases",
+                ),
+            },
+        )
+        prompts = build_extract_prompt_for_select(config)
+        assert "multiple values (array)" in prompts[1].content
+
+    def test_string_type_noted_in_prompt(self) -> None:
+        """String value_type produces 'single value' in prompt."""
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    value_type="string",
+                    prompt_description="Cell line",
+                ),
+            },
+        )
+        prompts = build_extract_prompt_for_select(config)
+        assert "single value" in prompts[1].content
+
+    def test_system_prompt_content(self) -> None:
+        """System prompt contains expected role description."""
+        config = SelectConfig(fields={"f": SelectConfigField()})
+        prompts = build_extract_prompt_for_select(config)
+        assert prompts[0].role == "system"
+        assert "smart curator" in prompts[0].content
+
+    def test_field_name_appears_in_prompt(self) -> None:
+        """Field name appears in the user prompt."""
+        config = SelectConfig(
+            fields={
+                "my_custom_field": SelectConfigField(
+                    value_type="string",
+                    prompt_description="Custom description",
+                ),
+            },
+        )
+        prompts = build_extract_prompt_for_select(config)
+        assert "my_custom_field" in prompts[1].content
+
+    def test_multiple_fields_all_in_prompt(self) -> None:
+        """All fields appear in the prompt when config has multiple fields."""
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    value_type="string",
+                    prompt_description="Cell line",
+                ),
+                "organism": SelectConfigField(
+                    value_type="string",
+                    prompt_description="Organism",
+                ),
+            },
+        )
+        prompts = build_extract_prompt_for_select(config)
+        assert "cell_line" in prompts[1].content
+        assert "organism" in prompts[1].content
+
+
+# === build_extract_schema_for_select: mutation-killing ===
+
+
+class TestBuildExtractSchemaForSelectMutations:
+    """Mutation-killing tests for build_extract_schema_for_select."""
+
+    def test_schema_has_json_schema_field(self) -> None:
+        """Schema includes $schema field.
+
+        Kills mutation that removes the $schema key.
+        """
+        config = SelectConfig(fields={"f": SelectConfigField()})
+        schema = build_extract_schema_for_select(config)
+        assert "$schema" in schema
+        assert "json-schema.org" in schema["$schema"]
+
+    def test_empty_fields_produces_empty_properties(self) -> None:
+        """Empty fields dict produces schema with no properties or required."""
+        config = SelectConfig(fields={})
+        schema = build_extract_schema_for_select(config)
+        assert schema["properties"] == {}
+        assert schema["required"] == []
+
+
+# === build_error_log ===
+
+
+class TestBuildErrorLog:
+    """Tests for build_error_log."""
+
+    def test_captures_exception_type(self) -> None:
+        """Error type is the exception class name."""
+        try:
+            raise ValueError("test error")
+        except ValueError as e:
+            log = build_error_log(e)
+        assert log.error.type == "ValueError"
+
+    def test_captures_exception_message(self) -> None:
+        """Error message is str(exception)."""
+        try:
+            raise RuntimeError("something went wrong")
+        except RuntimeError as e:
+            log = build_error_log(e)
+        assert log.error.message == "something went wrong"
+
+    def test_captures_traceback(self) -> None:
+        """Traceback is non-empty and contains the exception type."""
+        try:
+            raise TypeError("bad type")
+        except TypeError as e:
+            log = build_error_log(e)
+        assert log.error.traceback
+        assert "TypeError" in log.error.traceback
+
+    def test_timestamp_format(self) -> None:
+        """Timestamp is in YYYYMMDD_HHMMSS format."""
+        try:
+            raise Exception("test")
+        except Exception as e:
+            log = build_error_log(e)
+        datetime.strptime(log.timestamp, "%Y%m%d_%H%M%S")

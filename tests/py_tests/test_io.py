@@ -11,6 +11,7 @@ import yaml
 
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.io import (
+    _replace_surrogates,
     dump_extract_result,
     dump_extract_resume_file,
     dump_select_result,
@@ -761,6 +762,27 @@ class TestLoadBsEntriesAdditional:
         with pytest.raises(ValueError, match="must be a JSON object"):
             load_bs_entries(path)
 
+    def test_json_dict_not_list_raises(self, temp_dir: Path) -> None:
+        """JSON file containing a dict (not a list) raises ValueError."""
+        path = temp_dir / "dict.json"
+        path.write_text('{"accession": "SAMN001"}')
+        with pytest.raises(ValueError, match="must contain a list"):
+            load_bs_entries(path)
+
+    def test_json_list_of_non_dicts_raises(self, temp_dir: Path) -> None:
+        """JSON file with a list of non-dicts raises ValueError."""
+        path = temp_dir / "bad_list.json"
+        path.write_text("[1, 2, 3]")
+        with pytest.raises(ValueError, match="must contain a list"):
+            load_bs_entries(path)
+
+    def test_jsonl_blank_lines_skipped(self, temp_dir: Path) -> None:
+        """Blank lines in JSONL are skipped without error."""
+        path = temp_dir / "blanks.jsonl"
+        path.write_text('\n{"accession": "SAMN001"}\n\n{"accession": "SAMN002"}\n\n')
+        entries = load_bs_entries(path)
+        assert len(entries) == 2
+
 
 # === TestLoadMapping additional cases ===
 
@@ -796,3 +818,259 @@ class TestLoadExtractResumeFileAdditional:
             path.write_text("   \n  \t  ")
             result = load_extract_resume_file("ws")
         assert result == []
+
+
+# === _replace_surrogates ===
+
+
+class TestReplaceSurrogates:
+    """Tests for _replace_surrogates.
+
+    Previously only tested indirectly via dump functions.
+    Direct tests ensure the regex and replacement character survive mutations.
+    """
+
+    def test_lone_high_surrogate_replaced(self) -> None:
+        """Lone high surrogate is replaced with U+FFFD."""
+        assert _replace_surrogates("hello\ud800world") == "hello\ufffdworld"
+
+    def test_lone_low_surrogate_replaced(self) -> None:
+        """Lone low surrogate is replaced with U+FFFD."""
+        assert _replace_surrogates("hello\udc00world") == "hello\ufffdworld"
+
+    def test_no_surrogates_unchanged(self) -> None:
+        """String without surrogates is unchanged."""
+        assert _replace_surrogates("hello world") == "hello world"
+
+    def test_empty_string(self) -> None:
+        """Empty string returns empty string."""
+        assert _replace_surrogates("") == ""
+
+    def test_multiple_surrogates_all_replaced(self) -> None:
+        """Multiple surrogates are all replaced."""
+        result = _replace_surrogates("\ud800\ud801\udfff")
+        assert result == "\ufffd\ufffd\ufffd"
+
+    def test_surrogate_at_boundary(self) -> None:
+        """Surrogates at start and end of string are replaced."""
+        result = _replace_surrogates("\ud800text\udfff")
+        assert result == "\ufffdtext\ufffd"
+
+    def test_replacement_char_is_ufffd(self) -> None:
+        """Replacement character is specifically U+FFFD, not empty or other."""
+        result = _replace_surrogates("\ud800")
+        assert result == "\ufffd"
+        assert len(result) == 1
+
+
+# === validate_extract_resume_file: truncation boundary ===
+
+
+class TestValidateExtractResumeFileTruncation:
+    """Test the truncation boundary in validate_extract_resume_file warning.
+
+    The code shows `duplicates[:5]` and `'...' if len(duplicates) > 5`.
+    With exactly 5 duplicates, no '...' should appear.
+    With 6, '...' should appear.
+    """
+
+    @pytest.fixture
+    def make_llm_output(self) -> Callable[..., LlmOutput]:
+        from ollama import ChatResponse
+
+        def _make(accession: str) -> LlmOutput:
+            chat_response: ChatResponse = {  # type: ignore[assignment]
+                "model": "test-model",
+                "created_at": "2024-01-01T00:00:00Z",
+                "message": {"role": "assistant", "content": "test"},
+                "done": True,
+            }
+
+            return LlmOutput(
+                accession=accession,
+                output={"cell_line": "Test"},
+                chat_response=chat_response,
+            )
+
+        return _make
+
+    def test_exactly_5_duplicates_no_ellipsis(
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """With exactly 5 duplicates, no '...' in warning message."""
+        outputs: list[LlmOutput] = []
+        for i in range(5):
+            outputs.append(make_llm_output(f"SAMN{i:03d}"))
+            outputs.append(make_llm_output(f"SAMN{i:03d}"))  # duplicate
+
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            caplog.set_level(logging.WARNING, logger="bsllmner2")
+            validate_extract_resume_file(outputs, "test-run")
+        finally:
+            logger.propagate = original_propagate
+
+        assert "5 duplicate" in caplog.text
+        assert "..." not in caplog.text
+
+    def test_6_duplicates_has_ellipsis(
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """With 6 duplicates, '...' appears in warning message."""
+        outputs: list[LlmOutput] = []
+        for i in range(6):
+            outputs.append(make_llm_output(f"SAMN{i:03d}"))
+            outputs.append(make_llm_output(f"SAMN{i:03d}"))  # duplicate
+
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            caplog.set_level(logging.WARNING, logger="bsllmner2")
+            validate_extract_resume_file(outputs, "test-run")
+        finally:
+            logger.propagate = original_propagate
+
+        assert "6 duplicate" in caplog.text
+        assert "..." in caplog.text
+
+
+# === validate_resume_consistency: truncation boundary ===
+
+
+class TestValidateResumeConsistencyTruncation:
+    """Test the truncation boundary in validate_resume_consistency error message.
+
+    The code uses `sorted(invalid_ids)[:5]` and `'...' if len(invalid_ids) > 5`.
+    """
+
+    @pytest.fixture
+    def make_llm_output(self) -> Callable[..., LlmOutput]:
+        from ollama import ChatResponse
+
+        def _make(accession: str) -> LlmOutput:
+            chat_response: ChatResponse = {  # type: ignore[assignment]
+                "model": "test-model",
+                "created_at": "2024-01-01T00:00:00Z",
+                "message": {"role": "assistant", "content": "test"},
+                "done": True,
+            }
+
+            return LlmOutput(
+                accession=accession,
+                output={"cell_line": "Test"},
+                chat_response=chat_response,
+            )
+
+        return _make
+
+    @pytest.fixture
+    def make_select_result(self) -> Callable[..., SelectResult]:
+        def _make(accession: str) -> SelectResult:
+            return SelectResult(
+                accession=accession,
+                extract_output={"cell_line": "Test"},
+            )
+
+        return _make
+
+    def test_exactly_5_invalid_no_ellipsis(
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        make_select_result: Callable[..., SelectResult],
+    ) -> None:
+        """With exactly 5 invalid IDs, no '...' in error message."""
+        extract_outputs = [make_llm_output("SAMN001")]
+        select_results = [make_select_result("SAMN001")]
+        # Add 5 invalid (select-only) entries
+        select_results.extend(make_select_result(f"INVALID{i:03d}") for i in range(5))
+
+        with pytest.raises(ResumeDataError, match="5 entries") as exc_info:
+            validate_resume_consistency(extract_outputs, select_results, "test-run")
+        assert "..." not in str(exc_info.value)
+
+    def test_6_invalid_has_ellipsis(
+        self,
+        make_llm_output: Callable[..., LlmOutput],
+        make_select_result: Callable[..., SelectResult],
+    ) -> None:
+        """With 6 invalid IDs, '...' appears in error message."""
+        extract_outputs = [make_llm_output("SAMN001")]
+        select_results = [make_select_result("SAMN001")]
+        # Add 6 invalid (select-only) entries
+        select_results.extend(make_select_result(f"INVALID{i:03d}") for i in range(6))
+
+        with pytest.raises(ResumeDataError, match="6 entries") as exc_info:
+            validate_resume_consistency(extract_outputs, select_results, "test-run")
+        assert "..." in str(exc_info.value)
+
+
+# === load_mapping: empty optional fields ===
+
+
+class TestLoadMappingOptionalFields:
+    """Test that empty optional fields in mapping are converted to None."""
+
+    def test_empty_extraction_answer_becomes_none(self, temp_dir: Path) -> None:
+        """Empty extraction_answer field becomes None."""
+        path = temp_dir / "mapping.tsv"
+        content = (
+            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+            "SAMN001\tRNA-seq\t\tCVCL_0030\tHeLa"
+        )
+        path.write_text(content)
+        mapping = load_mapping(path)
+        assert mapping["SAMN001"].extraction_answer is None
+
+    def test_empty_mapping_answer_id_becomes_none(self, temp_dir: Path) -> None:
+        """Empty mapping_answer_id field becomes None."""
+        path = temp_dir / "mapping.tsv"
+        content = (
+            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+            "SAMN001\tRNA-seq\tHeLa\t\tHeLa"
+        )
+        path.write_text(content)
+        mapping = load_mapping(path)
+        assert mapping["SAMN001"].mapping_answer_id is None
+
+    def test_empty_mapping_answer_label_becomes_none(self, temp_dir: Path) -> None:
+        """Empty mapping_answer_label field becomes None."""
+        path = temp_dir / "mapping.tsv"
+        content = (
+            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+            "SAMN001\tRNA-seq\tHeLa\tCVCL_0030\t"
+        )
+        path.write_text(content)
+        mapping = load_mapping(path)
+        assert mapping["SAMN001"].mapping_answer_label is None
+
+    def test_all_optional_fields_empty(self, temp_dir: Path) -> None:
+        """All optional fields empty become None; experiment_type is always present."""
+        path = temp_dir / "mapping.tsv"
+        content = (
+            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+            "SAMN001\tRNA-seq\t\t\t"
+        )
+        path.write_text(content)
+        mapping = load_mapping(path)
+        assert mapping["SAMN001"].experiment_type == "RNA-seq"
+        assert mapping["SAMN001"].extraction_answer is None
+        assert mapping["SAMN001"].mapping_answer_id is None
+        assert mapping["SAMN001"].mapping_answer_label is None
+
+    def test_field_count_mismatch_raises(self, temp_dir: Path) -> None:
+        """Row with wrong field count raises ValueError with line number."""
+        path = temp_dir / "mapping.tsv"
+        content = (
+            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+            "SAMN001\tRNA-seq\tHeLa"
+        )
+        path.write_text(content)
+        with pytest.raises(ValueError, match="line 2"):
+            load_mapping(path)

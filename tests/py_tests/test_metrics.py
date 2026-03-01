@@ -368,3 +368,67 @@ class TestNvidiaSmi:
         gpus = nvidia_smi("test-container")
         assert gpus[0].memory_used_bytes == pytest.approx(37 * 1024**2)
         assert gpus[0].memory_total_bytes == pytest.approx(49140 * 1024**2)
+
+
+# === Exact multiplier constants ===
+
+
+class TestParseBytesExactMultipliers:
+    """Verify exact multiplier constants kill mutations like 1024 → 1000.
+
+    The existing tests check approximate values but don't pin down the exact
+    ratio between adjacent units. These tests ensure that mutating any
+    multiplier constant in the `units` dict is immediately detected.
+    """
+
+    def test_1b_is_exactly_1(self) -> None:
+        """1 B = exactly 1.0 byte."""
+        assert parse_bytes("1B") == 1.0
+
+    def test_1kb_is_exactly_1024(self) -> None:
+        """1 KB = exactly 1024 bytes, not 1000."""
+        assert parse_bytes("1KB") == 1024.0
+
+    def test_1mb_is_exactly_1024_squared(self) -> None:
+        """1 MB = exactly 1024^2 = 1_048_576 bytes."""
+        assert parse_bytes("1MB") == 1024.0**2
+
+    def test_1gb_is_exactly_1024_cubed(self) -> None:
+        """1 GB = exactly 1024^3 bytes."""
+        assert parse_bytes("1GB") == 1024.0**3
+
+    def test_1tb_is_exactly_1024_to_the_4th(self) -> None:
+        """1 TB = exactly 1024^4 bytes."""
+        assert parse_bytes("1TB") == 1024.0**4
+
+    def test_kb_to_b_ratio_is_1024(self) -> None:
+        """Ratio KB/B = exactly 1024."""
+        assert parse_bytes("1KB") / parse_bytes("1B") == 1024.0
+
+    def test_mb_to_kb_ratio_is_1024(self) -> None:
+        """Ratio MB/KB = exactly 1024."""
+        assert parse_bytes("1MB") / parse_bytes("1KB") == 1024.0
+
+    def test_gb_to_mb_ratio_is_1024(self) -> None:
+        """Ratio GB/MB = exactly 1024."""
+        assert parse_bytes("1GB") / parse_bytes("1MB") == 1024.0
+
+    def test_tb_to_gb_ratio_is_1024(self) -> None:
+        """Ratio TB/GB = exactly 1024."""
+        assert parse_bytes("1TB") / parse_bytes("1GB") == 1024.0
+
+    def test_gib_equals_gb(self) -> None:
+        """GiB and GB are treated identically (both = 1024^3)."""
+        assert parse_bytes("1GiB") == parse_bytes("1GB")
+
+    def test_kib_equals_kb(self) -> None:
+        """KiB and KB are treated identically (both = 1024)."""
+        assert parse_bytes("1KiB") == parse_bytes("1KB")
+
+    def test_mib_equals_mb(self) -> None:
+        """MiB and MB are treated identically (both = 1024^2)."""
+        assert parse_bytes("1MiB") == parse_bytes("1MB")
+
+    def test_tib_equals_tb(self) -> None:
+        """TiB and TB are treated identically (both = 1024^4)."""
+        assert parse_bytes("1TiB") == parse_bytes("1TB")

@@ -216,6 +216,48 @@ class TestConstructLlmInputJsonBugFixes:
         assert "organism" in result
         assert "replicate_count" not in result
 
+    def test_ebi_list_of_strings_skips_key(self) -> None:
+        """List of strings (not dicts) does not crash; key is skipped.
+
+        Kills mutation on isinstance(value[0], dict) guard.
+        """
+        entry: dict[str, Any] = {
+            "characteristics": {
+                "organism": [{"text": "Homo sapiens"}],
+                "tags": ["alpha", "beta"],
+            },
+        }
+        result = construct_llm_input_json(entry)
+        assert "organism" in result
+        assert "tags" not in result
+
+    def test_ebi_list_of_ints_skips_key(self) -> None:
+        """List of integers does not crash; key is skipped.
+
+        Kills mutation on isinstance(value[0], dict) guard.
+        """
+        entry: dict[str, Any] = {
+            "characteristics": {
+                "organism": [{"text": "Homo sapiens"}],
+                "counts": [1, 2, 3],
+            },
+        }
+        result = construct_llm_input_json(entry)
+        assert "organism" in result
+        assert "counts" not in result
+
+    def test_ebi_list_of_none_skips_key(self) -> None:
+        """List containing None does not crash; key is skipped."""
+        entry: dict[str, Any] = {
+            "characteristics": {
+                "organism": [{"text": "Homo sapiens"}],
+                "unknown": [None],
+            },
+        }
+        result = construct_llm_input_json(entry)
+        assert "organism" in result
+        assert "unknown" not in result
+
 
 # === construct_llm_input_json: property-based tests ===
 

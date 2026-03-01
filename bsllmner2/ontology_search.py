@@ -108,7 +108,9 @@ def _normalize_term_id(term_id: str) -> str:
         return t
 
     if "#" in t:
-        t = t.split("#", 1)[-1].strip()
+        t = t.split("#")[-1].strip()
+        if not t:
+            return t
 
     if "://" in t:
         p = urlparse(t)
