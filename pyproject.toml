@@ -1,6 +1,13 @@
 [build-system]
-requires = ["hatchling"]
+requires = ["hatchling", "hatch-vcs"]
 build-backend = "hatchling.build"
+
+[tool.hatch.version]
+source = "vcs"
+fallback-version = "0.0.0"
+
+[tool.hatch.build.hooks.vcs]
+version-file = "bsllmner2/_version.py"
 
 [tool.hatch.build.targets.wheel]
 packages = ["bsllmner2"]
@@ -25,7 +32,7 @@ dependencies = [
   "text2term",
   "uvicorn[standard]",
 ]
-version = "0.1.0"
+dynamic = ["version"]
 
 [project.urls]
 Homepage = "https://github.com/dbcls/bsllmner-mk2"

@@ -1,0 +1,54 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "*.*.*"
+
+jobs:
+  docker-push:
+    if: github.repository == 'dbcls/bsllmner-mk2'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.repository_owner }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push (app)
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          build-args: |
+            VERSION=${{ github.ref_name }}
+          tags: |
+            ghcr.io/${{ github.repository_owner }}/bsllmner-mk2:${{ github.ref_name }}
+            ghcr.io/${{ github.repository_owner }}/bsllmner-mk2:latest
+
+  github-release:
+    if: github.repository == 'dbcls/bsllmner-mk2'
+    needs: [docker-push]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - name: Create Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG: ${{ github.ref_name }}
+        run: gh release create "$TAG" --repo "$GH_REPO" --title "$TAG" --generate-notes

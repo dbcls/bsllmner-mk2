@@ -14,12 +14,6 @@
 git clone https://github.com/dbcls/bsllmner-mk2.git
 cd bsllmner-mk2
 
-# Create directory for Ollama data
-mkdir -m 777 ollama-data
-
-# Create Docker network
-docker network create bsllmner-mk2-network
-
 # Build and start containers
 docker compose up -d --build
 ```

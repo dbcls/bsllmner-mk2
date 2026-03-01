@@ -29,8 +29,6 @@ uv sync --all-extras
 ### Docker Environment
 
 ```bash
-mkdir -m 777 ollama-data
-docker network create bsllmner-mk2-network
 docker compose up -d --build
 docker compose exec app bash
 ```
@@ -55,6 +53,20 @@ uv run ruff format --check bsllmner2/ tests/ scripts/
 ```
 
 For details on test structure, mutation testing, and model evaluation, see [Testing](testing.md).
+
+## Release Process
+
+Version is managed via git tags using [hatch-vcs](https://github.com/ofek/hatch-vcs). No manual version editing in `pyproject.toml` is required.
+
+1. Merge PR to `main`
+2. Create and push a version tag:
+   ```bash
+   git tag X.Y.Z
+   git push origin X.Y.Z
+   ```
+3. The tag push triggers `.github/workflows/release.yml`:
+   - Build and push Docker image to `ghcr.io/dbcls/bsllmner-mk2`
+   - Create GitHub Release with auto-generated notes
 
 ## scripts/ Utility Scripts
 

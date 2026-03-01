@@ -200,6 +200,7 @@ cython_debug/
 
 # === our rules ===
 
+bsllmner2/_version.py
 ollama-data/
 bsllmner2-results/
 chip-atlas-data/

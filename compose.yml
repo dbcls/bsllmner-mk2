@@ -22,7 +22,7 @@ services:
     image: ollama/ollama:0.13.0
     container_name: bsllmner-mk2-ollama
     volumes:
-      - ${PWD}/ollama-data:/root/.ollama
+      - ollama-data:/root/.ollama
     environment:
       - OLLAMA_HOST=0.0.0.0:11434
       - OLLAMA_KV_CACHE_TYPE=q8_0
@@ -47,8 +47,8 @@ services:
 
 volumes:
   venv: {}
+  ollama-data: {}
 
 networks:
   bsllmner-mk2-network:
     name: bsllmner-mk2-network
-    external: true
