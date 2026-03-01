@@ -92,14 +92,12 @@ docker compose -f compose.yml exec app bash
 # Inside container
 cd scripts
 python3 prepare_bs_entries.py --genome-assembly mm10  # or hg38
-python3 download_ontology_files.py
 exit
-
-# On host: convert ontology
-docker run -v $PWD/ontology:/work -w /work --rm -it obolibrary/robot robot convert -i ./cellosaurus.obo -o ./cellosaurus.owl --format owl
 
 docker compose -f compose.yml down
 ```
+
+Ontology files setup (download + OBO→OWL conversion) is described in [Quick Start §2](getting-started.md#2-download-ontology-files).
 
 ## Running Slurm Jobs
 
@@ -155,7 +153,6 @@ bsllmner2_extract \
   --debug \
   --bs-entries tests/test-data/cell_line_example.biosample.json \
   --model llama3.1:70b \
-  --extract-config ./scripts/extract-config.json \
   --run-name small-test
 ```
 
@@ -171,49 +168,49 @@ docker exec -t bsllmner-mk2-ollama nvidia-smi
 
 1. Check Slurm GPU allocation:
 
-```bash
-env | grep -E 'SLURM_.*GPU|CUDA_VISIBLE_DEVICES'
-```
+   ```bash
+   env | grep -E 'SLURM_.*GPU|CUDA_VISIBLE_DEVICES'
+   ```
 
-1. Verify `SLURM_JOB_GPUS` or `SLURM_STEP_GPUS` is set
+2. Verify `SLURM_JOB_GPUS` or `SLURM_STEP_GPUS` is set
 
-2. Confirm `--gres=gpu:N` option is correctly specified
+3. Confirm `--gres=gpu:N` option is correctly specified
 
 ### Container Won't Start
 
 1. Check Docker network exists:
 
-```bash
-docker network ls | grep bsllmner-mk2-network
-```
+   ```bash
+   docker network ls | grep bsllmner-mk2-network
+   ```
 
-1. Remove existing containers:
+2. Remove existing containers:
 
-```bash
-docker ps -a | grep bsllmner-mk2
-docker rm -f bsllmner-mk2-app bsllmner-mk2-ollama
-```
+   ```bash
+   docker ps -a | grep bsllmner-mk2
+   docker rm -f bsllmner-mk2-app bsllmner-mk2-ollama
+   ```
 
-1. Verify `compose.slurm.yml` was generated correctly:
+3. Verify `compose.slurm.yml` was generated correctly:
 
-```bash
-cat compose.slurm.yml | grep device_ids
-# Expected: device_ids: [ "2", "3" ] (or similar)
-```
+   ```bash
+   cat compose.slurm.yml | grep device_ids
+   # Expected: device_ids: [ "2", "3" ] (or similar)
+   ```
 
 ### Ollama Not Responding
 
 1. Check Ollama container logs:
 
-```bash
-docker logs bsllmner-mk2-ollama
-```
+   ```bash
+   docker logs bsllmner-mk2-ollama
+   ```
 
-1. Check GPU memory usage:
+2. Check GPU memory usage:
 
-```bash
-docker exec -t bsllmner-mk2-ollama nvidia-smi
-```
+   ```bash
+   docker exec -t bsllmner-mk2-ollama nvidia-smi
+   ```
 
 ## File Reference
 

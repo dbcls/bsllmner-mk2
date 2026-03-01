@@ -1,0 +1,132 @@
+# Select Mode
+
+A 3-stage pipeline that performs NER (like Extract mode) and then maps the extracted results to ontology terms.
+
+## Overview
+
+Select mode internally runs Extract before performing ontology mapping. There is no need to run Extract separately.
+
+```
+BioSample JSON
+      |
+      v
++--------------------------------------------+
+| Stage 1: NER Extraction                    |
+| dynamic prompt + schema from SelectConfig  |
++--------------------------------------------+
+      |
+      v
++--------------------------------------------+
+| Stage 2: Ontology Search                   |
+| 2a. Word-combination search (index lookup) |
+| 2b. text2term fallback (OWL only)          |
++--------------------------------------------+
+      |
+      v
++--------------------------------------------+
+| Stage 3: LLM Selection                     |
+| choose best term_id from candidates        |
++--------------------------------------------+
+      |
+      v
+SelectResult
+```
+
+## CLI Options
+
+### Common Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--bs-entries` | Path to the input JSON or JSONL file containing BioSample entries (required) | -- |
+| `--mapping` | Path to the mapping file in TSV format (for evaluation) | `None` |
+| `--model` | LLM model to use for NER | `llama3.1:70b` |
+| `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `None` |
+| `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
+| `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
+| `--with-metrics` | Enable collection of metrics during processing | `false` |
+| `--debug` | Enable debug mode for more verbose logging | `false` |
+| `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
+| `--resume` | Resume from the last incomplete run | `false` |
+| `--batch-size` | Number of entries to process in each batch | `1024` |
+
+### Select-Specific Options
+
+| Option | Description | Default |
+|--------|-------------|---------|
+| `--select-config` | Path to the select configuration file in JSON format (required) | -- |
+| `--no-reasoning` | Disable reasoning step during selection | `false` |
+
+## Usage Example
+
+```bash
+bsllmner2_select \
+  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --model llama3.1:70b \
+  --select-config scripts/select-config.json \
+  --debug
+```
+
+## Stage 1: NER Extraction
+
+SelectConfig field definitions are used to dynamically generate a prompt and JSON Schema, then extract entities using the same `ner()` function as Extract mode.
+
+- Prompt: `build_extract_prompt_for_select()` constructs the prompt from each field's `prompt_description` and `value_type`
+- Schema: `build_extract_schema_for_select()` generates a JSON Schema from field definitions (`"string"` -> `["string", "null"]`, `"array"` -> `["array", "null"]`)
+
+## Stage 2: Ontology Search
+
+Searches the ontology index for extracted values.
+
+- Indexes are built from OWL files (via owlready2) or TSV/CSV files (term_id, prop_uri, value)
+- Searches against `rdfs:label`, `skos:prefLabel`, and various synonym properties (`oboInOwl:hasExactSynonym`, etc.)
+- `ontology_filter` can restrict entries (e.g., `{"hasDbXref": "NCBI_TaxID:9606"}` for human only)
+- Exact match with a single term_id is finalized immediately; ambiguous or missing matches proceed to Stage 3
+- For OWL files, `text2term.map_terms()` is used as a similarity-based fallback
+
+## Stage 3: LLM Selection
+
+For fields not resolved in Stage 2, candidates from ontology search and text2term are merged and presented to the LLM, which selects the best term_id. Runs in parallel with `asyncio.gather` + `Semaphore(256)`.
+
+When `--no-reasoning` is specified, the `reasoning` field is omitted from the output schema.
+
+## Select Config Customization
+
+Select mode is configured via a JSON file (`--select-config`). Each field defines an extraction target with its ontology mapping. Several pre-built configs are available in `scripts/` (e.g., `select-config.json`, `select-config-hg38.json`, `select-config-mm10.json`).
+
+To create a custom config, define fields as follows:
+
+```json
+{
+  "fields": {
+    "your_field_name": {
+      "ontology_file": "/path/to/ontology.owl",
+      "prompt_description": "Description of what to extract for NER prompt",
+      "ontology_filter": { "hasDbXref": "NCBI_TaxID:9606" },
+      "value_type": "string"
+    }
+  }
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| `ontology_file` | `string \| null` | `null` | Ontology file path (.owl or .tsv/.csv). If null, uses the extracted value as-is without ontology mapping |
+| `prompt_description` | `string \| null` | `null` | Field description to include in the NER prompt |
+| `ontology_filter` | `Dict[str, str] \| null` | `null` | Filter condition for OWL entries |
+| `value_type` | `"string" \| "array"` | `"string"` | Extracted value type. `array` supports multiple values |
+
+## Resume
+
+When `--resume` is specified, processing continues from the previous interruption. Resume files are automatically deleted after successful completion.
+
+The same `--run-name` must be specified as the original run. If the original run used the auto-generated name (`{model}_{timestamp}`), you need to find it from the resume file in `bsllmner2-results/`.
+
+## Result Files
+
+See [Data Formats](data-formats.md) for the full result schema.
+
+| File | Description |
+|------|-------------|
+| `bsllmner2-results/extract/{run_name}.json` | Extract result |
+| `bsllmner2-results/select/select_{run_name}.json` | Select result |

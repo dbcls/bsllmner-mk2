@@ -20,20 +20,8 @@ This guide explains how to process ChIP-Atlas data using bsllmner-mk2 for both h
 
 Before processing ChIP-Atlas data, ensure:
 
-1. Docker environment is running (see [quick-start.md](quick-start.md))
-2. Ontology files are downloaded and converted:
-
-    ```bash
-    docker compose exec app python3 scripts/download_ontology_files.py
-
-    # Convert Cellosaurus OBO to OWL
-    cd ontology
-    docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert \
-      -i ./cellosaurus.obo \
-      -o ./cellosaurus.owl \
-      --format owl
-    cd ..
-    ```
+1. Docker environment is running (see [getting-started.md](getting-started.md))
+2. Ontology files are downloaded and converted (see [Quick Start §2](getting-started.md#2-download-ontology-files))
 
 ## Data Preparation
 
@@ -83,14 +71,7 @@ The `select-config.json` file defines which fields to extract and map to ontolog
 }
 ```
 
-**Field Properties:**
-
-| Property | Required | Description |
-|----------|----------|-------------|
-| `ontology_file` | No | Path to OWL/TSV file for ontology lookup |
-| `prompt_description` | No | Description to help LLM understand the field |
-| `ontology_filter` | No | Filter conditions (e.g., TaxID restriction) |
-| `value_type` | No | `"string"` (default) or `"array"` for multiple values |
+For field property details, see [Select Mode - Select Config Customization](select-mode.md#select-config-customization).
 
 ### Provided Configuration Files
 
