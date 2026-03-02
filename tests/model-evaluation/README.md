@@ -32,28 +32,7 @@ qwen3:8b
 qwen3:32b
 ```
 
-All models must be pulled in advance.
-
-## Pulling All Models (Host Machine)
-
-Pull all required models into the Ollama instance:
-
-```bash
-for model in \
-  "deepseek-r1:8b" \
-  "deepseek-r1:32b" \
-  "gemma3:4b" \
-  "gemma3:12b" \
-  "gemma3:27b" \
-  "gpt-oss:20b" \
-  "llama3.1:8b" \
-  "phi4:14b" \
-  "qwen3:4b" \
-  "qwen3:8b" \
-  "qwen3:32b"; do
-  docker compose exec ollama ollama pull $model
-done
-```
+All models are automatically downloaded on first use via the Ollama API. To pre-download models, see [Getting Started - Pre-pull LLM Model](../../docs/getting-started.md#3-optional-pre-pull-llm-model).
 
 ## Extraction and Selection Configuration
 

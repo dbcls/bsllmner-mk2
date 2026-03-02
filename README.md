@@ -13,7 +13,6 @@ bsllmner-mk2 uses [Ollama](https://ollama.com/) as the LLM inference server.
 
 ```bash
 docker compose up -d --build
-docker compose exec ollama ollama pull llama3.1:70b
 docker compose exec app bsllmner2_extract \
   --bs-entries tests/test-data/cell_line_example.biosample.json \
   --model llama3.1:70b --debug

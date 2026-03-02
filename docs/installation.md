@@ -60,9 +60,6 @@ For Docker Compose:
 ```bash
 # Check containers are running
 docker compose ps
-
-# Verify Ollama is accessible
-docker compose exec ollama ollama list
 ```
 
 For uv (local):
