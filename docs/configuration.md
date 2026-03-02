@@ -10,6 +10,14 @@ Reference for environment variables and configuration values.
 
 Can also be overridden with the `--ollama-host` CLI option.
 
+## CLI
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `BSLLMNER2_DEBUG` | `false` | Debug mode (enabled with `true`/`1`/`yes`/`on`) |
+
+Can also be enabled with the `--debug` CLI option.
+
 ## Directories
 
 | Environment Variable | Default | Description |
@@ -59,7 +67,6 @@ Loaded by `get_config()` in `bsllmner2/config.py`.
 | `BSLLMNER2_API_HOST` | `127.0.0.1` | API server bind address |
 | `BSLLMNER2_API_PORT` | `8000` | API server port |
 | `BSLLMNER2_API_URL_PREFIX` | `""` (empty) | FastAPI `root_path` (for reverse proxy) |
-| `BSLLMNER2_DEBUG` | `false` | Debug mode (enabled with `true`/`1`/`yes`/`on`) |
 
 ### Frontend Environment Variables
 

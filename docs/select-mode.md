@@ -44,7 +44,7 @@ SelectResult
 | `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `None` |
 | `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
 | `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
-| `--with-metrics` | Enable collection of metrics during processing | `false` |
+| `--with-metrics` | Enable collection of metrics during processing. Requires Docker environment; collects container resource usage (CPU, memory, network, block I/O) via `docker stats` and GPU metrics via `nvidia-smi` from the Ollama container (`bsllmner-mk2-ollama`). | `false` |
 | `--debug` | Enable debug mode for more verbose logging | `false` |
 | `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
 | `--resume` | Resume from the last incomplete run | `false` |
@@ -120,7 +120,7 @@ To create a custom config, define fields as follows:
 
 When `--resume` is specified, processing continues from the previous interruption. Resume files are automatically deleted after successful completion.
 
-The same `--run-name` must be specified as the original run. If the original run used the auto-generated name (`{model}_{timestamp}`), you need to find it from the resume file in `bsllmner2-results/`.
+The same `--run-name` must be specified as the original run. If the original run used the auto-generated name (`{model}_{timestamp}`), you need to find it from the resume file in `bsllmner2-results/select/`.
 
 ## Result Files
 

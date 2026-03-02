@@ -62,10 +62,7 @@ Saved to `bsllmner2-results/extract/{run_name}.json`.
     "format": { ... },
     "config": {
       "ollama_host": "http://localhost:11434",
-      "debug": false,
-      "api_host": "127.0.0.1",
-      "api_port": 8000,
-      "api_url_prefix": ""
+      "debug": false
     },
     "cli_args": null
   },

@@ -1,4 +1,5 @@
 import csv
+import json
 import logging
 import re
 import unicodedata
@@ -8,7 +9,8 @@ from urllib.parse import unquote, urlparse
 
 import text2term
 from owlready2 import Ontology, ThingClass, World
-from pydantic import BaseModel, Field
+
+from bsllmner2.models import OntologyIndex, SearchResult, TermAnnotation
 
 logging.getLogger("text2term").setLevel(logging.DEBUG)
 logging.getLogger("text2term.term_collector").setLevel(logging.DEBUG)
@@ -33,16 +35,6 @@ def _expand_prop_uri(prop: str) -> str:
             return ns + local
 
     return prop
-
-
-class TermAnnotation(BaseModel):
-    term_uri: str = Field(..., description="The term URI")
-    term_id: str = Field(..., description="The term ID, e.g., CL:0000000")  # normalized
-    prop_uri: str | None = Field(
-        None,
-        description="The property URI, e.g., http://www.w3.org/2000/01/rdf-schema#label",
-    )
-    value: str = Field(..., description="The property value")
 
 
 def _normalize_key(text: str) -> str:
@@ -186,11 +178,6 @@ def iter_term_annotations(
                 )
 
 
-class OntologyIndex(BaseModel):
-    term_id_to_labels: dict[str, list[str]] = Field(default_factory=dict)
-    value_to_annotations: dict[str, list[TermAnnotation]] = Field(default_factory=dict)  # key is _normalize_key(value)
-
-
 LABEL_URI_PROPS = {
     DEFAULT_PREFIX_MAP["rdfs"] + "label",
     DEFAULT_PREFIX_MAP["skos"] + "prefLabel",
@@ -288,14 +275,19 @@ def build_index_from_table(
     )
 
 
+def build_index_from_file(
+    path: Path,
+    ontology_filter: dict[str, str] | None = None,
+) -> OntologyIndex:
+    """Build an OntologyIndex from an OWL or TSV/CSV file."""
+    if path.suffix == ".owl":
+        return build_index_from_owl(path, additional_conditions=ontology_filter)
+    if path.suffix in (".tsv", ".csv"):
+        return build_index_from_table(path)
+    raise ValueError(f"Unsupported ontology file format: {path}")
+
+
 # === Search terms ===
-
-
-class SearchResult(TermAnnotation):
-    label: str | None = None
-    exact_match: bool
-    text2term_score: float | None = None
-    reasoning: str | None = None
 
 
 WS_SPLIT_RE = re.compile(r"[ \t\n\r]+")
@@ -536,6 +528,4 @@ if __name__ == "__main__":
     index = build_index_from_owl(OWL_FILE_PATH)
     results = search_terms(index, TEST_QUERIES)
     serializable = {q: [r.model_dump() for r in rs] for q, rs in results.items()}
-    import json
-
     print(json.dumps(serializable, indent=2, ensure_ascii=False))

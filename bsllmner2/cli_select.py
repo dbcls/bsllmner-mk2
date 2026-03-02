@@ -11,10 +11,10 @@ from bsllmner2.cli_common import (
     generate_run_name,
     load_and_trim_entries,
     process_batches,
+    run_with_lifecycle,
     validate_common_args,
 )
 from bsllmner2.config import LOGGER, PROGRESS_DIR, Config, set_logging_config, set_logging_level
-from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import (
     dump_extract_result,
     dump_extract_resume_file,
@@ -27,16 +27,16 @@ from bsllmner2.io import (
     remove_resume_files,
     validate_resume_consistency,
 )
-from bsllmner2.llm import OllamaBackend, build_index_map, ner, select
+from bsllmner2.llm import OllamaBackend, ner
 from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.models import CliSelectArgs, LlmOutput, SelectResult
 from bsllmner2.pipeline import (
     build_extract_prompt_for_select,
     build_extract_schema_for_select,
     evaluate_output,
-    get_now_str,
     to_result,
 )
+from bsllmner2.select import build_index_map, select
 
 
 def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
@@ -147,9 +147,7 @@ async def run_cli_select_async() -> None:
         metrics_collector = LiveMetricsCollector()
         metrics_collector.start()
 
-    status = "completed"
-    end_time = None
-    try:
+    async with run_with_lifecycle(metrics_collector) as run_state:
 
         async def process_select_batch(
             batch_info: BatchInfo,
@@ -188,19 +186,8 @@ async def run_cli_select_async() -> None:
             log_prefix="Processing",
         )
 
-        end_time = get_now_str()
-    except Bsllmner2Error as e:
-        LOGGER.error("Processing failed: %s", e)
-        status = "failed"
-        end_time = get_now_str()
-    except Exception as e:
-        LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
-        status = "failed"
-        end_time = get_now_str()
-    finally:
-        if metrics_collector is not None:
-            metrics_collector.stop()
-
+    status = run_state.status
+    end_time = run_state.end_time
     metrics = metrics_collector.get_records() if metrics_collector else None
 
     if mapping is not None:

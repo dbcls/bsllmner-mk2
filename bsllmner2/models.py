@@ -6,8 +6,86 @@ from pydantic import BaseModel, Field
 from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import Config
-from bsllmner2.metrics import Metrics
-from bsllmner2.ontology_search import SearchResult
+
+# === Ontology search models (moved from ontology_search.py) ===
+
+
+class TermAnnotation(BaseModel):
+    term_uri: str = Field(..., description="The term URI")
+    term_id: str = Field(..., description="The term ID, e.g., CL:0000000")  # normalized
+    prop_uri: str | None = Field(
+        None,
+        description="The property URI, e.g., http://www.w3.org/2000/01/rdf-schema#label",
+    )
+    value: str = Field(..., description="The property value")
+
+
+class OntologyIndex(BaseModel):
+    term_id_to_labels: dict[str, list[str]] = Field(default_factory=dict)
+    value_to_annotations: dict[str, list[TermAnnotation]] = Field(default_factory=dict)  # key is _normalize_key(value)
+
+
+class SearchResult(TermAnnotation):
+    label: str | None = None
+    exact_match: bool
+    text2term_score: float | None = None
+    reasoning: str | None = None
+
+
+# === Metrics models (moved from metrics.py) ===
+
+
+class DockerStatsResponse(BaseModel):
+    """Response schema for ``docker stats --format '{{json .}}'``.
+
+    Example::
+
+        {"BlockIO": "3.62GB / 42.5GB", "CPUPerc": "0.00%", "Container": "bsllmner-mk2-ollama", "ID": "8a8678a1dd25", "MemPerc": "8.16%",
+            "MemUsage": "41.09GiB / 503.6GiB", "Name": "bsllmner-mk2-ollama", "NetIO": "42.8GB / 88.8MB", "PIDs": "26"}
+    """
+
+    BlockIO: str
+    CPUPerc: str
+    Container: str
+    ID: str
+    MemPerc: str
+    MemUsage: str
+    Name: str
+    NetIO: str
+    PIDs: str
+
+
+class NvidiaSmiResponse(BaseModel):
+    """Response schema for ``nvidia-smi --query-gpu=... --format=csv``.
+
+    Example::
+
+        GPU-415f6582-1df0-82e8-67fe-4577cce30c15, NVIDIA RTX 6000 Ada Generation, 37, 49140, 0, 5.24
+        GPU-5b0aaa0f-cd30-62ac-a444-d489e55fe266, NVIDIA RTX 6000 Ada Generation, 18, 49140, 0, 8.43
+    """
+
+    uuid: str
+    name: str
+    memory_used_bytes: float  # MiB to bytes
+    memory_total_bytes: float  # MiB to bytes
+    utilization_gpu: int  # percentage (0-100)
+    power_draw: float  # in Watts
+
+
+class Metrics(BaseModel):
+    timestamp: str  # e.g., "2023-10-01T00:00:00Z"
+    block_io_read_bytes: float
+    block_io_write_bytes: float
+    cpu_percentage: float
+    container_name: str
+    container_id: str
+    memory_percentage: float
+    memory_used_bytes: float
+    memory_total_bytes: float
+    net_io_received_bytes: float
+    net_io_sent_bytes: float
+    pids: int
+    gpus: list[NvidiaSmiResponse]
 
 
 class CliExtractArgs(BaseModel):

@@ -1,13 +1,27 @@
 """Tests for CLI common utilities."""
 
 import argparse
+import json
+import re
+from pathlib import Path
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from bsllmner2.cli_common import BatchInfo, process_batches, str_to_bool
+from bsllmner2.cli_common import (
+    BatchInfo,
+    build_config,
+    build_run_metadata,
+    generate_run_name,
+    load_and_trim_entries,
+    process_batches,
+    run_with_lifecycle,
+    str_to_bool,
+)
+from bsllmner2.errors import Bsllmner2Error
 
 
 class TestStrToBool:
@@ -340,3 +354,187 @@ class TestStrToBoolPBT:
         """Any string not in known truthy/falsy set raises ArgumentTypeError."""
         with pytest.raises(argparse.ArgumentTypeError):
             str_to_bool(value)
+
+
+# === Tests for helper functions ===
+
+
+class TestGenerateRunName:
+    """Tests for generate_run_name."""
+
+    def test_with_explicit_name(self) -> None:
+        """When run_name is provided, it is used directly."""
+        resolved, _ = generate_run_name("llama3.1:70b", "my-run")
+        assert resolved == "my-run"
+
+    def test_without_name_includes_model(self) -> None:
+        """When run_name is None, the generated name includes the model."""
+        resolved, _ = generate_run_name("llama3.1:70b", None)
+        assert "llama3.1:70b" in resolved
+
+    def test_returns_start_time(self) -> None:
+        """start_time is a non-empty timestamp string."""
+        _, start_time = generate_run_name("llama3.1:70b", None)
+        assert isinstance(start_time, str)
+        assert len(start_time) > 0
+
+    def test_start_time_format(self) -> None:
+        """start_time matches YYYYMMDD_HHMMSS format."""
+        _, start_time = generate_run_name("llama3.1:70b", None)
+        assert re.fullmatch(r"\d{8}_\d{6}", start_time), f"Unexpected format: {start_time}"
+
+
+class TestLoadAndTrimEntries:
+    """Tests for load_and_trim_entries."""
+
+    def _write_entries(self, tmp_path: Path, entries: list[dict[str, Any]]) -> Path:
+        """Write entries to a JSON file and return the path."""
+        path = tmp_path.joinpath("entries.json")
+        path.write_text(json.dumps(entries), encoding="utf-8")
+
+        return path
+
+    def test_loads_all_entries(self, tmp_path: Path) -> None:
+        """max_entries=None loads all entries."""
+        entries = [{"accession": f"SAMN{i:03d}"} for i in range(5)]
+        path = self._write_entries(tmp_path, entries)
+        result = load_and_trim_entries(path, max_entries=None)
+        assert len(result) == 5
+
+    def test_trims_to_max(self, tmp_path: Path) -> None:
+        """max_entries=1 returns only the first entry."""
+        entries = [{"accession": f"SAMN{i:03d}"} for i in range(5)]
+        path = self._write_entries(tmp_path, entries)
+        result = load_and_trim_entries(path, max_entries=1)
+        assert len(result) == 1
+        assert result[0]["accession"] == "SAMN000"
+
+    def test_max_entries_zero(self, tmp_path: Path) -> None:
+        """max_entries=0 returns an empty list."""
+        entries = [{"accession": "SAMN001"}]
+        path = self._write_entries(tmp_path, entries)
+        result = load_and_trim_entries(path, max_entries=0)
+        assert result == []
+
+    def test_max_entries_exceeds_total(self, tmp_path: Path) -> None:
+        """max_entries larger than total entries returns all entries without error."""
+        entries = [{"accession": f"SAMN{i:03d}"} for i in range(3)]
+        path = self._write_entries(tmp_path, entries)
+        result = load_and_trim_entries(path, max_entries=100)
+        assert len(result) == 3
+
+
+class TestBuildRunMetadata:
+    """Tests for build_run_metadata."""
+
+    def test_all_fields_set(self) -> None:
+        """All fields are set correctly."""
+        meta = build_run_metadata(
+            run_name="test-run",
+            model="llama3.1:70b",
+            thinking=True,
+            start_time="20260302_120000",
+            end_time="20260302_130000",
+            status="completed",
+        )
+        assert meta.run_name == "test-run"
+        assert meta.model == "llama3.1:70b"
+        assert meta.thinking is True
+        assert meta.start_time == "20260302_120000"
+        assert meta.end_time == "20260302_130000"
+        assert meta.status == "completed"
+        assert meta.username is None
+
+    def test_thinking_none(self) -> None:
+        """thinking=None is preserved in metadata."""
+        meta = build_run_metadata(
+            run_name="run",
+            model="model",
+            thinking=None,
+            start_time="20260302_120000",
+            end_time=None,
+            status="running",
+        )
+        assert meta.thinking is None
+
+    @pytest.mark.parametrize("status", ["running", "completed", "failed"])
+    def test_status_values(self, status: str) -> None:
+        """All valid status values are accepted."""
+        meta = build_run_metadata(
+            run_name="run",
+            model="model",
+            thinking=False,
+            start_time="20260302_120000",
+            end_time=None,
+            status=status,
+        )
+        assert meta.status == status
+
+
+class TestBuildConfig:
+    """Tests for build_config."""
+
+    def test_default_config(self) -> None:
+        """Without ollama_host, the default is used."""
+        ns = argparse.Namespace(ollama_host=None, debug=False)
+        config = build_config(ns)
+        assert config.ollama_host == "http://localhost:11434"
+        assert config.debug is False
+
+    def test_custom_ollama_host(self) -> None:
+        """With ollama_host, the default is overridden."""
+        ns = argparse.Namespace(ollama_host="http://remote:11434", debug=False)
+        config = build_config(ns)
+        assert config.ollama_host == "http://remote:11434"
+
+    def test_debug_flag(self) -> None:
+        """debug=True sets config.debug."""
+        ns = argparse.Namespace(ollama_host=None, debug=True)
+        config = build_config(ns)
+        assert config.debug is True
+
+
+class TestRunWithLifecycle:
+    """Tests for run_with_lifecycle async context manager."""
+
+    @pytest.mark.asyncio
+    async def test_completed_status(self) -> None:
+        """Normal flow sets status='completed' and end_time is set."""
+        mock_collector = MagicMock()
+        async with run_with_lifecycle(mock_collector) as state:
+            pass
+        assert state.status == "completed"
+        assert state.end_time is not None
+
+    @pytest.mark.asyncio
+    async def test_bsllmner2_error_sets_failed(self) -> None:
+        """Raising Bsllmner2Error sets status='failed'."""
+        mock_collector = MagicMock()
+        async with run_with_lifecycle(mock_collector) as state:
+            raise Bsllmner2Error("test error")
+        assert state.status == "failed"
+        assert state.end_time is not None
+
+    @pytest.mark.asyncio
+    async def test_generic_exception_sets_failed(self) -> None:
+        """Raising a generic Exception sets status='failed'."""
+        mock_collector = MagicMock()
+        async with run_with_lifecycle(mock_collector) as state:
+            raise Exception("unexpected")
+        assert state.status == "failed"
+        assert state.end_time is not None
+
+    @pytest.mark.asyncio
+    async def test_metrics_collector_stopped(self) -> None:
+        """metrics_collector.stop() is called in the finally block."""
+        mock_collector = MagicMock()
+        async with run_with_lifecycle(mock_collector):
+            pass
+        mock_collector.stop.assert_called_once()
+
+    @pytest.mark.asyncio
+    async def test_none_metrics_collector(self) -> None:
+        """Works fine when metrics_collector is None."""
+        async with run_with_lifecycle(None) as state:
+            pass
+        assert state.status == "completed"

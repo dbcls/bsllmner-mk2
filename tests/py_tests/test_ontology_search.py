@@ -1,7 +1,9 @@
 """Tests for ontology_search module."""
 
 from pathlib import Path
+from unittest.mock import patch
 
+import pandas as pd
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -19,10 +21,13 @@ from bsllmner2.ontology_search import (
     _normalize_term_id,
     _split_ws,
     _tokenize_atom,
+    build_index_from_file,
+    build_index_from_owl,
     build_index_from_table,
     build_word_combinations,
     is_label_prop,
     search_terms,
+    search_terms_with_text2term,
 )
 
 # === _normalize_term_id ===
@@ -890,3 +895,184 @@ class TestSearchResult:
         assert sr.label is None
         assert sr.text2term_score is None
         assert sr.reasoning is None
+
+
+# === build_index_from_owl ===
+
+TEST_OWL_FILE = Path(__file__).resolve().parent.parent / "test-data" / "test.owl"
+
+
+class TestBuildIndexFromOwl:
+    """Test cases for build_index_from_owl using tests/test-data/test.owl."""
+
+    def test_rdfs_labels_indexed(self) -> None:
+        """All rdfs:label values are indexed in term_id_to_labels."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "TEST:0001" in index.term_id_to_labels
+        assert "Alpha Cell" in index.term_id_to_labels["TEST:0001"]
+        assert "TEST:0002" in index.term_id_to_labels
+        assert "Beta Cell" in index.term_id_to_labels["TEST:0002"]
+        assert "TEST:0003" in index.term_id_to_labels
+        assert "Gamma Cell" in index.term_id_to_labels["TEST:0003"]
+
+    def test_skos_pref_label_indexed_as_label(self) -> None:
+        """skos:prefLabel is indexed in term_id_to_labels."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        labels = index.term_id_to_labels["TEST:0002"]
+        assert "Beta" in labels
+
+    def test_synonym_in_value_to_annotations(self) -> None:
+        """oboInOwl:hasExactSynonym is indexed in value_to_annotations."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "alpha" in index.value_to_annotations
+        anns = index.value_to_annotations["alpha"]
+        assert any(a.term_id == "TEST:0001" for a in anns)
+
+    def test_synonym_not_in_labels(self) -> None:
+        """oboInOwl:hasExactSynonym is NOT in term_id_to_labels."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        labels = index.term_id_to_labels.get("TEST:0001", [])
+        assert "alpha" not in labels
+
+    def test_additional_conditions_filter(self) -> None:
+        """additional_conditions filters classes that lack the property value."""
+        index = build_index_from_owl(TEST_OWL_FILE, additional_conditions={"hasDbXref": "XREF:001"})
+        # Only TEST_0003 has hasDbXref="XREF:001"
+        assert "TEST:0003" in index.term_id_to_labels
+        assert "TEST:0001" not in index.term_id_to_labels
+        assert "TEST:0002" not in index.term_id_to_labels
+
+    def test_search_after_owl_index(self) -> None:
+        """Integration: build_index_from_owl + search_terms finds label."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms(index, ["Alpha Cell"])
+        assert "Alpha Cell" in results
+        assert results["Alpha Cell"][0].term_id == "TEST:0001"
+
+
+# === build_index_from_file ===
+
+
+class TestBuildIndexFromFile:
+    """Test cases for build_index_from_file dispatch function."""
+
+    def test_dispatches_owl(self) -> None:
+        """OWL file is dispatched to build_index_from_owl."""
+        index = build_index_from_file(TEST_OWL_FILE)
+        assert "TEST:0001" in index.term_id_to_labels
+
+    def test_dispatches_tsv(self, tmp_path: Path) -> None:
+        """TSV file is dispatched to build_index_from_table."""
+        tsv = tmp_path / "test.tsv"
+        tsv.write_text("CL:0000001\trdfs:label\tneuron\n", encoding="utf-8")
+        index = build_index_from_file(tsv)
+        assert "neuron" in index.value_to_annotations
+
+    def test_dispatches_csv(self, tmp_path: Path) -> None:
+        """CSV file is dispatched to build_index_from_table."""
+        csv_f = tmp_path / "test.csv"
+        csv_f.write_text("CL:0000001,rdfs:label,neuron\n", encoding="utf-8")
+        index = build_index_from_file(csv_f)
+        assert "neuron" in index.value_to_annotations
+
+    def test_unsupported_extension_raises(self, tmp_path: Path) -> None:
+        """Unsupported extension raises ValueError."""
+        txt = tmp_path / "test.txt"
+        txt.write_text("data", encoding="utf-8")
+        with pytest.raises(ValueError, match="Unsupported"):
+            build_index_from_file(txt)
+
+    def test_owl_with_filter(self) -> None:
+        """OWL dispatch passes ontology_filter as additional_conditions."""
+        index = build_index_from_file(TEST_OWL_FILE, ontology_filter={"hasDbXref": "XREF:001"})
+        assert "TEST:0003" in index.term_id_to_labels
+        assert "TEST:0001" not in index.term_id_to_labels
+
+
+# === search_terms_with_text2term ===
+
+
+class TestSearchTermsWithText2term:
+    """Test cases for search_terms_with_text2term (text2term mocked)."""
+
+    def _make_text2term_df(self) -> pd.DataFrame:
+        """Create a fake text2term output DataFrame."""
+        return pd.DataFrame(
+            {
+                "Source Term": ["Alpha Cell", "Alpha Cell"],
+                "Mapped Term Label": ["Alpha Cell", "Gamma Cell"],
+                "Mapped Term IRI": [
+                    "http://example.org/test-ontology#TEST_0001",
+                    "http://example.org/test-ontology#TEST_0003",
+                ],
+                "Mapped Term CURIE": ["TEST:0001", "TEST:0003"],
+                "Mapping Score": [1.0, 0.8],
+            }
+        )
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_basic_flow(self, mock_map_terms: object) -> None:
+        """Basic flow: text2term returns mapped terms, results are built."""
+        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        assert "Alpha Cell" in results
+        term_ids = {r.term_id for r in results["Alpha Cell"]}
+        assert "TEST:0001" in term_ids
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_exact_match_flag(self, mock_map_terms: object) -> None:
+        """exact_match is True when source and mapped term match."""
+        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]
+        assert alpha_results
+        assert alpha_results[0].exact_match is True
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_text2term_score_preserved(self, mock_map_terms: object) -> None:
+        """text2term_score is preserved in SearchResult."""
+        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        scores = {r.term_id: r.text2term_score for r in results["Alpha Cell"]}
+        assert scores.get("TEST:0001") == pytest.approx(1.0)
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_missing_columns_raises(self, mock_map_terms: object) -> None:
+        """Missing required columns in text2term output raises ValueError."""
+        mock_map_terms.return_value = pd.DataFrame({"Source Term": ["A"], "Mapped Term Label": ["B"]})  # type: ignore[union-attr]
+        with pytest.raises(ValueError, match="Expected columns missing"):
+            search_terms_with_text2term(["A"], TEST_OWL_FILE)
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_deduplicates_by_term_id_and_value(self, mock_map_terms: object) -> None:
+        """Duplicate (term_id, value) pairs from text2term are deduplicated."""
+        df = pd.DataFrame(
+            {
+                "Source Term": ["Alpha Cell", "Alpha Cell"],
+                "Mapped Term Label": ["Alpha Cell", "Alpha Cell"],
+                "Mapped Term IRI": [
+                    "http://example.org/test-ontology#TEST_0001",
+                    "http://example.org/test-ontology#TEST_0001",
+                ],
+                "Mapped Term CURIE": ["TEST:0001", "TEST:0001"],
+                "Mapping Score": [1.0, 0.9],
+            }
+        )
+        mock_map_terms.return_value = df  # type: ignore[union-attr]
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]
+        assert len(alpha_results) == 1
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_label_from_index(self, mock_map_terms: object) -> None:
+        """Label is populated from the OntologyIndex, not text2term output."""
+        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]
+        assert alpha_results
+        assert alpha_results[0].label == "Alpha Cell"

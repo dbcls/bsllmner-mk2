@@ -3,6 +3,7 @@
 import json
 import math
 import subprocess
+import time
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -10,13 +11,14 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from bsllmner2.metrics import (
-    DockerStatsResponse,
+    LiveMetricsCollector,
     check_ollama_container_exists,
     docker_stats,
     nvidia_smi,
     parse_bytes,
     parse_percentage,
 )
+from bsllmner2.models import DockerStatsResponse, Metrics
 
 
 class TestParseBytes:
@@ -421,3 +423,89 @@ class TestParseBytesExactMultipliers:
     def test_tib_equals_tb(self) -> None:
         """TiB and TB are treated identically (both = 1024^4)."""
         assert parse_bytes("1TiB") == parse_bytes("1TB")
+
+
+def _make_test_metrics() -> Metrics:
+    """Create a Metrics instance for testing."""
+    return Metrics(
+        timestamp="2024-01-01T00:00:00Z",
+        block_io_read_bytes=0,
+        block_io_write_bytes=0,
+        cpu_percentage=0,
+        container_name="test",
+        container_id="abc",
+        memory_percentage=0,
+        memory_used_bytes=0,
+        memory_total_bytes=0,
+        net_io_received_bytes=0,
+        net_io_sent_bytes=0,
+        pids=1,
+        gpus=[],
+    )
+
+
+class TestLiveMetricsCollector:
+    """Tests for LiveMetricsCollector with external calls mocked."""
+
+    def setup_method(self) -> None:
+        check_ollama_container_exists.cache_clear()
+
+    def teardown_method(self) -> None:
+        check_ollama_container_exists.cache_clear()
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=False)
+    def test_disabled_when_container_not_found(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """When container does not exist, start() is a no-op and get_records() returns []."""
+        collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
+        collector.start()
+        assert collector.get_records() == []
+        collector.stop()
+
+    @patch("bsllmner2.metrics.collect_metrics")
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=True)
+    def test_start_stop_lifecycle(self, _mock_check: MagicMock, mock_collect: MagicMock) -> None:  # noqa: PT019
+        """When enabled, start/stop works without error."""
+        mock_collect.return_value = _make_test_metrics()
+        collector = LiveMetricsCollector(container_name="test", interval_sec=1)
+        collector.start()
+        time.sleep(0.1)
+        collector.stop()
+
+    @patch("bsllmner2.metrics.collect_metrics")
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=True)
+    def test_get_records_returns_collected(
+        self,
+        _mock_check: MagicMock,  # noqa: PT019
+        mock_collect: MagicMock,
+    ) -> None:
+        """When enabled, get_records() returns metrics collected by the loop."""
+        test_metrics = _make_test_metrics()
+        mock_collect.return_value = test_metrics
+        collector = LiveMetricsCollector(container_name="test", interval_sec=1)
+        collector.start()
+        time.sleep(0.1)
+        records = collector.get_records()
+        collector.stop()
+        assert len(records) >= 1
+        assert records[0] == test_metrics
+
+    @patch("bsllmner2.metrics.collect_metrics")
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=True)
+    def test_collect_loop_handles_errors(
+        self,
+        _mock_check: MagicMock,  # noqa: PT019
+        mock_collect: MagicMock,
+    ) -> None:
+        """When collect_metrics raises CalledProcessError, the loop continues."""
+        mock_collect.side_effect = subprocess.CalledProcessError(1, "docker")
+        collector = LiveMetricsCollector(container_name="test", interval_sec=1)
+        collector.start()
+        time.sleep(0.1)
+        collector.stop()
+        assert collector.get_records() == []
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=False)
+    def test_stop_without_start_when_disabled(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """When disabled, stop() is a no-op and does not crash."""
+        collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
+        collector.stop()

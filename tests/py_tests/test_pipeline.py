@@ -6,10 +6,14 @@ from pathlib import Path
 
 import pytest
 
+from bsllmner2.config import Config
 from bsllmner2.io import load_select_config
 from bsllmner2.models import (
     Evaluation,
     MappingValue,
+    Prompt,
+    Result,
+    RunMetadata,
     SelectConfig,
     SelectConfigField,
 )
@@ -20,6 +24,7 @@ from bsllmner2.pipeline import (
     compute_processing_time,
     evaluate_output,
     get_now_str,
+    to_result,
 )
 from tests.py_tests.conftest import make_llm_output
 
@@ -534,3 +539,142 @@ class TestBuildErrorLog:
         except Exception as e:
             log = build_error_log(e)
         datetime.strptime(log.timestamp, "%Y%m%d_%H%M%S")
+
+
+# === to_result ===
+
+
+class TestToResult:
+    """Tests for to_result."""
+
+    def _make_run_metadata(self) -> RunMetadata:
+        return RunMetadata(
+            run_name="test_run",
+            model="test-model",
+            start_time="20240101_120000",
+            status="completed",
+        )
+
+    def test_basic_construction(self) -> None:
+        """All arguments are correctly wired into Result fields."""
+        bs_entries = [{"accession": "SAMN001"}]
+        mapping = {
+            "SAMN001": MappingValue(
+                experiment_type="RNA-seq",
+                extraction_answer="HeLa",
+                mapping_answer_id=None,
+                mapping_answer_label=None,
+            ),
+        }
+        prompt = [
+            Prompt(role="system", content="sys"),
+            Prompt(role="user", content="usr"),
+        ]
+        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
+        evaluation = [Evaluation(accession="SAMN001", match=True)]
+        config = Config(ollama_host="http://test:11434")
+        run_metadata = self._make_run_metadata()
+        format_ = {"type": "object"}
+
+        result = to_result(
+            bs_entries=bs_entries,
+            mapping=mapping,
+            prompt=prompt,
+            model="test-model",
+            output=output,
+            evaluation=evaluation,
+            config=config,
+            run_metadata=run_metadata,
+            format_=format_,
+            thinking=True,
+            args=None,
+            metrics=None,
+        )
+
+        assert result.input.bs_entries == bs_entries
+        assert result.input.mapping == mapping
+        assert result.input.prompt == prompt
+        assert result.input.thinking is True
+        assert result.input.format == format_
+        assert result.input.config == config
+        assert result.input.cli_args is None
+        assert result.output == output
+        assert result.evaluation == evaluation
+        assert result.metrics is None
+        assert result.run_metadata == run_metadata
+
+    def test_optional_args_none(self) -> None:
+        """Optional parameters default to None without error."""
+        result = to_result(
+            bs_entries=[],
+            mapping=None,
+            prompt=[Prompt(role="system", content="s")],
+            model="m",
+            output=[],
+            evaluation=[],
+            config=Config(ollama_host="http://test:11434"),
+            run_metadata=self._make_run_metadata(),
+            format_=None,
+            thinking=None,
+            args=None,
+            metrics=None,
+        )
+
+        assert result.input.mapping is None
+        assert result.input.format is None
+        assert result.input.thinking is None
+        assert result.input.cli_args is None
+        assert result.metrics is None
+
+    def test_return_type_is_result(self) -> None:
+        """Return value is a Result instance."""
+        result = to_result(
+            bs_entries=[],
+            mapping=None,
+            prompt=[Prompt(role="system", content="s")],
+            model="m",
+            output=[],
+            evaluation=[],
+            config=Config(ollama_host="http://test:11434"),
+            run_metadata=self._make_run_metadata(),
+        )
+
+        assert isinstance(result, Result)
+
+    def test_input_contains_correct_model(self) -> None:
+        """Input.model matches the provided model string."""
+        result = to_result(
+            bs_entries=[],
+            mapping=None,
+            prompt=[Prompt(role="system", content="s")],
+            model="llama3.1:70b",
+            output=[],
+            evaluation=[],
+            config=Config(ollama_host="http://test:11434"),
+            run_metadata=self._make_run_metadata(),
+        )
+
+        assert result.input.model == "llama3.1:70b"
+
+    def test_output_matches_provided_list(self) -> None:
+        """Output field contains exactly the provided LlmOutput list."""
+        outputs = [
+            make_llm_output("SAMN001", {"cell_line": "HeLa"}),
+            make_llm_output("SAMN002", {"cell_line": "HEK293"}),
+        ]
+
+        result = to_result(
+            bs_entries=[{"accession": "SAMN001"}, {"accession": "SAMN002"}],
+            mapping=None,
+            prompt=[Prompt(role="system", content="s")],
+            model="m",
+            output=outputs,
+            evaluation=[],
+            config=Config(ollama_host="http://test:11434"),
+            run_metadata=self._make_run_metadata(),
+        )
+
+        assert result.output == outputs
+        assert len(result.output) == 2
+        assert result.output[0].accession == "SAMN001"
+        assert result.output[1].accession == "SAMN002"

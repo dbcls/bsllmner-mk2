@@ -1,13 +1,14 @@
 """Tests for CLI select mode argument parsing and async execution."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from bsllmner2.cli_select import parse_args, run_cli_select_async
 from bsllmner2.config import RESUME_BATCH_SIZE
-from tests.py_tests.conftest import FakeLlmBackend
+from bsllmner2.models import LlmOutput, SelectResult
+from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 
 class TestParseArgsSelect:
@@ -250,10 +251,12 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.sys") as mock_sys,
             patch(
                 "bsllmner2.cli_select.OllamaBackend",
-                return_value=FakeLlmBackend([
-                    '{"cell_line": "HeLa"}',
-                    '{"cell_line": "HEK293"}',
-                ]),
+                return_value=FakeLlmBackend(
+                    [
+                        '{"cell_line": "HeLa"}',
+                        '{"cell_line": "HEK293"}',
+                    ]
+                ),
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value={}),
             patch("bsllmner2.cli_select.dump_extract_result", return_value=tmp_path / "extract.json"),
@@ -264,3 +267,139 @@ class TestRunCliSelectAsync:
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
+
+    async def test_resume_with_consistency_check(
+        self,
+        bs_entries_json_file: Path,
+        select_config_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Resume mode skips entries that passed consistency validation."""
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+            "--resume",
+            "--run-name",
+            "test-run",
+        ]
+
+        already_done_extract = LlmOutput(
+            accession="SAMN00000001",
+            output={"cell_line": "HeLa"},
+            chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+        )
+        already_done_select = SelectResult(
+            accession="SAMN00000001",
+            extract_output={"cell_line": "HeLa"},
+        )
+
+        with (
+            patch("bsllmner2.cli_select.sys") as mock_sys,
+            patch(
+                "bsllmner2.cli_select.OllamaBackend",
+                return_value=FakeLlmBackend([]),
+            ),
+            patch(
+                "bsllmner2.cli_select.load_extract_resume_file",
+                return_value=[already_done_extract],
+            ),
+            patch(
+                "bsllmner2.cli_select.load_select_resume_file",
+                return_value=[already_done_select],
+            ),
+            patch(
+                "bsllmner2.cli_select.validate_resume_consistency",
+                return_value=({"SAMN00000001"}, set()),
+            ),
+            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch(
+                "bsllmner2.cli_select.dump_extract_result",
+                return_value=tmp_path / "extract.json",
+            ),
+            patch(
+                "bsllmner2.cli_select.dump_select_result",
+                return_value=tmp_path / "select.json",
+            ),
+            patch("bsllmner2.cli_select.dump_extract_resume_file"),
+            patch("bsllmner2.cli_select.dump_select_resume_file"),
+            patch("bsllmner2.cli_select.remove_resume_files"),
+            patch(
+                "bsllmner2.cli_select.ner",
+                new_callable=AsyncMock,
+                return_value=[
+                    LlmOutput(
+                        accession="SAMN00000002",
+                        output={"cell_line": "HEK293"},
+                        chat_response=make_chat_response('{"cell_line": "HEK293"}'),
+                    ),
+                ],
+            ) as mock_ner,
+            patch(
+                "bsllmner2.cli_select.select",
+                new_callable=AsyncMock,
+                return_value=[
+                    SelectResult(
+                        accession="SAMN00000002",
+                        extract_output={"cell_line": "HEK293"},
+                    ),
+                ],
+            ),
+        ):
+            mock_sys.argv = ["bsllmner2-select", *cli_args]
+            await run_cli_select_async()
+
+            # ner should have been called with only SAMN00000002
+            assert mock_ner.call_count == 1
+            ner_call_entries = mock_ner.call_args[0][1]  # second positional arg
+            accessions = [e["accession"] for e in ner_call_entries]
+            assert "SAMN00000001" not in accessions
+            assert "SAMN00000002" in accessions
+
+    async def test_failed_status_on_error(
+        self,
+        bs_entries_json_file: Path,
+        select_config_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """OllamaConnectionError during ner sets status to 'failed' in the result."""
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--select-config",
+            str(select_config_file),
+        ]
+
+        with (
+            patch("bsllmner2.cli_select.sys") as mock_sys,
+            patch(
+                "bsllmner2.cli_select.OllamaBackend",
+                return_value=FakeLlmBackend(
+                    # First chat call raises ConnectionError -> ner converts to OllamaConnectionError
+                    [ConnectionError("refused")],
+                ),
+            ),
+            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch(
+                "bsllmner2.cli_select.dump_extract_result",
+                return_value=tmp_path / "extract.json",
+            ) as mock_dump_extract,
+            patch(
+                "bsllmner2.cli_select.dump_select_result",
+                return_value=tmp_path / "select.json",
+            ),
+            patch("bsllmner2.cli_select.dump_extract_resume_file"),
+            patch("bsllmner2.cli_select.dump_select_resume_file"),
+            patch("bsllmner2.cli_select.remove_resume_files") as mock_remove,
+        ):
+            mock_sys.argv = ["bsllmner2-select", *cli_args]
+            await run_cli_select_async()
+
+            # dump_extract_result should have been called with status "failed"
+            assert mock_dump_extract.call_count == 1
+            result_arg = mock_dump_extract.call_args[0][0]
+            assert result_arg.run_metadata.status == "failed"
+
+            # resume files should NOT be removed on failure
+            mock_remove.assert_not_called()

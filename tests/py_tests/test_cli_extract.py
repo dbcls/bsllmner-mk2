@@ -1,13 +1,14 @@
 """Tests for CLI extract mode argument parsing and async execution."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
 from bsllmner2.cli_extract import parse_args, run_cli_extract_async
 from bsllmner2.config import RESUME_BATCH_SIZE
-from tests.py_tests.conftest import FakeLlmBackend
+from bsllmner2.models import LlmOutput
+from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 
 class TestParseArgsExtract:
@@ -209,10 +210,12 @@ class TestRunCliExtractAsync:
             patch("bsllmner2.cli_extract.sys") as mock_sys,
             patch(
                 "bsllmner2.cli_extract.OllamaBackend",
-                return_value=FakeLlmBackend([
-                    '{"cell_line": "HeLa"}',
-                    '{"cell_line": "HEK293"}',
-                ]),
+                return_value=FakeLlmBackend(
+                    [
+                        '{"cell_line": "HeLa"}',
+                        '{"cell_line": "HEK293"}',
+                    ]
+                ),
             ),
             patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
             patch("bsllmner2.cli_extract.dump_extract_resume_file"),
@@ -220,3 +223,111 @@ class TestRunCliExtractAsync:
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]
             await run_cli_extract_async()
+
+    async def test_resume_skips_processed_entries(
+        self,
+        bs_entries_json_file: Path,
+        prompt_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """Resume mode skips entries already present in the resume file."""
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--prompt",
+            str(prompt_file),
+            "--resume",
+            "--run-name",
+            "test-run",
+        ]
+
+        already_done = LlmOutput(
+            accession="SAMN00000001",
+            output={"cell_line": "HeLa"},
+            chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+        )
+
+        with (
+            patch("bsllmner2.cli_extract.sys") as mock_sys,
+            patch(
+                "bsllmner2.cli_extract.OllamaBackend",
+                return_value=FakeLlmBackend(
+                    [
+                        # Only one response needed: SAMN00000002
+                        '{"cell_line": "HEK293"}',
+                    ]
+                ),
+            ),
+            patch(
+                "bsllmner2.cli_extract.load_extract_resume_file",
+                return_value=[already_done],
+            ),
+            patch(
+                "bsllmner2.cli_extract.validate_extract_resume_file",
+                return_value={"SAMN00000001"},
+            ),
+            patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
+            patch("bsllmner2.cli_extract.dump_extract_resume_file"),
+            patch("bsllmner2.cli_extract.remove_resume_files"),
+            patch(
+                "bsllmner2.cli_extract.ner",
+                new_callable=AsyncMock,
+                return_value=[
+                    LlmOutput(
+                        accession="SAMN00000002",
+                        output={"cell_line": "HEK293"},
+                        chat_response=make_chat_response('{"cell_line": "HEK293"}'),
+                    ),
+                ],
+            ) as mock_ner,
+        ):
+            mock_sys.argv = ["bsllmner2-extract", *cli_args]
+            await run_cli_extract_async()
+
+            # ner should have been called with only the non-skipped entry
+            assert mock_ner.call_count == 1
+            ner_call_entries = mock_ner.call_args[0][1]  # second positional arg: bs_entries
+            accessions = [e["accession"] for e in ner_call_entries]
+            assert "SAMN00000001" not in accessions
+            assert "SAMN00000002" in accessions
+
+    async def test_failed_status_on_bsllmner2_error(
+        self,
+        bs_entries_json_file: Path,
+        prompt_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """OllamaConnectionError during ner sets status to 'failed' in the result."""
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--prompt",
+            str(prompt_file),
+        ]
+
+        with (
+            patch("bsllmner2.cli_extract.sys") as mock_sys,
+            patch(
+                "bsllmner2.cli_extract.OllamaBackend",
+                return_value=FakeLlmBackend(
+                    # First chat call raises ConnectionError -> ner converts to OllamaConnectionError
+                    [ConnectionError("refused")],
+                ),
+            ),
+            patch(
+                "bsllmner2.cli_extract.dump_extract_result",
+                return_value=tmp_path / "result.json",
+            ) as mock_dump,
+            patch("bsllmner2.cli_extract.dump_extract_resume_file"),
+            patch("bsllmner2.cli_extract.remove_resume_files") as mock_remove,
+        ):
+            mock_sys.argv = ["bsllmner2-extract", *cli_args]
+            await run_cli_extract_async()
+
+            # dump_extract_result should have been called with a result whose status is "failed"
+            assert mock_dump.call_count == 1
+            result_arg = mock_dump.call_args[0][0]
+            assert result_arg.run_metadata.status == "failed"
+
+            # resume files should NOT be removed on failure
+            mock_remove.assert_not_called()

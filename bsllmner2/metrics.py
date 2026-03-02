@@ -1,5 +1,6 @@
 import argparse
 import json
+import logging
 import math
 import re
 import subprocess
@@ -15,6 +16,9 @@ import yaml
 from pydantic import BaseModel
 
 from bsllmner2.config import OLLAMA_CONTAINER_NAME, RESULT_DIR
+from bsllmner2.models import DockerStatsResponse, Metrics, NvidiaSmiResponse
+
+LOGGER = logging.getLogger("bsllmner2")
 
 METRICS_OUTPUT_FILE = RESULT_DIR.joinpath("metrics.yaml")
 
@@ -42,8 +46,8 @@ def parse_bytes(size_str: str) -> float:
         raise ValueError(f"Unknown size unit: {unit}")
     try:
         value = float(num)
-    except ValueError:
-        raise ValueError(f"Invalid size format: {size_str}") from None
+    except ValueError as e:
+        raise ValueError(f"Invalid size format: {size_str}") from e
 
     return value * units[unit_upper]
 
@@ -72,47 +76,10 @@ def check_ollama_container_exists(container_name: str = OLLAMA_CONTAINER_NAME) -
         return False
 
 
-class DockerStatsResponse(BaseModel):
-    """Response schema for ``docker stats --format '{{json .}}'``.
-
-    Example::
-
-        {"BlockIO": "3.62GB / 42.5GB", "CPUPerc": "0.00%", "Container": "bsllmner-mk2-ollama", "ID": "8a8678a1dd25", "MemPerc": "8.16%",
-            "MemUsage": "41.09GiB / 503.6GiB", "Name": "bsllmner-mk2-ollama", "NetIO": "42.8GB / 88.8MB", "PIDs": "26"}
-    """
-
-    BlockIO: str
-    CPUPerc: str
-    Container: str
-    ID: str
-    MemPerc: str
-    MemUsage: str
-    Name: str
-    NetIO: str
-    PIDs: str
-
-
 def docker_stats(container_name: str) -> DockerStatsResponse:
     result = subprocess.check_output(["docker", "stats", container_name, "--no-stream", "--format", "{{json .}}"])
     raw = json.loads(result.decode("utf-8"))
     return DockerStatsResponse(**raw)
-
-
-class NvidiaSmiResponse(BaseModel):
-    """Response schema for ``nvidia-smi --query-gpu=... --format=csv``.
-
-    Example::
-
-        GPU-415f6582-1df0-82e8-67fe-4577cce30c15, NVIDIA RTX 6000 Ada Generation, 37, 49140, 0, 5.24
-        GPU-5b0aaa0f-cd30-62ac-a444-d489e55fe266, NVIDIA RTX 6000 Ada Generation, 18, 49140, 0, 8.43
-    """
-
-    uuid: str
-    name: str
-    memory_used_bytes: float  # MiB to bytes
-    memory_total_bytes: float  # MiB to bytes
-    utilization_gpu: int  # percentage (0-100)
-    power_draw: float  # in Watts
 
 
 def nvidia_smi(container_name: str) -> list[NvidiaSmiResponse]:
@@ -144,22 +111,6 @@ def nvidia_smi(container_name: str) -> list[NvidiaSmiResponse]:
         )
 
     return gpus
-
-
-class Metrics(BaseModel):
-    timestamp: str  # e.g., "2023-10-01T00:00:00Z"
-    block_io_read_bytes: float
-    block_io_write_bytes: float
-    cpu_percentage: float
-    container_name: str
-    container_id: str
-    memory_percentage: float
-    memory_used_bytes: float
-    memory_total_bytes: float
-    net_io_received_bytes: float
-    net_io_sent_bytes: float
-    pids: int
-    gpus: list[NvidiaSmiResponse]
 
 
 def collect_metrics(container_name: str) -> Metrics:
@@ -216,10 +167,14 @@ class LiveMetricsCollector:
     def _collect_loop(self) -> None:
         next_time = time.time()
         while not self._stop_event.is_set():
-            metrics = collect_metrics(self.container_name)
-            with self._lock:
-                self.records.append(metrics)
-                self.count += 1
+            try:
+                metrics = collect_metrics(self.container_name)
+            except (subprocess.CalledProcessError, OSError) as e:
+                LOGGER.warning("Metrics collection failed: %s", e)
+            else:
+                with self._lock:
+                    self.records.append(metrics)
+                    self.count += 1
 
             next_time += self.interval_sec
             sleep_time = max(0, next_time - time.time())

@@ -15,7 +15,6 @@ Defined in `pyproject.toml` under `[project.scripts]`:
 |---------|-------------|-------------|
 | `bsllmner2_extract` | `bsllmner2.cli_extract:run_cli_extract` | Extract mode CLI |
 | `bsllmner2_select` | `bsllmner2.cli_select:run_cli_select` | Select mode CLI |
-| `bsllmner2_api` | `bsllmner2.api:run_api` | FastAPI server |
 | `bsllmner2_metrics` | `bsllmner2.metrics:main` | Metrics computation |
 
 ## Local Development Setup

@@ -14,6 +14,8 @@ If this is your first time, complete the full setup in [Installation](installati
 
 ## 2. Download Ontology Files
 
+The ontology files are used by Select mode (Stage 2) for mapping extracted terms to ontology entries. The download script places files inside the container at `/app/ontology/`. Because `compose.yml` mounts `${PWD}:/app`, they are also available on the host at `./ontology/`.
+
 ### 2.1 Run Download Script
 
 ```bash

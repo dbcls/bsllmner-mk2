@@ -3,11 +3,13 @@ import os
 import re
 import shutil
 import tempfile
+from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, cast
 
 import ijson
 import yaml
+from pydantic import BaseModel
 from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR, SELECT_RESULT_DIR
@@ -326,14 +328,20 @@ def validate_extract_resume_file(
     return seen_ids
 
 
-def dump_extract_resume_file(outputs: list[LlmOutput], run_name: str) -> Path:
-    EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    resume_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
+def _atomic_dump_json(
+    data: Sequence[BaseModel],
+    result_dir: Path,
+    filename: str,
+    prefix: str,
+) -> Path:
+    """Atomically write a list of Pydantic models as JSON to a file."""
+    result_dir.mkdir(parents=True, exist_ok=True)
+    resume_file = result_dir.joinpath(filename)
 
-    fd, tmp_path = tempfile.mkstemp(dir=EXTRACT_RESULT_DIR, prefix=f"{run_name}_resume_", suffix=".tmp")
+    fd, tmp_path = tempfile.mkstemp(dir=result_dir, prefix=prefix, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json_str = json.dumps([output.model_dump() for output in outputs], ensure_ascii=False, indent=2)
+            json_str = json.dumps([item.model_dump() for item in data], ensure_ascii=False, indent=2)
             f.write(_replace_surrogates(json_str))
         shutil.move(tmp_path, resume_file)
     except Exception:
@@ -342,6 +350,10 @@ def dump_extract_resume_file(outputs: list[LlmOutput], run_name: str) -> Path:
         raise
 
     return resume_file
+
+
+def dump_extract_resume_file(outputs: list[LlmOutput], run_name: str) -> Path:
+    return _atomic_dump_json(outputs, EXTRACT_RESULT_DIR, f"{run_name}_resume.json", f"{run_name}_resume_")
 
 
 def load_select_resume_file(run_name: str) -> list[SelectResult]:
@@ -364,21 +376,7 @@ def load_select_resume_file(run_name: str) -> list[SelectResult]:
 
 
 def dump_select_resume_file(results: list[SelectResult], run_name: str) -> Path:
-    SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    resume_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
-
-    fd, tmp_path = tempfile.mkstemp(dir=SELECT_RESULT_DIR, prefix=f"select_{run_name}_resume_", suffix=".tmp")
-    try:
-        with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json_str = json.dumps([result.model_dump() for result in results], ensure_ascii=False, indent=2)
-            f.write(_replace_surrogates(json_str))
-        shutil.move(tmp_path, resume_file)
-    except Exception:
-        if Path(tmp_path).exists():
-            Path(tmp_path).unlink()
-        raise
-
-    return resume_file
+    return _atomic_dump_json(results, SELECT_RESULT_DIR, f"select_{run_name}_resume.json", f"select_{run_name}_resume_")
 
 
 def remove_resume_files(run_name: str) -> None:

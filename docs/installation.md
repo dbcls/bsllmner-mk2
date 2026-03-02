@@ -42,6 +42,9 @@ For Ollama performance tuning options, see [Configuration - Ollama Performance T
 
 ```bash
 uv sync
+
+# Install with test/development dependencies
+uv sync --all-extras
 ```
 
 If the Ollama server is running on a different host, set the `OLLAMA_HOST` environment variable:

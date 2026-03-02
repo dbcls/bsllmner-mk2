@@ -14,7 +14,9 @@ SCHEMA_CELL_LINE_FILE_PATH = MODULE_ROOT.joinpath("format", "cell_line.schema.js
 RESULT_DIR = Path(os.environ.get("BSLLMNER2_RESULT_DIR", str(Path.cwd().joinpath("bsllmner2-results"))))
 EXTRACT_RESULT_DIR = RESULT_DIR.joinpath("extract")
 SELECT_RESULT_DIR = RESULT_DIR.joinpath("select")
-TMP_DIR = Path(os.environ.get("BSLLMNER2_TMP_DIR", str(Path(tempfile.gettempdir()).joinpath(f"bsllmner2-{os.getuid()}"))))
+TMP_DIR = Path(
+    os.environ.get("BSLLMNER2_TMP_DIR", str(Path(tempfile.gettempdir()).joinpath(f"bsllmner2-{os.getuid()}")))
+)
 PROGRESS_DIR = TMP_DIR.joinpath("progress")
 
 RESUME_BATCH_SIZE = 1024

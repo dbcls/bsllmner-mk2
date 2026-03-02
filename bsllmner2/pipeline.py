@@ -4,7 +4,6 @@ from datetime import datetime, timezone
 from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import Config
-from bsllmner2.metrics import Metrics
 from bsllmner2.models import (
     BsEntries,
     CliExtractArgs,
@@ -14,6 +13,7 @@ from bsllmner2.models import (
     Evaluation,
     LlmOutput,
     Mapping,
+    Metrics,
     Prompt,
     Result,
     RunMetadata,

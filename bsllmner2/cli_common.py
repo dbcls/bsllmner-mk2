@@ -1,14 +1,17 @@
 """Common CLI utilities shared between extract and select modes."""
 
 import argparse
+import contextlib
 import math
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
 from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
+from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import load_bs_entries
+from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.models import BsEntries, RunMetadata
 from bsllmner2.pipeline import get_now_str
 
@@ -128,7 +131,7 @@ def load_and_trim_entries(bs_entries_path: Path, max_entries: int | None) -> BsE
     """Load BioSample entries and optionally trim to max_entries."""
     bs_entries = load_bs_entries(bs_entries_path)
     if max_entries is not None:
-        bs_entries = bs_entries[: max_entries]
+        bs_entries = bs_entries[:max_entries]
     return bs_entries
 
 
@@ -220,3 +223,34 @@ async def process_batches(
         on_batch_complete(batch_idx, result)
 
     return results
+
+
+@dataclass
+class _RunState:
+    """Mutable state shared with the caller through ``run_with_lifecycle``."""
+
+    end_time: str | None = None
+    status: str = "running"
+
+
+@contextlib.asynccontextmanager
+async def run_with_lifecycle(
+    metrics_collector: LiveMetricsCollector | None,
+) -> AsyncIterator[_RunState]:
+    """Shared try/except/finally lifecycle for CLI commands."""
+    state = _RunState()
+    try:
+        yield state
+        state.end_time = get_now_str()
+        state.status = "completed"
+    except Bsllmner2Error as e:
+        LOGGER.error("Processing failed: %s", e)
+        state.status = "failed"
+        state.end_time = get_now_str()
+    except Exception as e:
+        LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
+        state.status = "failed"
+        state.end_time = get_now_str()
+    finally:
+        if metrics_collector is not None:
+            metrics_collector.stop()
