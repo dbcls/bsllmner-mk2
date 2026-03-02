@@ -47,7 +47,7 @@ def load_bs_entries(path: Path) -> BsEntries:
     if not path.exists():
         raise FileNotFoundError(f"File {path} does not exist.")
 
-    with path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8", errors="replace") as f:
         try:
             # Try to load as JSON
             data = json.load(f)
@@ -124,7 +124,7 @@ def load_mapping(path: Path) -> Mapping:
 
     mapping: Mapping = {}
 
-    with path.open("r", encoding="utf-8") as f:
+    with path.open("r", encoding="utf-8", errors="replace") as f:
         lines = [line.rstrip("\n") for line in f if line.strip()]
     if not lines:
         return {}
@@ -187,7 +187,7 @@ def dump_extract_result(result: Result, run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
-        json_str = json.dumps(result.model_dump(), ensure_ascii=False, indent=2)
+        json_str = json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2)
         f.write(_replace_surrogates(json_str))
 
     return result_file

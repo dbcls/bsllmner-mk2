@@ -1,6 +1,7 @@
 """Tests for private helper functions in bsllmner2.llm."""
 
 import json
+import logging
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -9,7 +10,7 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from bsllmner2.errors import OllamaConnectionError
-from bsllmner2.llm import _construct_output, _extract_last_json, ner
+from bsllmner2.llm import _construct_messages, _construct_output, _extract_last_json, ner
 from bsllmner2.models import Prompt
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
@@ -147,6 +148,37 @@ class TestConstructOutput:
 _SIMPLE_PROMPT = [Prompt(role="system", content="test"), Prompt(role="user", content="Extract:")]
 
 
+# === TestNer: Message mutation ===
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestNerMessageMutation:
+    """Verify that ner() does not mutate the original prompt messages."""
+
+    async def test_prompt_messages_not_mutated(self) -> None:
+        """The original prompt list and its Message objects must not be modified."""
+        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
+        prompt = [Prompt(role="system", content="test"), Prompt(role="user", content="Extract:")]
+        messages_before = _construct_messages(prompt)
+        original_contents = [m.content for m in messages_before]
+
+        backend = FakeLlmBackend(['{"cell_line": "HeLa"}'])
+        await ner(backend, entries, prompt, None, "test-model")
+
+        messages_after = _construct_messages(prompt)
+        for orig, after in zip(original_contents, messages_after, strict=True):
+            assert orig == after.content
+
+    async def test_empty_content_prompt_still_works(self) -> None:
+        """A prompt with empty content in the last message still produces output."""
+        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
+        prompt = [Prompt(role="system", content="test"), Prompt(role="user", content="")]
+
+        backend = FakeLlmBackend(['{"cell_line": "HeLa"}'])
+        outputs = await ner(backend, entries, prompt, None, "test-model")
+        assert len(outputs) == 1
+
+
 # === TestNer ===
 
 
@@ -241,6 +273,81 @@ class TestNer:
         assert len(outputs) == 1
         assert outputs[0].output == [{"cell_line": "HeLa"}]
         assert outputs[0].output_full is not None
+
+    async def test_error_summary_logged_at_error_level(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When some entries fail, the summary log is at ERROR level."""
+        entries = [
+            {"accession": "SAMN001", "title": "Sample 1"},
+            {"accession": "SAMN002", "title": "Sample 2"},
+        ]
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',
+                RuntimeError("boom"),
+            ]
+        )
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            with caplog.at_level(logging.ERROR, logger="bsllmner2"):
+                outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        finally:
+            logger.propagate = original_propagate
+
+        assert len(outputs) == 1
+        error_records = [r for r in caplog.records if r.levelno == logging.ERROR and "Completed with" in r.message]
+        assert len(error_records) == 1
+        assert "1 errors" in error_records[0].message
+
+
+# === TestNerErrorPaths ===
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestNerErrorPaths:
+    """Error path tests for ner() function."""
+
+    async def test_partial_failure_returns_successful_entries(self) -> None:
+        """When some entries fail, successful entries are still returned."""
+        entries = [
+            {"accession": "SAMN001", "title": "Sample 1"},
+            {"accession": "SAMN002", "title": "Sample 2"},
+            {"accession": "SAMN003", "title": "Sample 3"},
+        ]
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',
+                RuntimeError("fail on SAMN002"),
+                '{"cell_line": "K562"}',
+            ]
+        )
+        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        accessions = {o.accession for o in outputs}
+        assert "SAMN001" in accessions
+        assert "SAMN003" in accessions
+        assert "SAMN002" not in accessions
+        assert len(outputs) == 2
+
+    async def test_all_entries_fail_returns_empty(self) -> None:
+        """When all entries fail, an empty list is returned."""
+        entries = [
+            {"accession": "SAMN001", "title": "Sample 1"},
+            {"accession": "SAMN002", "title": "Sample 2"},
+        ]
+        # First entry succeeds (to establish connection), then second fails
+        # Actually, RuntimeError on first entry should work since it's not ConnectionError
+        backend = FakeLlmBackend(
+            [
+                RuntimeError("fail 1"),
+                RuntimeError("fail 2"),
+            ]
+        )
+        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        assert outputs == []
 
 
 # === TestConstructOutput: mutation-killing additions ===

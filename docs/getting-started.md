@@ -43,15 +43,16 @@ docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert \
 cd ..
 ```
 
-## 3. Pull LLM Model
+## 3. (Optional) Pre-pull LLM Model
 
-Download the LLM model to the Ollama server:
+The LLM model is automatically downloaded on first use via the Ollama API. No manual pull is required.
+
+To pre-download the model before running (recommended for large models like 70b):
 
 ```bash
 docker compose exec ollama ollama pull llama3.1:70b
 ```
 
-This may take several minutes depending on your network speed.
 The model (~40GB for 70b) is stored in the `ollama-data/` directory.
 
 ## 4. Run Extract Mode

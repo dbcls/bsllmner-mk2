@@ -1,5 +1,7 @@
 """Tests for CLI extract mode argument parsing and async execution."""
 
+import json
+import logging
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
@@ -331,3 +333,103 @@ class TestRunCliExtractAsync:
 
             # resume files should NOT be removed on failure
             mock_remove.assert_not_called()
+
+
+# === CLI integration tests with real file I/O ===
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestCliExtractIntegration:
+    """Integration tests with FakeLlmBackend and real file I/O."""
+
+    async def test_real_file_io(
+        self,
+        bs_entries_json_file: Path,
+        prompt_file: Path,
+        tmp_path: Path,
+    ) -> None:
+        """End-to-end: real files are written, output structure is valid, status is 'completed'."""
+        result_dir = tmp_path / "results" / "extract"
+        progress_dir = tmp_path / "progress"
+
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--prompt",
+            str(prompt_file),
+        ]
+
+        with (
+            patch("bsllmner2.cli_extract.sys") as mock_sys,
+            patch(
+                "bsllmner2.cli_extract.OllamaBackend",
+                return_value=FakeLlmBackend(
+                    [
+                        '{"cell_line": "HeLa"}',
+                        '{"cell_line": "HEK293"}',
+                    ]
+                ),
+            ),
+            patch("bsllmner2.io.EXTRACT_RESULT_DIR", result_dir),
+            patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
+            patch("bsllmner2.cli_extract.remove_resume_files"),
+        ):
+            mock_sys.argv = ["bsllmner2-extract", *cli_args]
+            await run_cli_extract_async()
+
+        # Verify output files exist
+        json_files = list(result_dir.glob("*.json"))
+        # Filter out resume files
+        result_files = [f for f in json_files if "_resume" not in f.name]
+        assert len(result_files) >= 1
+
+        # Verify file content is valid JSON with expected structure
+        result_data = json.loads(result_files[0].read_text())
+        assert "run_metadata" in result_data
+        assert result_data["run_metadata"]["status"] == "completed"
+        assert "output" in result_data
+        assert len(result_data["output"]) == 2
+
+    async def test_batch_loss_logged_at_error(
+        self,
+        bs_entries_json_file: Path,
+        prompt_file: Path,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """When ner() returns fewer outputs than entries, an ERROR is logged."""
+        cli_args = [
+            "--bs-entries",
+            str(bs_entries_json_file),
+            "--prompt",
+            str(prompt_file),
+        ]
+
+        with (
+            patch("bsllmner2.cli_extract.sys") as mock_sys,
+            patch(
+                "bsllmner2.cli_extract.OllamaBackend",
+                return_value=FakeLlmBackend(
+                    [
+                        '{"cell_line": "HeLa"}',
+                        RuntimeError("boom"),  # second entry fails
+                    ]
+                ),
+            ),
+            patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
+            patch("bsllmner2.cli_extract.dump_extract_resume_file"),
+            patch("bsllmner2.cli_extract.remove_resume_files"),
+        ):
+            mock_sys.argv = ["bsllmner2-extract", *cli_args]
+
+            logger = logging.getLogger("bsllmner2")
+            original_propagate = logger.propagate
+            try:
+                logger.propagate = True
+                with caplog.at_level(logging.ERROR, logger="bsllmner2"):
+                    await run_cli_extract_async()
+            finally:
+                logger.propagate = original_propagate
+
+        batch_loss_records = [r for r in caplog.records if r.levelno == logging.ERROR and "lost" in r.message]
+        assert len(batch_loss_records) >= 1

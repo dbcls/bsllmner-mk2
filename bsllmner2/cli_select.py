@@ -117,6 +117,7 @@ async def run_cli_select_async() -> None:
 
     extract_outputs: list[LlmOutput] = []
     select_results: list[SelectResult] = []
+    orphan_ids: set[str] = set()
     if args.resume:
         resume_extract_outputs = load_extract_resume_file(run_name)
         resume_select_results = load_select_resume_file(run_name)
@@ -126,19 +127,21 @@ async def run_cli_select_async() -> None:
 
         if orphan_ids:
             LOGGER.warning(
-                "Found %d orphan entries (extract completed but select not completed). These will be reprocessed: %s%s",
+                "Found %d orphan entries (extract completed but select not completed). "
+                "Select will be re-run for these: %s%s",
                 len(orphan_ids),
                 sorted(orphan_ids)[:5],
                 "..." if len(orphan_ids) > 5 else "",
             )
 
-        # Keep only fully completed entries
+        # Keep all extract outputs (including orphans)
+        extract_outputs.extend(resume_extract_outputs)
         select_results.extend(resume_select_results)
-        extract_outputs = [o for o in resume_extract_outputs if o.accession in done_ids]
 
+        skip_ids = done_ids | orphan_ids
         if done_ids:
             LOGGER.info("Skipping %d already processed entries.", len(done_ids))
-            bs_entries = [entry for entry in bs_entries if entry.get("accession") not in done_ids]
+        bs_entries = [entry for entry in bs_entries if entry.get("accession") not in skip_ids]
 
     select_index_map = build_index_map(select_config)
 
@@ -148,12 +151,37 @@ async def run_cli_select_async() -> None:
         metrics_collector.start()
 
     async with run_with_lifecycle(metrics_collector) as run_state:
+        # Re-run select for orphan entries (extract already completed)
+        if args.resume and orphan_ids:
+            orphan_entries = [e for e in all_bs_entries if e.get("accession") in orphan_ids]
+            orphan_extract = [o for o in extract_outputs if o.accession in orphan_ids]
+            LOGGER.info("Running select for %d orphan entries...", len(orphan_ids))
+            orphan_select = await select(
+                backend,
+                orphan_entries,
+                args.model,
+                orphan_extract,
+                select_config,
+                args.thinking,
+                include_reasoning=args.include_reasoning,
+                index_map=select_index_map,
+            )
+            select_results.extend(orphan_select)
+            dump_extract_resume_file(extract_outputs, run_name)
+            dump_select_resume_file(select_results, run_name)
 
         async def process_select_batch(
             batch_info: BatchInfo,
         ) -> tuple[list[LlmOutput], list[SelectResult]]:
             LOGGER.info("Extracting entities...")
             batch_extract_outputs = await ner(backend, batch_info.entries, prompt, format_, args.model, args.thinking)
+            if len(batch_extract_outputs) < len(batch_info.entries):
+                LOGGER.error(
+                    "Batch returned %d extract outputs for %d entries (%d lost)",
+                    len(batch_extract_outputs),
+                    len(batch_info.entries),
+                    len(batch_info.entries) - len(batch_extract_outputs),
+                )
             LOGGER.info("Selecting entities...")
             batch_select_results = await select(
                 backend,

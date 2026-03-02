@@ -721,6 +721,47 @@ class TestLoadBsEntriesAdditional:
 # === TestLoadMapping additional cases ===
 
 
+class TestLoadBsEntriesInvalidUtf8:
+    """Test that invalid UTF-8 bytes in external data are handled gracefully."""
+
+    def test_invalid_utf8_bytes_replaced(self, temp_dir: Path) -> None:
+        """Invalid UTF-8 bytes are replaced with U+FFFD instead of raising."""
+        path = temp_dir / "bad_utf8.json"
+        # Write valid JSON with invalid UTF-8 byte 0xff embedded in the title
+        content = b'[{"accession": "SAMN001", "title": "bad\xff byte"}]'
+        path.write_bytes(content)
+        entries = load_bs_entries(path)
+        assert len(entries) == 1
+        assert entries[0]["accession"] == "SAMN001"
+        assert "\ufffd" in entries[0]["title"]
+
+    def test_invalid_utf8_jsonl(self, temp_dir: Path) -> None:
+        """Invalid UTF-8 in JSONL is handled gracefully."""
+        path = temp_dir / "bad_utf8.jsonl"
+        # JSONL: second line has invalid byte
+        content = b'{"accession": "SAMN001", "title": "ok"}\n{"accession": "SAMN002", "title": "bad\x80"}\n'
+        path.write_bytes(content)
+        entries = load_bs_entries(path)
+        assert len(entries) == 2
+
+
+class TestLoadMappingInvalidUtf8:
+    """Test that invalid UTF-8 in mapping files is handled gracefully."""
+
+    def test_invalid_utf8_bytes_replaced(self, temp_dir: Path) -> None:
+        """Invalid UTF-8 bytes in mapping file are replaced."""
+        path = temp_dir / "bad_mapping.tsv"
+        content = (
+            b"BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
+            b"SAMN001\tRNA-seq\tHeLa\xff\tCVCL_0030\tHeLa"
+        )
+        path.write_bytes(content)
+        mapping = load_mapping(path)
+        assert "SAMN001" in mapping
+        assert mapping["SAMN001"].extraction_answer is not None
+        assert "\ufffd" in mapping["SAMN001"].extraction_answer
+
+
 class TestLoadMappingAdditional:
     def test_empty_file(self, temp_dir: Path) -> None:
         path = temp_dir / "empty.tsv"

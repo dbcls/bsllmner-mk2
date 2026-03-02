@@ -95,6 +95,54 @@ def bs_entries_jsonl_file(temp_dir: Path, sample_bs_entries: list[dict[str, Any]
 
 
 @pytest.fixture
+def sample_bs_entries_ebi() -> list[dict[str, Any]]:
+    """EBI format BioSample entries with organism, tissue, taxId."""
+    return [
+        {
+            "accession": "SAMEA00000001",
+            "characteristics": {
+                "organism": [{"text": "Homo sapiens"}],
+                "tissue": [{"text": "liver"}],
+            },
+            "taxId": 9606,
+        },
+        {
+            "accession": "SAMEA00000002",
+            "characteristics": {
+                "organism": [{"text": "Mus musculus"}],
+                "tissue": [{"text": "brain"}],
+            },
+            "taxId": 10090,
+        },
+    ]
+
+
+@pytest.fixture
+def sample_bs_entries_multi_field() -> list[dict[str, Any]]:
+    """BioSample entries with multiple fields (cell_line, tissue, disease)."""
+    return [
+        {
+            "accession": "SAMN00000010",
+            "title": "Multi-field Sample 1",
+            "characteristics": {
+                "cell_line": "HeLa",
+                "tissue": "cervix",
+                "disease": "cervical cancer",
+            },
+        },
+        {
+            "accession": "SAMN00000011",
+            "title": "Multi-field Sample 2",
+            "characteristics": {
+                "cell_line": "HEK293",
+                "tissue": "kidney",
+                "disease": "normal",
+            },
+        },
+    ]
+
+
+@pytest.fixture
 def sample_prompt() -> list[dict[str, str]]:
     """Sample prompt for testing."""
     return [
@@ -182,6 +230,7 @@ def clean_env() -> Generator[None, None, None]:
         "BSLLMNER2_API_HOST",
         "BSLLMNER2_API_PORT",
         "BSLLMNER2_API_URL_PREFIX",
+        "BSLLMNER2_CONTAINER_NAME",
     ]
     original_values = {k: os.environ.get(k) for k in env_vars_to_clean}
 

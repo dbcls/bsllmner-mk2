@@ -148,12 +148,21 @@ class LiveMetricsCollector:
     def __init__(self, container_name: str = OLLAMA_CONTAINER_NAME, interval_sec: int = 5):
         self.container_name = container_name
         self.interval_sec = interval_sec
-        self.count = 0
+        self._count = 0
         self.records: list[Metrics] = []
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._collect_loop)
         self._enabled = check_ollama_container_exists(container_name)
+
+    @property
+    def count(self) -> int:
+        with self._lock:
+            return self._count
+
+    @property
+    def enabled(self) -> bool:
+        return self._enabled
 
     def start(self) -> None:
         if self._enabled:
@@ -174,7 +183,7 @@ class LiveMetricsCollector:
             else:
                 with self._lock:
                     self.records.append(metrics)
-                    self.count += 1
+                    self._count += 1
 
             next_time += self.interval_sec
             sleep_time = max(0, next_time - time.time())

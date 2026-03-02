@@ -102,6 +102,12 @@ def _collect_queries(
     queries: set[str] = set()
     for res in select_results:
         if not isinstance(res.extract_output, dict):
+            if res.extract_output is not None:
+                LOGGER.warning(
+                    "Skipping non-dict extract_output for accession %s in _collect_queries: got %s",
+                    res.accession,
+                    type(res.extract_output).__name__,
+                )
             continue
         if field_name not in res.extract_output:
             continue
@@ -130,6 +136,12 @@ def _distribute_results(
     """
     for res in select_results:
         if not isinstance(res.extract_output, dict):
+            if res.extract_output is not None:
+                LOGGER.warning(
+                    "Skipping non-dict extract_output for accession %s in _distribute_results: got %s",
+                    res.accession,
+                    type(res.extract_output).__name__,
+                )
             continue
         if field_name not in res.extract_output:
             continue
@@ -442,6 +454,12 @@ async def select(
         for field in no_select_fields:
             if isinstance(obj.output, dict):
                 sr.results[field] = obj.output.get(field, None)
+            elif obj.output is not None:
+                LOGGER.warning(
+                    "Non-dict extract output for accession %s: got %s",
+                    obj.accession,
+                    type(obj.output).__name__,
+                )
         intermediate_results.append(sr)
 
     # 1. Perform ontology search for each field specified in the select configuration.

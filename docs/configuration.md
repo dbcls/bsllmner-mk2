@@ -31,6 +31,12 @@ Can also be enabled with the `--debug` CLI option.
 |---------------------|---------|-------------|
 | `BSLLMNER2_INDEX_CACHE_DIR` | `/app/ontology/index_cache` | Ontology index cache directory |
 
+## Metrics
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `BSLLMNER2_CONTAINER_NAME` | `bsllmner-mk2-ollama` | Docker container name for metrics collection |
+
 ## Ollama Performance Tuning (Docker Compose)
 
 Configured in the ollama service of `compose.yml` / `compose.front.yml`.

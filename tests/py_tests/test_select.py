@@ -1,5 +1,6 @@
 """Tests for bsllmner2.select module (ontology search, text2term, LLM-based selection)."""
 
+import logging
 import pickle
 import re
 from pathlib import Path
@@ -429,6 +430,28 @@ class TestCollectQueries:
         queries = _collect_queries([sr], "diseases")
         assert queries == {"cancer", "diabetes"}
 
+    def test_non_dict_non_none_extract_output_warns(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Non-dict, non-None extract_output logs a WARNING."""
+        sr = SelectResult(
+            accession="SAMN001",
+            extract_output=["not", "a", "dict"],
+            results={},
+        )
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+                _collect_queries([sr], "cell_line")
+        finally:
+            logger.propagate = original_propagate
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
+        assert len(warning_records) >= 1
+
 
 # === TestDistributeResults (NEW) ===
 
@@ -496,6 +519,29 @@ class TestDistributeResults:
             results={},
         )
         _distribute_results([sr], "cell_line", {}, "search_results")
+
+    def test_non_dict_non_none_extract_output_warns(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Non-dict, non-None extract_output logs a WARNING in _distribute_results."""
+        sr = SelectResult(
+            accession="SAMN001",
+            extract_output=["not", "a", "dict"],
+            search_results={},
+            results={},
+        )
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+                _distribute_results([sr], "cell_line", {}, "search_results")
+        finally:
+            logger.propagate = original_propagate
+
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
+        assert len(warning_records) >= 1
 
     def test_no_exact_match_does_not_set_result(self) -> None:
         sr = SelectResult(
@@ -647,6 +693,34 @@ class TestSelect:
         config = _make_select_config_no_ontology()
         results = await select(backend, entries, "test-model", [], config)
         assert results == []
+
+    async def test_non_dict_output_warns_in_no_select_fields(
+        self,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Non-dict output for no_select_fields logs a WARNING."""
+        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
+        extract_outputs = [
+            LlmOutput(
+                accession="SAMN001",
+                output=["not", "a", "dict"],
+                chat_response=make_chat_response('["not", "a", "dict"]'),
+            ),
+        ]
+        backend = FakeLlmBackend([])
+        config = _make_select_config_no_ontology()
+        logger = logging.getLogger("bsllmner2")
+        original_propagate = logger.propagate
+        try:
+            logger.propagate = True
+            with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+                results = await select(backend, entries, "test-model", extract_outputs, config)
+        finally:
+            logger.propagate = original_propagate
+
+        assert len(results) == 1
+        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
+        assert len(warning_records) >= 1
 
 
 # === TestBuildIndexMap ===

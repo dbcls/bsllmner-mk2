@@ -221,17 +221,12 @@ async def ner(
                 return None
             LOGGER.debug("[NER] Processing entry: %s", accession)
             entry_str = json.dumps(construct_llm_input_json(entry), ensure_ascii=False)
+            last_msg = messages[-1]
+            base_content = last_msg.content or ""
             messages_copy = [
                 *messages[:-1],
-                Message(role=messages[-1]["role"], content=messages[-1].get("content", "")),
+                Message(role=last_msg.role, content=base_content + "\n" + entry_str),
             ]
-            if messages_copy[-1].content is not None:
-                messages_copy[-1].content += "\n" + entry_str
-            else:
-                LOGGER.warning(
-                    "Last prompt message content is None for entry %s; entry data not appended",
-                    accession,
-                )
             try:
                 response: ChatResponse = await backend.chat(
                     model=model,
@@ -282,7 +277,7 @@ async def ner(
         outputs.extend([res for res in all_results if res is not None])
 
     if error_count > 0 and len(bs_entries) > 0:
-        LOGGER.warning(
+        LOGGER.error(
             "Completed with %d errors out of %d entries (%.1f%% success rate)",
             error_count,
             len(bs_entries),

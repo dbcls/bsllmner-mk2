@@ -509,3 +509,51 @@ class TestLiveMetricsCollector:
         """When disabled, stop() is a no-op and does not crash."""
         collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
         collector.stop()
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=False)
+    def test_count_property_returns_zero_when_disabled(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """Count property returns 0 when no metrics collected."""
+        collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
+        assert collector.count == 0
+
+    @patch("bsllmner2.metrics.collect_metrics")
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=True)
+    def test_count_property_reflects_collected(
+        self,
+        _mock_check: MagicMock,  # noqa: PT019
+        mock_collect: MagicMock,
+    ) -> None:
+        """Count property reflects number of collected metrics."""
+        mock_collect.return_value = _make_test_metrics()
+        collector = LiveMetricsCollector(container_name="test", interval_sec=1)
+        collector.start()
+        time.sleep(0.1)
+        count = collector.count
+        collector.stop()
+        assert count >= 1
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=True)
+    def test_enabled_property_true(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """Enabled property returns True when container exists."""
+        collector = LiveMetricsCollector(container_name="test", interval_sec=1)
+        assert collector.enabled is True
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=False)
+    def test_enabled_property_false(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """Enabled property returns False when container does not exist."""
+        collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
+        assert collector.enabled is False
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=False)
+    def test_count_is_read_only(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """Count property is read-only (cannot be set)."""
+        collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
+        with pytest.raises(AttributeError):
+            collector.count = 42  # type: ignore[misc]
+
+    @patch("bsllmner2.metrics.check_ollama_container_exists", return_value=False)
+    def test_enabled_is_read_only(self, _mock_check: MagicMock) -> None:  # noqa: PT019
+        """Enabled property is read-only (cannot be set)."""
+        collector = LiveMetricsCollector(container_name="nonexistent", interval_sec=1)
+        with pytest.raises(AttributeError):
+            collector.enabled = True  # type: ignore[misc]

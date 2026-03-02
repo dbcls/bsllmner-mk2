@@ -130,7 +130,16 @@ async def run_cli_extract_async() -> None:
     async with run_with_lifecycle(metrics_collector) as run_state:
 
         async def process_extract_batch(batch_info: BatchInfo) -> list[LlmOutput]:
-            return await ner(backend, batch_info.entries, prompt, format_, args.model, args.thinking)
+            batch_outputs = await ner(backend, batch_info.entries, prompt, format_, args.model, args.thinking)
+            if len(batch_outputs) < len(batch_info.entries):
+                LOGGER.error(
+                    "Batch returned %d outputs for %d entries (%d lost)",
+                    len(batch_outputs),
+                    len(batch_info.entries),
+                    len(batch_info.entries) - len(batch_outputs),
+                )
+
+            return batch_outputs
 
         def on_extract_batch_complete(_batch_idx: int, batch_outputs: list[LlmOutput]) -> None:
             extract_outputs.extend(batch_outputs)
