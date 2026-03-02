@@ -5,12 +5,10 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
-from ollama import ChatResponse, Message
 
 from bsllmner2.io import load_select_config
 from bsllmner2.models import (
     Evaluation,
-    LlmOutput,
     MappingValue,
     SelectConfig,
     SelectConfigField,
@@ -23,28 +21,7 @@ from bsllmner2.pipeline import (
     evaluate_output,
     get_now_str,
 )
-
-
-def _make_chat_response() -> ChatResponse:
-    """Create a minimal ChatResponse for test data construction."""
-    return ChatResponse(
-        model="test",
-        created_at="2024-01-01T00:00:00Z",
-        message=Message(role="assistant", content=""),
-        done=True,
-    )
-
-
-def _make_llm_output(
-    accession: str,
-    output: object = None,
-) -> LlmOutput:
-    """Create a LlmOutput with minimal boilerplate."""
-    return LlmOutput(
-        accession=accession,
-        output=output,
-        chat_response=_make_chat_response(),
-    )
+from tests.py_tests.conftest import make_llm_output
 
 
 class TestGetNowStr:
@@ -135,7 +112,7 @@ class TestEvaluateOutput:
 
     def test_matching_output(self) -> None:
         """Exact match: actual == expected → match=True."""
-        output = [_make_llm_output("SAMN001", {"cell_line": "HeLa"})]
+        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
         mapping = {
             "SAMN001": MappingValue(
                 experiment_type="RNA-seq",
@@ -152,7 +129,7 @@ class TestEvaluateOutput:
 
     def test_non_matching_output(self) -> None:
         """Mismatch: actual != expected → match=False."""
-        output = [_make_llm_output("SAMN001", {"cell_line": "HEK293"})]
+        output = [make_llm_output("SAMN001", {"cell_line": "HEK293"})]
         mapping = {
             "SAMN001": MappingValue(
                 experiment_type="RNA-seq",
@@ -168,7 +145,7 @@ class TestEvaluateOutput:
 
     def test_output_is_none(self) -> None:
         """When entry.output is None, actual becomes None."""
-        output = [_make_llm_output("SAMN001", None)]
+        output = [make_llm_output("SAMN001", None)]
         mapping = {
             "SAMN001": MappingValue(
                 experiment_type="RNA-seq",
@@ -182,8 +159,8 @@ class TestEvaluateOutput:
         assert evals[0].match is False
 
     def test_output_not_dict(self) -> None:
-        """When entry.output is not a dict (e.g. a string), actual becomes None."""
-        output = [_make_llm_output("SAMN001", "just a string")]
+        """When entry.output is not a dict (e.g. a list), actual becomes None."""
+        output = [make_llm_output("SAMN001", ["not", "a", "dict"])]
         mapping = {
             "SAMN001": MappingValue(
                 experiment_type="RNA-seq",
@@ -198,7 +175,7 @@ class TestEvaluateOutput:
 
     def test_accession_not_in_mapping(self) -> None:
         """Accession absent from mapping → expected=None."""
-        output = [_make_llm_output("SAMN_MISSING", {"cell_line": "HeLa"})]
+        output = [make_llm_output("SAMN_MISSING", {"cell_line": "HeLa"})]
         mapping: dict[str, MappingValue] = {}
         evals = evaluate_output(output, mapping)
         assert evals[0].expected is None
@@ -216,7 +193,7 @@ class TestEvaluateOutput:
         actual=None means the LLM produced no output, so it should not
         count as a correct prediction even when expected is also None.
         """
-        output = [_make_llm_output("SAMN_MISSING", None)]
+        output = [make_llm_output("SAMN_MISSING", None)]
         mapping: dict[str, MappingValue] = {}
         evals = evaluate_output(output, mapping)
         assert evals[0].actual is None
@@ -229,7 +206,7 @@ class TestEvaluateOutput:
         If the schema uses a different field name (e.g. "organism"),
         actual is always None regardless of what the LLM produced.
         """
-        output = [_make_llm_output("SAMN001", {"organism": "Homo sapiens"})]
+        output = [make_llm_output("SAMN001", {"organism": "Homo sapiens"})]
         mapping = {
             "SAMN001": MappingValue(
                 experiment_type="RNA-seq",
@@ -247,9 +224,9 @@ class TestEvaluateOutput:
     def test_multiple_entries(self) -> None:
         """Multiple entries produce one evaluation per entry in order."""
         output = [
-            _make_llm_output("SAMN001", {"cell_line": "HeLa"}),
-            _make_llm_output("SAMN002", {"cell_line": "HEK293"}),
-            _make_llm_output("SAMN003", None),
+            make_llm_output("SAMN001", {"cell_line": "HeLa"}),
+            make_llm_output("SAMN002", {"cell_line": "HEK293"}),
+            make_llm_output("SAMN003", None),
         ]
         mapping = {
             "SAMN001": MappingValue(
@@ -275,7 +252,7 @@ class TestEvaluateOutput:
 
     def test_output_dict_without_cell_line_key(self) -> None:
         """Dict output without "cell_line" key → actual=None via .get()."""
-        output = [_make_llm_output("SAMN001", {"tissue": "brain"})]
+        output = [make_llm_output("SAMN001", {"tissue": "brain"})]
         mapping = {
             "SAMN001": MappingValue(
                 experiment_type="RNA-seq",
@@ -289,14 +266,14 @@ class TestEvaluateOutput:
 
     def test_output_is_list(self) -> None:
         """List output is not a dict → actual=None."""
-        output = [_make_llm_output("SAMN001", ["HeLa", "HEK293"])]
+        output = [make_llm_output("SAMN001", ["HeLa", "HEK293"])]
         mapping: dict[str, MappingValue] = {}
         evals = evaluate_output(output, mapping)
         assert evals[0].actual is None
 
     def test_returns_evaluation_objects(self) -> None:
         """Return values are Evaluation model instances."""
-        output = [_make_llm_output("SAMN001", {"cell_line": "HeLa"})]
+        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
         evals = evaluate_output(output, {})
         assert isinstance(evals[0], Evaluation)
 

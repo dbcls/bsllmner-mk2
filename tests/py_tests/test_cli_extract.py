@@ -1,15 +1,13 @@
 """Tests for CLI extract mode argument parsing and async execution."""
 
 from pathlib import Path
-from typing import Any
 from unittest.mock import patch
 
 import pytest
 
 from bsllmner2.cli_extract import parse_args, run_cli_extract_async
 from bsllmner2.config import RESUME_BATCH_SIZE
-from bsllmner2.models import LlmOutput, Prompt
-from tests.py_tests.conftest import make_chat_response
+from tests.py_tests.conftest import FakeLlmBackend
 
 
 class TestParseArgsExtract:
@@ -145,29 +143,29 @@ class TestParseArgsExtract:
         assert cli_args.max_entries is None
 
     def test_missing_bs_entries_file(self, prompt_file: Path) -> None:
-        """Test that missing bs_entries file raises FileNotFoundError."""
+        """Test that missing bs_entries file causes SystemExit via parser.error()."""
         args = [
             "--bs-entries",
             "/nonexistent/path/bs_entries.json",
             "--prompt",
             str(prompt_file),
         ]
-        with pytest.raises(FileNotFoundError, match="BioSample entries file"):
+        with pytest.raises(SystemExit):
             parse_args(args)
 
     def test_missing_prompt_file(self, bs_entries_json_file: Path, temp_dir: Path) -> None:
-        """Test that missing prompt file raises FileNotFoundError."""
+        """Test that missing prompt file causes SystemExit via parser.error()."""
         args = [
             "--bs-entries",
             str(bs_entries_json_file),
             "--prompt",
             str(temp_dir / "nonexistent_prompt.yml"),
         ]
-        with pytest.raises(FileNotFoundError, match="Prompt file"):
+        with pytest.raises(SystemExit):
             parse_args(args)
 
     def test_missing_format_file(self, bs_entries_json_file: Path, prompt_file: Path) -> None:
-        """Test that missing format file raises FileNotFoundError."""
+        """Test that missing format file causes SystemExit via parser.error()."""
         args = [
             "--bs-entries",
             str(bs_entries_json_file),
@@ -176,7 +174,7 @@ class TestParseArgsExtract:
             "--format",
             "/nonexistent/format.schema.json",
         ]
-        with pytest.raises(FileNotFoundError, match="Format schema file"):
+        with pytest.raises(SystemExit):
             parse_args(args)
 
     def test_missing_required_args(self) -> None:
@@ -197,27 +195,6 @@ class TestRunCliExtractAsync:
         tmp_path: Path,
     ) -> None:
         """Smoke test: run_cli_extract_async completes with all externals mocked."""
-        fake_response = make_chat_response('{"cell_line": "HeLa"}')
-
-        async def fake_ner(
-            backend: Any,
-            bs_entries: Any,
-            prompt: Any,
-            format_: Any,
-            model: str,
-            thinking: Any = None,
-            progress_file_path: Any = None,
-        ) -> list[LlmOutput]:
-            return [
-                LlmOutput(
-                    accession=e["accession"],
-                    output={"cell_line": "HeLa"},
-                    chat_response=fake_response,
-                )
-                for e in bs_entries
-                if e.get("accession")
-            ]
-
         cli_args = [
             "--bs-entries",
             str(bs_entries_json_file),
@@ -230,8 +207,13 @@ class TestRunCliExtractAsync:
 
         with (
             patch("bsllmner2.cli_extract.sys") as mock_sys,
-            patch("bsllmner2.cli_extract.ner", side_effect=fake_ner),
-            patch("bsllmner2.cli_extract.OllamaBackend"),
+            patch(
+                "bsllmner2.cli_extract.OllamaBackend",
+                return_value=FakeLlmBackend([
+                    '{"cell_line": "HeLa"}',
+                    '{"cell_line": "HEK293"}',
+                ]),
+            ),
             patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
             patch("bsllmner2.cli_extract.dump_extract_resume_file"),
             patch("bsllmner2.cli_extract.remove_resume_files"),

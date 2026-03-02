@@ -17,6 +17,9 @@ def _load_filter_keys(path: Path) -> FilterKeys:
     return FilterKeys(**data)
 
 
+_FILTER_KEYS = _load_filter_keys(FILTER_KEYS_PATH)
+
+
 def is_ebi_format(bs_entry: dict[str, Any]) -> bool:
     """Check if the BioSample entry is in EBI format.
 
@@ -37,7 +40,7 @@ def construct_llm_input_json(entry: dict[str, Any]) -> dict[str, Any]:
         A filtered dictionary containing only relevant keys for LLM processing.
 
     """
-    filter_keys = _load_filter_keys(FILTER_KEYS_PATH)
+    filter_keys = _FILTER_KEYS
 
     filtered_entry = {}
     if is_ebi_format(entry):
@@ -47,12 +50,7 @@ def construct_llm_input_json(entry: dict[str, Any]) -> dict[str, Any]:
     for key, value in attrs.items():
         if key not in filter_keys.filter_keys:
             if is_ebi_format(entry):
-                if (
-                    isinstance(value, list)
-                    and len(value) > 0
-                    and isinstance(value[0], dict)
-                    and "text" in value[0]
-                ):
+                if isinstance(value, list) and len(value) > 0 and isinstance(value[0], dict) and "text" in value[0]:
                     filtered_entry[key] = value[0]["text"]
             else:
                 filtered_entry[key] = value

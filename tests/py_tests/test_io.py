@@ -2,13 +2,15 @@
 
 import json
 import logging
-from collections.abc import Callable
 from pathlib import Path
 from unittest.mock import patch
 
 import pytest
 import yaml
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
+from bsllmner2.config import Config
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.io import (
     _replace_surrogates,
@@ -31,7 +33,6 @@ from bsllmner2.io import (
     validate_resume_consistency,
 )
 from bsllmner2.models import (
-    Config,
     LlmOutput,
     Prompt,
     Result,
@@ -39,6 +40,7 @@ from bsllmner2.models import (
     SelectResult,
     WfInput,
 )
+from tests.py_tests.conftest import make_llm_output
 
 
 class TestLoadBsEntries:
@@ -271,44 +273,11 @@ class TestResumeFileFunctions:
 class TestValidateResumeConsistency:
     """Test cases for validate_resume_consistency function."""
 
-    @pytest.fixture
-    def make_llm_output(self) -> Callable[..., LlmOutput]:
-        """Create LlmOutput instances for testing."""
-        from ollama import ChatResponse
+    @staticmethod
+    def _make_select_result(accession: str) -> SelectResult:
+        return SelectResult(accession=accession, extract_output={"cell_line": "Test"})
 
-        def _make(accession: str) -> LlmOutput:
-            chat_response: ChatResponse = {  # type: ignore[assignment]
-                "model": "test-model",
-                "created_at": "2024-01-01T00:00:00Z",
-                "message": {"role": "assistant", "content": "test"},
-                "done": True,
-            }
-
-            return LlmOutput(
-                accession=accession,
-                output={"cell_line": "Test"},
-                chat_response=chat_response,
-            )
-
-        return _make
-
-    @pytest.fixture
-    def make_select_result(self) -> Callable[..., SelectResult]:
-        """Create SelectResult instances for testing."""
-
-        def _make(accession: str) -> SelectResult:
-            return SelectResult(
-                accession=accession,
-                extract_output={"cell_line": "Test"},
-            )
-
-        return _make
-
-    def test_consistent_data_returns_done_ids(
-        self,
-        make_llm_output: Callable[..., LlmOutput],
-        make_select_result: Callable[..., SelectResult],
-    ) -> None:
+    def test_consistent_data_returns_done_ids(self) -> None:
         """Test that consistent data returns done_ids and empty orphans."""
         extract_outputs = [
             make_llm_output("SAMN001"),
@@ -316,9 +285,9 @@ class TestValidateResumeConsistency:
             make_llm_output("SAMN003"),
         ]
         select_results = [
-            make_select_result("SAMN001"),
-            make_select_result("SAMN002"),
-            make_select_result("SAMN003"),
+            self._make_select_result("SAMN001"),
+            self._make_select_result("SAMN002"),
+            self._make_select_result("SAMN003"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -326,11 +295,7 @@ class TestValidateResumeConsistency:
         assert done_ids == {"SAMN001", "SAMN002", "SAMN003"}
         assert orphan_ids == set()
 
-    def test_orphan_entries_detected(
-        self,
-        make_llm_output: Callable[..., LlmOutput],
-        make_select_result: Callable[..., SelectResult],
-    ) -> None:
+    def test_orphan_entries_detected(self) -> None:
         """Test that orphan entries (extract only) are detected."""
         extract_outputs = [
             make_llm_output("SAMN001"),
@@ -339,9 +304,9 @@ class TestValidateResumeConsistency:
             make_llm_output("SAMN004"),  # Orphan
         ]
         select_results = [
-            make_select_result("SAMN001"),
-            make_select_result("SAMN002"),
-            make_select_result("SAMN003"),
+            self._make_select_result("SAMN001"),
+            self._make_select_result("SAMN002"),
+            self._make_select_result("SAMN003"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -349,11 +314,7 @@ class TestValidateResumeConsistency:
         assert done_ids == {"SAMN001", "SAMN002", "SAMN003"}
         assert orphan_ids == {"SAMN004"}
 
-    def test_multiple_orphans_detected(
-        self,
-        make_llm_output: Callable[..., LlmOutput],
-        make_select_result: Callable[..., SelectResult],
-    ) -> None:
+    def test_multiple_orphans_detected(self) -> None:
         """Test that multiple orphan entries are detected."""
         extract_outputs = [
             make_llm_output("SAMN001"),
@@ -361,7 +322,7 @@ class TestValidateResumeConsistency:
             make_llm_output("SAMN003"),
         ]
         select_results = [
-            make_select_result("SAMN001"),
+            self._make_select_result("SAMN001"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -369,20 +330,16 @@ class TestValidateResumeConsistency:
         assert done_ids == {"SAMN001"}
         assert orphan_ids == {"SAMN002", "SAMN003"}
 
-    def test_invalid_data_raises_error(
-        self,
-        make_llm_output: Callable[..., LlmOutput],
-        make_select_result: Callable[..., SelectResult],
-    ) -> None:
+    def test_invalid_data_raises_error(self) -> None:
         """Test that select entries without extract raise ResumeDataError."""
         extract_outputs = [
             make_llm_output("SAMN001"),
             make_llm_output("SAMN002"),
         ]
         select_results = [
-            make_select_result("SAMN001"),
-            make_select_result("SAMN002"),
-            make_select_result("SAMN003"),  # No extract for this
+            self._make_select_result("SAMN001"),
+            self._make_select_result("SAMN002"),
+            self._make_select_result("SAMN003"),  # No extract for this
         ]
 
         with pytest.raises(ResumeDataError) as exc_info:
@@ -398,7 +355,7 @@ class TestValidateResumeConsistency:
         assert done_ids == set()
         assert orphan_ids == set()
 
-    def test_extract_only_returns_all_orphans(self, make_llm_output: Callable[..., LlmOutput]) -> None:
+    def test_extract_only_returns_all_orphans(self) -> None:
         """Test that extract-only data returns all as orphans."""
         extract_outputs = [
             make_llm_output("SAMN001"),
@@ -414,28 +371,7 @@ class TestValidateResumeConsistency:
 class TestValidateExtractResumeFile:
     """Test cases for validate_extract_resume_file function."""
 
-    @pytest.fixture
-    def make_llm_output(self) -> Callable[..., LlmOutput]:
-        """Create LlmOutput instances for testing."""
-        from ollama import ChatResponse
-
-        def _make(accession: str) -> LlmOutput:
-            chat_response: ChatResponse = {  # type: ignore[assignment]
-                "model": "test-model",
-                "created_at": "2024-01-01T00:00:00Z",
-                "message": {"role": "assistant", "content": "test"},
-                "done": True,
-            }
-
-            return LlmOutput(
-                accession=accession,
-                output={"cell_line": "Test"},
-                chat_response=chat_response,
-            )
-
-        return _make
-
-    def test_returns_all_ids(self, make_llm_output: Callable[..., LlmOutput]) -> None:
+    def test_returns_all_ids(self) -> None:
         """Test that all accession IDs are returned."""
         extract_outputs = [
             make_llm_output("SAMN001"),
@@ -454,7 +390,6 @@ class TestValidateExtractResumeFile:
 
     def test_duplicate_entries_detected_and_logged(
         self,
-        make_llm_output: Callable[..., LlmOutput],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that duplicate entries are detected and logged as warning."""
@@ -483,7 +418,6 @@ class TestValidateExtractResumeFile:
 
     def test_multiple_duplicates_detected(
         self,
-        make_llm_output: Callable[..., LlmOutput],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """Test that multiple duplicates are all detected."""
@@ -511,7 +445,7 @@ class TestValidateExtractResumeFile:
 # === Helpers for Phase 2 tests ===
 
 
-def _make_chat_response() -> dict:
+def _make_chat_response() -> dict[str, object]:
     """Minimal ChatResponse-like dict for building LlmOutput / Result."""
     return {
         "model": "test-model",
@@ -795,9 +729,7 @@ class TestLoadMappingAdditional:
 
     def test_header_only(self, temp_dir: Path) -> None:
         path = temp_dir / "header_only.tsv"
-        path.write_text(
-            "BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n"
-        )
+        path.write_text("BioSample ID\tExperiment type\textraction answer\tmapping answer ID\tmapping answer label\n")
         assert load_mapping(path) == {}
 
 
@@ -874,29 +806,8 @@ class TestValidateExtractResumeFileTruncation:
     With 6, '...' should appear.
     """
 
-    @pytest.fixture
-    def make_llm_output(self) -> Callable[..., LlmOutput]:
-        from ollama import ChatResponse
-
-        def _make(accession: str) -> LlmOutput:
-            chat_response: ChatResponse = {  # type: ignore[assignment]
-                "model": "test-model",
-                "created_at": "2024-01-01T00:00:00Z",
-                "message": {"role": "assistant", "content": "test"},
-                "done": True,
-            }
-
-            return LlmOutput(
-                accession=accession,
-                output={"cell_line": "Test"},
-                chat_response=chat_response,
-            )
-
-        return _make
-
     def test_exactly_5_duplicates_no_ellipsis(
         self,
-        make_llm_output: Callable[..., LlmOutput],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """With exactly 5 duplicates, no '...' in warning message."""
@@ -919,7 +830,6 @@ class TestValidateExtractResumeFileTruncation:
 
     def test_6_duplicates_has_ellipsis(
         self,
-        make_llm_output: Callable[..., LlmOutput],
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """With 6 duplicates, '...' appears in warning message."""
@@ -950,61 +860,27 @@ class TestValidateResumeConsistencyTruncation:
     The code uses `sorted(invalid_ids)[:5]` and `'...' if len(invalid_ids) > 5`.
     """
 
-    @pytest.fixture
-    def make_llm_output(self) -> Callable[..., LlmOutput]:
-        from ollama import ChatResponse
+    @staticmethod
+    def _make_select_result(accession: str) -> SelectResult:
+        return SelectResult(accession=accession, extract_output={"cell_line": "Test"})
 
-        def _make(accession: str) -> LlmOutput:
-            chat_response: ChatResponse = {  # type: ignore[assignment]
-                "model": "test-model",
-                "created_at": "2024-01-01T00:00:00Z",
-                "message": {"role": "assistant", "content": "test"},
-                "done": True,
-            }
-
-            return LlmOutput(
-                accession=accession,
-                output={"cell_line": "Test"},
-                chat_response=chat_response,
-            )
-
-        return _make
-
-    @pytest.fixture
-    def make_select_result(self) -> Callable[..., SelectResult]:
-        def _make(accession: str) -> SelectResult:
-            return SelectResult(
-                accession=accession,
-                extract_output={"cell_line": "Test"},
-            )
-
-        return _make
-
-    def test_exactly_5_invalid_no_ellipsis(
-        self,
-        make_llm_output: Callable[..., LlmOutput],
-        make_select_result: Callable[..., SelectResult],
-    ) -> None:
+    def test_exactly_5_invalid_no_ellipsis(self) -> None:
         """With exactly 5 invalid IDs, no '...' in error message."""
         extract_outputs = [make_llm_output("SAMN001")]
-        select_results = [make_select_result("SAMN001")]
+        select_results = [self._make_select_result("SAMN001")]
         # Add 5 invalid (select-only) entries
-        select_results.extend(make_select_result(f"INVALID{i:03d}") for i in range(5))
+        select_results.extend(self._make_select_result(f"INVALID{i:03d}") for i in range(5))
 
         with pytest.raises(ResumeDataError, match="5 entries") as exc_info:
             validate_resume_consistency(extract_outputs, select_results, "test-run")
         assert "..." not in str(exc_info.value)
 
-    def test_6_invalid_has_ellipsis(
-        self,
-        make_llm_output: Callable[..., LlmOutput],
-        make_select_result: Callable[..., SelectResult],
-    ) -> None:
+    def test_6_invalid_has_ellipsis(self) -> None:
         """With 6 invalid IDs, '...' appears in error message."""
         extract_outputs = [make_llm_output("SAMN001")]
-        select_results = [make_select_result("SAMN001")]
+        select_results = [self._make_select_result("SAMN001")]
         # Add 6 invalid (select-only) entries
-        select_results.extend(make_select_result(f"INVALID{i:03d}") for i in range(6))
+        select_results.extend(self._make_select_result(f"INVALID{i:03d}") for i in range(6))
 
         with pytest.raises(ResumeDataError, match="6 entries") as exc_info:
             validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -1074,3 +950,25 @@ class TestLoadMappingOptionalFields:
         path.write_text(content)
         with pytest.raises(ValueError, match="line 2"):
             load_mapping(path)
+
+
+# === Property-based tests ===
+
+
+class TestReplaceSurrogatesPBT:
+    """Property-based tests for _replace_surrogates."""
+
+    @given(text=st.text())
+    @settings(max_examples=200)
+    def test_output_has_no_surrogates(self, text: str) -> None:
+        """After _replace_surrogates, the output contains no surrogate characters."""
+        result = _replace_surrogates(text)
+        for ch in result:
+            code = ord(ch)
+            assert not (0xD800 <= code <= 0xDFFF), f"Surrogate U+{code:04X} found in output"
+
+    @given(text=st.text(alphabet=st.characters(blacklist_categories=["Cs"])))
+    @settings(max_examples=200)
+    def test_no_surrogates_unchanged(self, text: str) -> None:
+        """Text without surrogates is returned unchanged."""
+        assert _replace_surrogates(text) == text

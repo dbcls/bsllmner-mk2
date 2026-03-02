@@ -10,6 +10,13 @@ Reference for environment variables and configuration values.
 
 Can also be overridden with the `--ollama-host` CLI option.
 
+## Directories
+
+| Environment Variable | Default | Description |
+|---------------------|---------|-------------|
+| `BSLLMNER2_RESULT_DIR` | `$PWD/bsllmner2-results` | Root directory for extract/select result files |
+| `BSLLMNER2_TMP_DIR` | `$TMPDIR/bsllmner2-$UID` | Temporary directory for progress files |
+
 ## Cache
 
 | Environment Variable | Default | Description |

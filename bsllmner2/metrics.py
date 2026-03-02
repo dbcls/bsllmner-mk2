@@ -14,9 +14,8 @@ from typing import Literal
 import yaml
 from pydantic import BaseModel
 
-from bsllmner2.config import RESULT_DIR
+from bsllmner2.config import OLLAMA_CONTAINER_NAME, RESULT_DIR
 
-OLLAMA_CONTAINER_NAME = "bsllmner-mk2-ollama"
 METRICS_OUTPUT_FILE = RESULT_DIR.joinpath("metrics.yaml")
 
 
@@ -200,6 +199,7 @@ class LiveMetricsCollector:
         self.interval_sec = interval_sec
         self.count = 0
         self.records: list[Metrics] = []
+        self._lock = threading.Lock()
         self._stop_event = threading.Event()
         self._thread = threading.Thread(target=self._collect_loop)
         self._enabled = check_ollama_container_exists(container_name)
@@ -217,18 +217,19 @@ class LiveMetricsCollector:
         next_time = time.time()
         while not self._stop_event.is_set():
             metrics = collect_metrics(self.container_name)
-            self.records.append(metrics)
+            with self._lock:
+                self.records.append(metrics)
+                self.count += 1
 
             next_time += self.interval_sec
             sleep_time = max(0, next_time - time.time())
             time.sleep(sleep_time)
 
-            self.count += 1
-
     def get_records(self) -> list[Metrics]:
         if not self._enabled:
             return []
-        return self.records
+        with self._lock:
+            return list(self.records)
 
 
 # === CLI ===

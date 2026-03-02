@@ -1,25 +1,25 @@
 import logging
 import logging.config
 import os
+import tempfile
 from pathlib import Path
 
 from pydantic import BaseModel
 
 MODULE_ROOT = Path(__file__).parent.resolve()
-REPO_ROOT = MODULE_ROOT.parent
 FILTER_KEYS_PATH = MODULE_ROOT.joinpath("filter_keys.json")
 PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
 PROMPT_SELECT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_select.yml")
 SCHEMA_CELL_LINE_FILE_PATH = MODULE_ROOT.joinpath("format", "cell_line.schema.json")
-RESULT_DIR = REPO_ROOT.joinpath("bsllmner2-results")
+RESULT_DIR = Path(os.environ.get("BSLLMNER2_RESULT_DIR", str(Path.cwd().joinpath("bsllmner2-results"))))
 EXTRACT_RESULT_DIR = RESULT_DIR.joinpath("extract")
 SELECT_RESULT_DIR = RESULT_DIR.joinpath("select")
-TMP_DIR = Path("/tmp/bsllmner2")
+TMP_DIR = Path(os.environ.get("BSLLMNER2_TMP_DIR", str(Path(tempfile.gettempdir()).joinpath(f"bsllmner2-{os.getuid()}"))))
 PROGRESS_DIR = TMP_DIR.joinpath("progress")
 
 RESUME_BATCH_SIZE = 1024
 
-OLLAMA_CONTAINER_NAME = "bsllmner2-ollama"
+OLLAMA_CONTAINER_NAME = "bsllmner-mk2-ollama"
 
 
 class Config(BaseModel):

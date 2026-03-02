@@ -3,7 +3,7 @@
 import json
 import math
 import subprocess
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 from hypothesis import given, settings
@@ -247,22 +247,22 @@ class TestCheckOllamaContainerExists:
         check_ollama_container_exists.cache_clear()
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_container_found(self, mock_check_output: pytest.fixture) -> None:
+    def test_container_found(self, mock_check_output: MagicMock) -> None:
         mock_check_output.return_value = b"abc123\n"
         assert check_ollama_container_exists("test-container") is True
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_container_not_found_empty(self, mock_check_output: pytest.fixture) -> None:
+    def test_container_not_found_empty(self, mock_check_output: MagicMock) -> None:
         mock_check_output.return_value = b""
         assert check_ollama_container_exists("test-container") is False
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_container_not_found_whitespace(self, mock_check_output: pytest.fixture) -> None:
+    def test_container_not_found_whitespace(self, mock_check_output: MagicMock) -> None:
         mock_check_output.return_value = b"  \n  "
         assert check_ollama_container_exists("test-container") is False
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_docker_command_fails(self, mock_check_output: pytest.fixture) -> None:
+    def test_docker_command_fails(self, mock_check_output: MagicMock) -> None:
         mock_check_output.side_effect = subprocess.CalledProcessError(1, "docker")
         assert check_ollama_container_exists("test-container") is False
 
@@ -271,7 +271,7 @@ class TestDockerStats:
     """Tests for docker_stats with subprocess mocked."""
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_valid_output(self, mock_check_output: pytest.fixture) -> None:
+    def test_valid_output(self, mock_check_output: MagicMock) -> None:
         raw = {
             "BlockIO": "3.62GB / 42.5GB",
             "CPUPerc": "8.16%",
@@ -291,7 +291,7 @@ class TestDockerStats:
         assert result.PIDs == "26"
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_all_fields_mapped(self, mock_check_output: pytest.fixture) -> None:
+    def test_all_fields_mapped(self, mock_check_output: MagicMock) -> None:
         raw = {
             "BlockIO": "1GB / 2GB",
             "CPUPerc": "50.0%",
@@ -317,10 +317,8 @@ class TestNvidiaSmi:
     """Tests for nvidia_smi with subprocess mocked."""
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_single_gpu(self, mock_check_output: pytest.fixture) -> None:
-        mock_check_output.return_value = (
-            b"GPU-abc123, NVIDIA RTX 6000, 37, 49140, 0, 5.24\n"
-        )
+    def test_single_gpu(self, mock_check_output: MagicMock) -> None:
+        mock_check_output.return_value = b"GPU-abc123, NVIDIA RTX 6000, 37, 49140, 0, 5.24\n"
         gpus = nvidia_smi("test-container")
         assert len(gpus) == 1
         assert gpus[0].uuid == "GPU-abc123"
@@ -329,10 +327,9 @@ class TestNvidiaSmi:
         assert gpus[0].power_draw == pytest.approx(5.24)
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_multiple_gpus(self, mock_check_output: pytest.fixture) -> None:
+    def test_multiple_gpus(self, mock_check_output: MagicMock) -> None:
         mock_check_output.return_value = (
-            b"GPU-aaa, RTX 6000, 37, 49140, 0, 5.24\n"
-            b"GPU-bbb, RTX 6000, 18, 49140, 50, 8.43\n"
+            b"GPU-aaa, RTX 6000, 37, 49140, 0, 5.24\nGPU-bbb, RTX 6000, 18, 49140, 50, 8.43\n"
         )
         gpus = nvidia_smi("test-container")
         assert len(gpus) == 2
@@ -341,30 +338,22 @@ class TestNvidiaSmi:
         assert gpus[1].utilization_gpu == 50
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_empty_lines_skipped(self, mock_check_output: pytest.fixture) -> None:
+    def test_empty_lines_skipped(self, mock_check_output: MagicMock) -> None:
         mock_check_output.return_value = (
-            b"\n"
-            b"GPU-aaa, RTX 6000, 37, 49140, 0, 5.24\n"
-            b"\n"
-            b"GPU-bbb, RTX 6000, 18, 49140, 50, 8.43\n"
-            b"\n"
+            b"\nGPU-aaa, RTX 6000, 37, 49140, 0, 5.24\n\nGPU-bbb, RTX 6000, 18, 49140, 50, 8.43\n\n"
         )
         gpus = nvidia_smi("test-container")
         assert len(gpus) == 2
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_trailing_newline(self, mock_check_output: pytest.fixture) -> None:
-        mock_check_output.return_value = (
-            b"GPU-abc, RTX 6000, 37, 49140, 0, 5.24\n"
-        )
+    def test_trailing_newline(self, mock_check_output: MagicMock) -> None:
+        mock_check_output.return_value = b"GPU-abc, RTX 6000, 37, 49140, 0, 5.24\n"
         gpus = nvidia_smi("test-container")
         assert len(gpus) == 1
 
     @patch("bsllmner2.metrics.subprocess.check_output")
-    def test_memory_mib_to_bytes(self, mock_check_output: pytest.fixture) -> None:
-        mock_check_output.return_value = (
-            b"GPU-abc, RTX 6000, 37, 49140, 0, 5.24\n"
-        )
+    def test_memory_mib_to_bytes(self, mock_check_output: MagicMock) -> None:
+        mock_check_output.return_value = b"GPU-abc, RTX 6000, 37, 49140, 0, 5.24\n"
         gpus = nvidia_smi("test-container")
         assert gpus[0].memory_used_bytes == pytest.approx(37 * 1024**2)
         assert gpus[0].memory_total_bytes == pytest.approx(49140 * 1024**2)

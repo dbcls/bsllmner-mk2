@@ -3,13 +3,21 @@ import asyncio
 import sys
 from pathlib import Path
 
-from bsllmner2.cli_common import BatchInfo, add_common_arguments, process_batches, validate_common_args
+from bsllmner2.cli_common import (
+    BatchInfo,
+    add_common_arguments,
+    build_config,
+    build_run_metadata,
+    generate_run_name,
+    load_and_trim_entries,
+    process_batches,
+    validate_common_args,
+)
 from bsllmner2.config import (
     LOGGER,
     PROGRESS_DIR,
     PROMPT_EXTRACT_FILE_PATH,
     Config,
-    get_config,
     set_logging_config,
     set_logging_level,
 )
@@ -17,7 +25,6 @@ from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import (
     dump_extract_result,
     dump_extract_resume_file,
-    load_bs_entries,
     load_extract_resume_file,
     load_format_schema,
     load_mapping,
@@ -27,7 +34,7 @@ from bsllmner2.io import (
 )
 from bsllmner2.llm import OllamaBackend, ner
 from bsllmner2.metrics import LiveMetricsCollector
-from bsllmner2.models import CliExtractArgs, LlmOutput, RunMetadata
+from bsllmner2.models import CliExtractArgs, LlmOutput
 from bsllmner2.pipeline import evaluate_output, get_now_str, to_result
 
 
@@ -61,21 +68,17 @@ def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
     parsed_args = parser.parse_args(args)
 
     # Validate common arguments
-    validate_common_args(parsed_args)
+    validate_common_args(parser, parsed_args)
 
     # Validate extract-specific arguments
     if not parsed_args.prompt.exists():
-        raise FileNotFoundError(f"Prompt file {parsed_args.prompt} does not exist.")
+        parser.error(f"Prompt file {parsed_args.prompt} does not exist.")
     if parsed_args.format is not None:
         parsed_args.format = Path(parsed_args.format)
         if not parsed_args.format.exists():
-            raise FileNotFoundError(f"Format schema file {parsed_args.format} does not exist.")
+            parser.error(f"Format schema file {parsed_args.format} does not exist.")
 
-    # Build config (CLI args override environment/defaults)
-    config = get_config()
-    if parsed_args.ollama_host:
-        config.ollama_host = parsed_args.ollama_host
-    config.debug = parsed_args.debug
+    config = build_config(parsed_args)
 
     return config, CliExtractArgs(
         bs_entries=parsed_args.bs_entries.resolve(),
@@ -106,15 +109,9 @@ async def run_cli_extract_async() -> None:
     prompt = load_prompt_file(args.prompt)
     format_ = load_format_schema(args.format) if args.format else None
 
-    start_time = get_now_str()
-    if args.run_name:
-        run_name = args.run_name
-    else:
-        run_name = f"{args.model}_{start_time}"
-
-    bs_entries = load_bs_entries(args.bs_entries)
-    if args.max_entries is not None:
-        bs_entries = bs_entries[: args.max_entries]
+    run_name, start_time = generate_run_name(args.model, args.run_name)
+    bs_entries = load_and_trim_entries(args.bs_entries, args.max_entries)
+    all_bs_entries = bs_entries
 
     extract_outputs: list[LlmOutput] = []
     if args.resume:
@@ -154,12 +151,10 @@ async def run_cli_extract_async() -> None:
         LOGGER.error("Processing failed: %s", e)
         status = "failed"
         end_time = get_now_str()
-        raise
     except Exception as e:
         LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
         status = "failed"
         end_time = get_now_str()
-        raise
     finally:
         if metrics_collector is not None:
             metrics_collector.stop()
@@ -170,17 +165,9 @@ async def run_cli_extract_async() -> None:
         evaluation = evaluate_output(extract_outputs, mapping)
     else:
         evaluation = []
-    run_metadata = RunMetadata(
-        run_name=run_name,
-        username=None,
-        model=args.model,
-        thinking=args.thinking,
-        start_time=start_time,
-        end_time=end_time,
-        status=status,
-    )
+    run_metadata = build_run_metadata(run_name, args.model, args.thinking, start_time, end_time, status)
     result = to_result(
-        bs_entries=bs_entries,
+        bs_entries=all_bs_entries,
         mapping=mapping,
         prompt=prompt,
         model=args.model,
@@ -195,8 +182,9 @@ async def run_cli_extract_async() -> None:
     )
 
     extract_result_file = dump_extract_result(result, run_name)
-    remove_resume_files(run_name)
-    LOGGER.info("Processing complete. Result saved to %s", extract_result_file)
+    if status == "completed":
+        remove_resume_files(run_name)
+    LOGGER.info("Processing %s. Result saved to %s", status, extract_result_file)
 
 
 def run_cli_extract() -> None:

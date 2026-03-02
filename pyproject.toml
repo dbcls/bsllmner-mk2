@@ -71,13 +71,23 @@ files = ["./bsllmner2/**/*.py", "./tests/**/*.py"]
 follow_imports = "silent"
 strict = true
 plugins = ["pydantic.mypy"]
-ignore_missing_imports = true
+ignore_missing_imports = false
 explicit_package_bases = true
 mypy_path = "."
+
+[[tool.mypy.overrides]]
+module = [
+    "ijson.*",
+    "owlready2.*",
+    "text2term.*",
+    "ollama.*",
+]
+ignore_missing_imports = true
 
 [tool.ruff]
 target-version = "py310"
 line-length = 120
+exclude = ["bsllmner2/_version.py"]
 
 [tool.ruff.lint]
 select = ["ALL"]

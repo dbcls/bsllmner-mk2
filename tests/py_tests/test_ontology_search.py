@@ -1,6 +1,5 @@
 """Tests for ontology_search module."""
 
-import unicodedata
 from pathlib import Path
 
 import pytest
@@ -10,20 +9,19 @@ from pydantic import ValidationError
 
 from bsllmner2.ontology_search import (
     DEFAULT_PREFIX_MAP,
-    LABEL_URI_PROPS,
     OntologyIndex,
     SearchResult,
     TermAnnotation,
     _collect_joiners,
     _expand_prop_uri,
     _generate_windows,
-    _is_label_prop,
     _normalize_key,
     _normalize_term_id,
     _split_ws,
     _tokenize_atom,
     build_index_from_table,
     build_word_combinations,
+    is_label_prop,
     search_terms,
 )
 
@@ -136,14 +134,18 @@ class TestNormalizeTermIdProperty:
         """_normalize_term_id never raises on arbitrary input."""
         _normalize_term_id(text)
 
-    @given(prefix=st.from_regex(r"[A-Z]{2,6}", fullmatch=True), local=st.from_regex(r"[0-9A-Za-z]{1,10}", fullmatch=True))
+    @given(
+        prefix=st.from_regex(r"[A-Z]{2,6}", fullmatch=True), local=st.from_regex(r"[0-9A-Za-z]{1,10}", fullmatch=True)
+    )
     @settings(max_examples=200)
     def test_underscore_always_becomes_colon(self, prefix: str, local: str) -> None:
         """PREFIX_LOCAL always normalizes to PREFIX:LOCAL."""
         result = _normalize_term_id(f"{prefix}_{local}")
         assert result == f"{prefix}:{local}"
 
-    @given(prefix=st.from_regex(r"[A-Z]{2,6}", fullmatch=True), local=st.from_regex(r"[0-9A-Za-z]{1,10}", fullmatch=True))
+    @given(
+        prefix=st.from_regex(r"[A-Z]{2,6}", fullmatch=True), local=st.from_regex(r"[0-9A-Za-z]{1,10}", fullmatch=True)
+    )
     @settings(max_examples=200)
     def test_colon_form_is_stable(self, prefix: str, local: str) -> None:
         """PREFIX:LOCAL is a fixed point."""
@@ -179,17 +181,17 @@ class TestExpandPropUri:
         result = _expand_prop_uri("rdfs:label")
         assert result == "http://www.w3.org/2000/01/rdf-schema#label"
 
-    def test_skos_prefLabel_expands_to_correct_uri(self) -> None:
+    def test_skos_pref_label_expands_to_correct_uri(self) -> None:
         """Bug #3 verification: skos:prefLabel expands to the correct SKOS core URI."""
         result = _expand_prop_uri("skos:prefLabel")
         assert result == "http://www.w3.org/2004/02/skos/core#prefLabel"
 
-    def test_skos_altLabel(self) -> None:
+    def test_skos_alt_label(self) -> None:
         """skos:altLabel expands correctly."""
         result = _expand_prop_uri("skos:altLabel")
         assert result == "http://www.w3.org/2004/02/skos/core#altLabel"
 
-    def test_oboInOwl_hasExactSynonym(self) -> None:
+    def test_obo_in_owl_has_exact_synonym(self) -> None:
         """oboInOwl:hasExactSynonym expands correctly."""
         result = _expand_prop_uri("oboInOwl:hasExactSynonym")
         assert result == "http://www.geneontology.org/formats/oboInOwl#hasExactSynonym"
@@ -265,37 +267,37 @@ class TestNormalizeKeyProperty:
         assert result == result.casefold()
 
 
-# === _is_label_prop ===
+# === is_label_prop ===
 
 
 class TestIsLabelProp:
-    """Test cases for _is_label_prop function."""
+    """Test cases for is_label_prop function."""
 
     def test_rdfs_label_is_true(self) -> None:
         """rdfs:label full URI is recognized as label prop."""
-        assert _is_label_prop("http://www.w3.org/2000/01/rdf-schema#label") is True
+        assert is_label_prop("http://www.w3.org/2000/01/rdf-schema#label") is True
 
-    def test_skos_prefLabel_is_true(self) -> None:
+    def test_skos_pref_label_is_true(self) -> None:
         """skos:prefLabel full URI is recognized as label prop."""
         skos_prefix = DEFAULT_PREFIX_MAP["skos"]
-        assert _is_label_prop(skos_prefix + "prefLabel") is True
+        assert is_label_prop(skos_prefix + "prefLabel") is True
 
     def test_synonym_is_false(self) -> None:
         """oboInOwl:hasExactSynonym is not a label prop."""
         oio_prefix = DEFAULT_PREFIX_MAP["oboInOwl"]
-        assert _is_label_prop(oio_prefix + "hasExactSynonym") is False
+        assert is_label_prop(oio_prefix + "hasExactSynonym") is False
 
     def test_none_is_false(self) -> None:
         """None returns False."""
-        assert _is_label_prop(None) is False
+        assert is_label_prop(None) is False
 
     def test_empty_string_is_false(self) -> None:
         """Empty string returns False."""
-        assert _is_label_prop("") is False
+        assert is_label_prop("") is False
 
     def test_arbitrary_uri_is_false(self) -> None:
         """Arbitrary URI not in label set returns False."""
-        assert _is_label_prop("http://example.org/someProp") is False
+        assert is_label_prop("http://example.org/someProp") is False
 
 
 # === _split_ws ===

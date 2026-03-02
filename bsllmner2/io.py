@@ -239,7 +239,7 @@ def list_run_metadata() -> list[RunMetadata]:
             run_metadata.completed_count = load_progress_count(run_name)
             run_metadata_list.append(run_metadata)
         except (FileNotFoundError, ValueError) as e:
-            print(f"Skipping file {file}: {e}")
+            LOGGER.warning("Skipping file %s: %s", file, e)
 
     return run_metadata_list
 

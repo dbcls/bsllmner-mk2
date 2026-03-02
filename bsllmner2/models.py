@@ -137,23 +137,29 @@ class WfInput(BaseModel):
     cli_args: CliExtractArgs | CliSelectArgs | None = None
 
 
+LlmOutputValue = dict[str, Any] | list[Any] | None
+
+
 class LlmOutput(BaseModel):
     accession: str
-    output: Any | None = None
+    output: LlmOutputValue = None
     output_full: str | None = None
     characteristics: dict[str, Any] | None = None
-    taxId: Any | None = None
+    taxId: int | str | None = None
     chat_response: ChatResponse
+
+
+SelectFieldResults = dict[str, SearchResult | None]
 
 
 class SelectResult(BaseModel):
     accession: str
-    extract_output: Any | None = None
+    extract_output: LlmOutputValue = None
     # field -> value -> List[SearchResult]
     search_results: dict[str, dict[str, list[SearchResult]]] = Field(default_factory=dict)
     text2term_results: dict[str, dict[str, list[SearchResult]]] = Field(default_factory=dict)
     llm_chat_response: dict[str, dict[str, ChatResponse | None]] = Field(default_factory=dict)
-    results: dict[str, dict[str, SearchResult | None] | Any] = Field(default_factory=dict)
+    results: dict[str, SelectFieldResults | str | list[str] | None] = Field(default_factory=dict)
 
 
 class Evaluation(BaseModel):

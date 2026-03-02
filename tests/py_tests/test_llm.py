@@ -1,14 +1,15 @@
 """Tests for private helper functions in bsllmner2.llm."""
 
 import json
+import pickle
 import re
 from pathlib import Path
 from typing import Any, ClassVar
 from unittest.mock import patch
 
 import pytest
-from ollama import ChatResponse, Message, Options
-from pydantic.json_schema import JsonSchemaValue
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from bsllmner2.errors import OllamaConnectionError
 from bsllmner2.llm import (
@@ -20,12 +21,13 @@ from bsllmner2.llm import (
     _parse_output_object,
     _pick_exact_match_search_result,
     _pick_search_result_by_id,
+    build_index_map,
     ner,
     select,
 )
 from bsllmner2.models import LlmOutput, Prompt, SelectConfig, SelectConfigField, SelectResult
-from bsllmner2.ontology_search import SearchResult
-from tests.py_tests.conftest import make_chat_response
+from bsllmner2.ontology_search import OntologyIndex, SearchResult
+from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 # === helpers ===
 
@@ -207,14 +209,14 @@ class TestComputeFilterHash:
     def test_empty_dict_not_nofilter(self) -> None:
         h = _compute_filter_hash({})
         assert h != "nofilter"
-        assert re.fullmatch(r"[0-9a-f]{12}", h)
+        assert re.fullmatch(r"[0-9a-f]{16}", h)
 
     def test_different_dicts_different_hash(self) -> None:
         assert _compute_filter_hash({"a": "1"}) != _compute_filter_hash({"a": "2"})
 
     def test_hash_is_12_char_hex(self) -> None:
         h = _compute_filter_hash({"key": "value"})
-        assert re.fullmatch(r"[0-9a-f]{12}", h)
+        assert re.fullmatch(r"[0-9a-f]{16}", h)
 
 
 # === TestConstructOutput ===
@@ -307,42 +309,6 @@ class TestParseOutputObject:
         assert obj["count"] == 42
 
 
-# === FakeLlmBackend ===
-
-
-class FakeLlmBackend:
-    """In-memory LlmBackend for testing. Returns pre-configured responses."""
-
-    def __init__(self, responses: list[str | Exception]) -> None:
-        self._responses = list(responses)
-        self._call_index = 0
-        self.host = "http://fake:11434"
-
-    async def chat(
-        self,
-        model: str,
-        messages: list[Message],
-        *,
-        options: Options | None = None,
-        think: bool | None = None,
-        format_: JsonSchemaValue | None = None,
-    ) -> ChatResponse:
-        idx = self._call_index
-        self._call_index += 1
-        if idx >= len(self._responses):
-            raise RuntimeError(f"FakeLlmBackend: no response configured for call {idx}")
-        item = self._responses[idx]
-        if isinstance(item, Exception):
-            raise item
-        return make_chat_response(item)
-
-    async def ensure_model(self, model: str) -> None:
-        pass
-
-    def list_models(self) -> list[str]:
-        return ["test-model"]
-
-
 _SIMPLE_PROMPT = [Prompt(role="system", content="test"), Prompt(role="user", content="Extract:")]
 
 
@@ -358,10 +324,12 @@ class TestNer:
             {"accession": "SAMN001", "title": "Sample 1"},
             {"accession": "SAMN002", "title": "Sample 2"},
         ]
-        backend = FakeLlmBackend([
-            '{"cell_line": "HeLa"}',
-            '{"cell_line": "HEK293"}',
-        ])
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',
+                '{"cell_line": "HEK293"}',
+            ]
+        )
         outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 2
         accessions = {o.accession for o in outputs}
@@ -390,10 +358,12 @@ class TestNer:
             {"accession": "SAMN001", "title": "Sample 1"},
             {"accession": "SAMN002", "title": "Sample 2"},
         ]
-        backend = FakeLlmBackend([
-            '{"cell_line": "HeLa"}',
-            ConnectionError("connection lost"),
-        ])
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',
+                ConnectionError("connection lost"),
+            ]
+        )
         outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         # Only the first entry succeeds
         assert len(outputs) == 1
@@ -410,10 +380,12 @@ class TestNer:
             {"accession": "SAMN001", "title": "Sample 1"},
             {"accession": "SAMN002", "title": "Sample 2"},
         ]
-        backend = FakeLlmBackend([
-            '{"cell_line": "HeLa"}',
-            '{"cell_line": "HEK293"}',
-        ])
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',
+                '{"cell_line": "HEK293"}',
+            ]
+        )
         progress_file = tmp_path / "progress.txt"
         await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model", progress_file_path=progress_file)
         content = progress_file.read_text()
@@ -459,9 +431,7 @@ def _make_select_config_no_ontology() -> SelectConfig:
 class TestSelect:
     """Tests for the select() async function."""
 
-    @patch("bsllmner2.llm._ontology_search_wrapper", side_effect=lambda r, *a, **kw: r)
-    @patch("bsllmner2.llm._text2term_wrapper", side_effect=lambda r, *a, **kw: r)
-    async def test_no_select_fields_passthrough(self, mock_t2t: Any, mock_onto: Any) -> None:
+    async def test_no_select_fields_passthrough(self) -> None:
         """When ontology_file=None, extract output is passed through directly."""
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         extract_outputs = [
@@ -478,9 +448,7 @@ class TestSelect:
         # With ontology_file=None, cell_line is passed through directly
         assert results[0].results["cell_line"] == "HeLa"
 
-    @patch("bsllmner2.llm._ontology_search_wrapper", side_effect=lambda r, *a, **kw: r)
-    @patch("bsllmner2.llm._text2term_wrapper", side_effect=lambda r, *a, **kw: r)
-    async def test_extract_output_none_handled(self, mock_t2t: Any, mock_onto: Any) -> None:
+    async def test_extract_output_none_handled(self) -> None:
         """Entries with output=None are handled gracefully."""
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         extract_outputs = [
@@ -497,9 +465,7 @@ class TestSelect:
         # cell_line not in results because output was None
         assert "cell_line" not in results[0].results
 
-    @patch("bsllmner2.llm._ontology_search_wrapper", side_effect=lambda r, *a, **kw: r)
-    @patch("bsllmner2.llm._text2term_wrapper", side_effect=lambda r, *a, **kw: r)
-    async def test_alignment_with_missing_entries(self, mock_t2t: Any, mock_onto: Any) -> None:
+    async def test_alignment_with_missing_entries(self) -> None:
         """BUG 2: When ner() skips entries, positional zip misaligns data.
 
         Scenario: 3 bs_entries but ner() only succeeds for entries 1 and 3.
@@ -545,9 +511,7 @@ class TestSelect:
         assert "SAMN001" in result_map
         assert result_map["SAMN001"].results["cell_line"] == "HeLa"
 
-    @patch("bsllmner2.llm._ontology_search_wrapper", side_effect=lambda r, *a, **kw: r)
-    @patch("bsllmner2.llm._text2term_wrapper", side_effect=lambda r, *a, **kw: r)
-    async def test_empty_extract_outputs(self, mock_t2t: Any, mock_onto: Any) -> None:
+    async def test_empty_extract_outputs(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
@@ -815,3 +779,195 @@ class TestConstructOutputMutations:
         assert out.output_full is not None
         parsed = json.loads(out.output_full)
         assert parsed == {"cell_line": "HeLa"}
+
+
+# === Property-based tests ===
+
+
+class TestExtractLastJsonPBT:
+    """Property-based tests for _extract_last_json."""
+
+    @given(
+        prefix=st.text(alphabet=st.characters(blacklist_characters="{}[]"), min_size=0, max_size=50),
+        d=st.fixed_dictionaries({"key": st.text(min_size=0, max_size=30)}),
+        suffix=st.text(alphabet=st.characters(blacklist_characters="{}[]"), min_size=0, max_size=50),
+    )
+    @settings(max_examples=200)
+    def test_valid_json_always_extracted(self, prefix: str, d: dict[str, str], suffix: str) -> None:
+        """Any valid JSON dict embedded in arbitrary text is always extracted."""
+        json_str = json.dumps(d)
+        text = prefix + json_str + suffix
+        result = _extract_last_json(text)
+        assert result is not None
+        parsed = json.loads(result)
+        assert parsed == d
+
+    @given(text=st.text(alphabet=st.characters(blacklist_characters="{}[]")))
+    @settings(max_examples=200)
+    def test_no_braces_returns_none(self, text: str) -> None:
+        """Text without '{', '}', '[', or ']' always returns None."""
+        assert _extract_last_json(text) is None
+
+
+class TestConstructOutputPBT:
+    """Property-based tests for _construct_output."""
+
+    @given(accession=st.text(min_size=1, max_size=50))
+    @settings(max_examples=200)
+    def test_accession_always_preserved(self, accession: str) -> None:
+        """The accession from bs_entry is always preserved in the output."""
+        bs_entry: dict[str, Any] = {"accession": accession, "title": "Test"}
+        resp = make_chat_response('{"cell_line": "HeLa"}')
+        out = _construct_output(bs_entry, resp)
+        assert out.accession == accession
+
+    @given(
+        data=st.dictionaries(
+            keys=st.text(min_size=1, max_size=20).filter(lambda s: s.isprintable()),
+            values=st.sampled_from(["null", "None"]),
+            min_size=1,
+            max_size=5,
+        ),
+    )
+    @settings(max_examples=200)
+    def test_null_none_strings_always_replaced(self, data: dict[str, str]) -> None:
+        """Dict values that are 'null' or 'None' are replaced with None."""
+        bs_entry: dict[str, Any] = {"accession": "SAMN00000001", "title": "Test"}
+        resp = make_chat_response(json.dumps(data))
+        out = _construct_output(bs_entry, resp)
+        assert out.output is not None
+        assert isinstance(out.output, dict)
+        for v in out.output.values():
+            assert v is None
+
+
+# === TestBuildIndexMap ===
+
+RDFS_LABEL_URI = "http://www.w3.org/2000/01/rdf-schema#label"
+
+
+class TestBuildIndexMap:
+    """Tests for build_index_map (ontology file loading + caching)."""
+
+    @staticmethod
+    def _write_tsv(path: Path, rows: list[tuple[str, str, str]]) -> None:
+        with path.open("w", encoding="utf-8") as f:
+            for term_id, prop, value in rows:
+                f.write(f"{term_id}\t{prop}\t{value}\n")
+
+    def test_no_ontology_files_returns_empty(self, tmp_path: Path) -> None:
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=None,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                ),
+            },
+        )
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", tmp_path):
+            result = build_index_map(config)
+        assert result == {}
+
+    def test_tsv_file_builds_index(self, tmp_path: Path) -> None:
+        tsv = tmp_path / "cells.tsv"
+        self._write_tsv(tsv, [("CL:0000001", RDFS_LABEL_URI, "HeLa")])
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=tsv,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "cache"
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", cache_dir):
+            result = build_index_map(config)
+        assert tsv in result
+        assert isinstance(result[tsv], OntologyIndex)
+
+    def test_cache_file_created(self, tmp_path: Path) -> None:
+        tsv = tmp_path / "cells.tsv"
+        self._write_tsv(tsv, [("CL:0000001", RDFS_LABEL_URI, "HeLa")])
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=tsv,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "cache"
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", cache_dir):
+            build_index_map(config)
+        pkl_files = list(cache_dir.glob("*.pkl"))
+        assert len(pkl_files) == 1
+
+    def test_cache_reused_on_second_call(self, tmp_path: Path) -> None:
+        tsv = tmp_path / "cells.tsv"
+        self._write_tsv(tsv, [("CL:0000001", RDFS_LABEL_URI, "HeLa")])
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=tsv,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "cache"
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", cache_dir):
+            result1 = build_index_map(config)
+        # Delete source TSV — second call should still work from cache
+        tsv.unlink()
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", cache_dir):
+            result2 = build_index_map(config)
+        assert tsv in result2
+        # Verify cache file contains valid OntologyIndex
+        pkl_files = list(cache_dir.glob("*.pkl"))
+        with pkl_files[0].open("rb") as f:
+            cached = pickle.load(f)
+        assert isinstance(cached, OntologyIndex)
+        assert result1[tsv].term_id_to_labels == result2[tsv].term_id_to_labels
+
+    def test_duplicate_path_built_once(self, tmp_path: Path) -> None:
+        tsv = tmp_path / "cells.tsv"
+        self._write_tsv(tsv, [("CL:0000001", RDFS_LABEL_URI, "HeLa")])
+        config = SelectConfig(
+            fields={
+                "field_a": SelectConfigField(
+                    ontology_file=tsv,
+                    prompt_description="Field A",
+                    value_type="string",
+                ),
+                "field_b": SelectConfigField(
+                    ontology_file=tsv,
+                    prompt_description="Field B",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "cache"
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", cache_dir):
+            result = build_index_map(config)
+        # Only one entry despite two fields referencing the same file
+        assert len(result) == 1
+        assert tsv in result
+
+    def test_unsupported_extension_raises(self, tmp_path: Path) -> None:
+        bad_file = tmp_path / "data.xml"
+        bad_file.write_text("<xml/>")
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=bad_file,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "cache"
+        with patch("bsllmner2.llm.INDEX_CACHE_DIR", cache_dir), pytest.raises(ValueError, match="Unsupported"):
+            build_index_map(config)

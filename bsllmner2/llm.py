@@ -18,9 +18,9 @@ from bsllmner2.models import BsEntries, LlmOutput, Prompt, SelectConfig, SelectR
 from bsllmner2.ontology_search import (
     OntologyIndex,
     SearchResult,
-    _is_label_prop,
     build_index_from_owl,
     build_index_from_table,
+    is_label_prop,
     search_terms,
     search_terms_with_text2term,
 )
@@ -119,9 +119,9 @@ class OllamaBackend:
     def list_models(self) -> list[str]:
         """Fetch the list of available models from the Ollama server."""
         client = ollama.Client(host=self._host)
-        models = client.list()
+        models_response = client.list()
 
-        return [model.name for model in models]  # type: ignore[attr-defined]
+        return [m.model for m in models_response.models if m.model is not None]
 
 
 # === Private helpers ===
@@ -155,8 +155,8 @@ def _extract_last_json(text: str) -> str | None:
 
 def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> LlmOutput:
     try:
-        res_text = chat_response["message"]["content"]
-        res_text_json = _extract_last_json(res_text)
+        res_text = chat_response.message.content
+        res_text_json = _extract_last_json(res_text) if res_text is not None else None
     except Exception as e:
         LOGGER.error("Error extracting JSON from response text: %s", e)
         res_text_json = None
@@ -260,13 +260,28 @@ async def ner(
         return output
 
     try:
-        results = await asyncio.gather(*(_process_entry(entry) for entry in bs_entries))
-        outputs.extend([res for res in results if res is not None])
+        # Process the first entry serially to verify the connection
+        if bs_entries:
+            first_result = await _process_entry(bs_entries[0])
+            connection_tested = True
+            remaining = bs_entries[1:]
+        else:
+            first_result = None
+            remaining = []
+
+        # Process the remaining entries in parallel
+        if remaining:
+            rest_results = await asyncio.gather(*(_process_entry(entry) for entry in remaining))
+        else:
+            rest_results = []
+
+        all_results = [first_result, *rest_results]
+        outputs.extend([res for res in all_results if res is not None])
     finally:
         if progress_file:
             progress_file.close()
 
-    if error_count > 0:
+    if error_count > 0 and len(bs_entries) > 0:
         LOGGER.warning(
             "Completed with %d errors out of %d entries (%.1f%% success rate)",
             error_count,
@@ -294,7 +309,7 @@ def _pick_exact_match_search_result(
         return None
 
     for search_result in exact_matches:
-        if _is_label_prop(search_result.prop_uri):
+        if is_label_prop(search_result.prop_uri):
             return search_result
 
     # Here, only one unique term_id exists, but no preferred property found.
@@ -308,7 +323,7 @@ def _compute_filter_hash(ontology_filter: dict[str, str] | None) -> str:
         return "nofilter"
     filter_str = json.dumps(ontology_filter, sort_keys=True)
 
-    return hashlib.md5(filter_str.encode()).hexdigest()[:12]
+    return hashlib.sha256(filter_str.encode()).hexdigest()[:16]
 
 
 def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
@@ -332,7 +347,7 @@ def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
                 mapping[ontology_file_path] = index
                 continue
             except Exception:
-                pass
+                LOGGER.warning("Failed to load cache %s", cache_file_path, exc_info=True)
 
         if ontology_file_path.suffix == ".owl":
             index = build_index_from_owl(ontology_file_path, additional_conditions=field_config.ontology_filter)
@@ -346,9 +361,81 @@ def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
             with cache_file_path.open("wb") as f:
                 pickle.dump(index, f)
         except Exception:
-            pass
+            LOGGER.warning("Failed to save cache %s", cache_file_path, exc_info=True)
 
     return mapping
+
+
+def _collect_queries(
+    select_results: list[SelectResult],
+    field_name: str,
+) -> set[str]:
+    """Collect unique query strings from select results for a given field.
+
+    Skips entries that already have final results for the field.
+    """
+    queries: set[str] = set()
+    for res in select_results:
+        if not isinstance(res.extract_output, dict):
+            continue
+        if field_name not in res.extract_output:
+            continue
+        if res.results.get(field_name):
+            continue
+        query_value = res.extract_output[field_name]
+        if isinstance(query_value, str):
+            queries.add(query_value)
+        elif isinstance(query_value, list):
+            queries.update(v for v in query_value if isinstance(v, str))
+    return queries
+
+
+def _distribute_results(
+    select_results: list[SelectResult],
+    field_name: str,
+    all_results: dict[str, list[SearchResult]],
+    result_attr: str,
+) -> None:
+    """Distribute search results back into SelectResult objects.
+
+    For each SelectResult, stores per-query candidates into the attribute
+    specified by *result_attr* (``"search_results"`` or ``"text2term_results"``)
+    and sets exact-match results into ``results``.
+    """
+    for res in select_results:
+        if not isinstance(res.extract_output, dict):
+            continue
+        if field_name not in res.extract_output:
+            continue
+        if res.results.get(field_name):
+            continue
+
+        query_value = res.extract_output[field_name]
+        if isinstance(query_value, str):
+            values = [query_value]
+        elif isinstance(query_value, list):
+            values = [v for v in query_value if isinstance(v, str)]
+        else:
+            continue
+
+        per_query_store: dict[str, Any] = getattr(res, result_attr)
+        field_specific = per_query_store.get(field_name)
+        if not isinstance(field_specific, dict):
+            field_specific = {}
+            per_query_store[field_name] = field_specific
+
+        field_results = res.results.get(field_name)
+        if field_results is None:
+            field_results = {}
+            res.results[field_name] = field_results
+
+        for value in values:
+            candidates = all_results.get(value, [])
+            field_specific[value] = candidates
+
+            exact_match_result = _pick_exact_match_search_result(candidates)
+            if exact_match_result is not None:
+                field_results[value] = exact_match_result
 
 
 def _ontology_search_wrapper(
@@ -378,63 +465,12 @@ def _ontology_search_wrapper(
 
         LOGGER.info("Searching ontology for field: %s", field_name)
 
-        queries: set[str] = set()
-        for res in select_results:
-            if not isinstance(res.extract_output, dict):
-                continue
-            if field_name not in res.extract_output:
-                continue
-
-            # skip only if final result already exists
-            if res.results.get(field_name):
-                continue
-
-            query_value = res.extract_output[field_name]
-            if isinstance(query_value, str):
-                queries.add(query_value)
-            elif isinstance(query_value, list):
-                queries.update(v for v in query_value if isinstance(v, str))
-
+        queries = _collect_queries(select_results, field_name)
         if not queries:
             continue
 
-        search_results = search_terms(index, queries)
-
-        for res in select_results:
-            if not isinstance(res.extract_output, dict):
-                continue
-            if field_name not in res.extract_output:
-                continue
-
-            # skip only if final result already exists
-            if res.results.get(field_name):
-                continue
-
-            query_value = res.extract_output[field_name]
-            if isinstance(query_value, str):
-                values = [query_value]
-            elif isinstance(query_value, list):
-                values = [v for v in query_value if isinstance(v, str)]
-            else:
-                continue
-
-            field_search_results = res.search_results.get(field_name)
-            if not isinstance(field_search_results, dict):
-                field_search_results = {}
-                res.search_results[field_name] = field_search_results
-
-            field_results = res.results.get(field_name)
-            if field_results is None:
-                field_results = {}
-                res.results[field_name] = field_results
-
-            for value in values:
-                candidates = search_results.get(value, [])
-                field_search_results[value] = candidates
-
-                exact_match_result = _pick_exact_match_search_result(candidates)
-                if exact_match_result is not None:
-                    field_results[value] = exact_match_result
+        results = search_terms(index, queries)
+        _distribute_results(select_results, field_name, results, "search_results")
 
     return select_results
 
@@ -442,6 +478,7 @@ def _ontology_search_wrapper(
 def _text2term_wrapper(
     select_results: list[SelectResult],
     select_config: SelectConfig,
+    index_map: dict[Path, OntologyIndex] | None = None,
 ) -> list[SelectResult]:
     """Perform text2term search for each field in the select configuration."""
     for field_name, field_config in select_config.fields.items():
@@ -458,71 +495,22 @@ def _text2term_wrapper(
 
         LOGGER.info("text2term for field: %s", field_name)
 
-        queries: set[str] = set()
-        for res in select_results:
-            if not isinstance(res.extract_output, dict):
-                continue
-            if field_name not in res.extract_output:
-                continue
-
-            # skip only if final result already exists
-            if res.results.get(field_name):
-                continue
-
-            query_value = res.extract_output[field_name]
-            if isinstance(query_value, str):
-                queries.add(query_value)
-            elif isinstance(query_value, list):
-                queries.update(v for v in query_value if isinstance(v, str))
-
+        queries = _collect_queries(select_results, field_name)
         if not queries:
             continue
 
+        index = index_map.get(ontology_file_path) if index_map is not None else None
         try:
-            text2term_results = search_terms_with_text2term(queries, ontology_file_path)
+            results = search_terms_with_text2term(queries, ontology_file_path, index=index)
         except Exception as e:
             LOGGER.exception(
                 "text2term failed. field: %s, error: %s",
                 field_name,
                 e,
             )
-            text2term_results = {}
+            results = {}
 
-        for res in select_results:
-            if not isinstance(res.extract_output, dict):
-                continue
-            if field_name not in res.extract_output:
-                continue
-
-            # skip only if final result already exists
-            if res.results.get(field_name):
-                continue
-
-            query_value = res.extract_output[field_name]
-            if isinstance(query_value, str):
-                values = [query_value]
-            elif isinstance(query_value, list):
-                values = [v for v in query_value if isinstance(v, str)]
-            else:
-                continue
-
-            field_text2term_results = res.text2term_results.get(field_name)
-            if not isinstance(field_text2term_results, dict):
-                field_text2term_results = {}
-                res.text2term_results[field_name] = field_text2term_results
-
-            field_results = res.results.get(field_name)
-            if field_results is None:
-                field_results = {}
-                res.results[field_name] = field_results
-
-            for value in values:
-                candidates = text2term_results.get(value, [])
-                field_text2term_results[value] = candidates
-
-                exact_match_result = _pick_exact_match_search_result(candidates)
-                if exact_match_result is not None:
-                    field_results[value] = exact_match_result
+        _distribute_results(select_results, field_name, results, "text2term_results")
 
     return select_results
 
@@ -579,7 +567,7 @@ def _collect_candidates_for_field(
     by_term_id: dict[str, SearchResult] = {}
     for result in merged:
         prev = by_term_id.get(result.term_id)
-        if prev is None or (_is_label_prop(result.prop_uri) and not _is_label_prop(prev.prop_uri)):
+        if prev is None or (is_label_prop(result.prop_uri) and not is_label_prop(prev.prop_uri)):
             by_term_id[result.term_id] = result
 
     return list(by_term_id.values())
@@ -593,7 +581,7 @@ def _pick_search_result_by_id(
 ) -> SearchResult | None:
     candidates = _collect_candidates_for_field(field_name, value, select_result)
     for candidate in candidates:
-        if candidate.term_id == term_id and _is_label_prop(candidate.prop_uri):
+        if candidate.term_id == term_id and is_label_prop(candidate.prop_uri):
             return candidate
     for candidate in candidates:
         if candidate.term_id == term_id:
@@ -695,8 +683,8 @@ def _build_select_prompt_and_schema(
 
 def _parse_output_object(chat_response: ChatResponse) -> dict[str, Any] | None:
     try:
-        res_text = chat_response["message"]["content"]
-        res_text_json = _extract_last_json(res_text)
+        res_text = chat_response.message.content
+        res_text_json = _extract_last_json(res_text) if res_text is not None else None
     except Exception as e:
         LOGGER.error("Error extracting JSON from response text: %s", e)
         res_text_json = None
@@ -757,7 +745,7 @@ async def select(
     _ontology_search_wrapper(intermediate_results, select_config, index_map=index_map)
 
     # 2. Perform text2term search for each field specified in the select configuration.
-    _text2term_wrapper(intermediate_results, select_config)
+    _text2term_wrapper(intermediate_results, select_config, index_map=index_map)
 
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
 

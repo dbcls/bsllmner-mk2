@@ -1,3 +1,4 @@
+import atexit
 import json
 import os
 import tempfile
@@ -7,15 +8,22 @@ from typing import Any
 
 import pytest
 import yaml
-from ollama import ChatResponse, Message
+from ollama import ChatResponse, Message, Options
+from pydantic.json_schema import JsonSchemaValue
 
 # Patch INDEX_CACHE_DIR before any bsllmner2 module is imported.
 # client/ollama.py runs INDEX_CACHE_DIR.mkdir() at import time, which fails
 # outside Docker where /app/ontology does not exist.
 # conftest.py is evaluated before test modules are collected, so setting
 # the env var here ensures the module-level side effect uses a temp dir.
-_INDEX_CACHE_TMPDIR = tempfile.mkdtemp()
+# atexit is used because conftest.py module-level code runs outside the
+# pytest fixture lifecycle.
+_INDEX_CACHE_TMPDIR_OBJ = tempfile.TemporaryDirectory()
+_INDEX_CACHE_TMPDIR = _INDEX_CACHE_TMPDIR_OBJ.name
+atexit.register(_INDEX_CACHE_TMPDIR_OBJ.cleanup)
 os.environ.setdefault("BSLLMNER2_INDEX_CACHE_DIR", _INDEX_CACHE_TMPDIR)
+
+from bsllmner2.models import LlmOutput  # noqa: E402  # must be after env var setup
 
 
 def make_chat_response(content: str) -> ChatResponse:
@@ -31,6 +39,15 @@ def make_chat_response(content: str) -> ChatResponse:
         prompt_eval_duration=0,
         eval_count=0,
         eval_duration=0,
+    )
+
+
+def make_llm_output(accession: str, output: object = None) -> LlmOutput:
+    """Create a LlmOutput with minimal boilerplate for testing."""
+    return LlmOutput(
+        accession=accession,
+        output=output,
+        chat_response=make_chat_response('{"cell_line": "Test"}'),
     )
 
 
@@ -179,3 +196,36 @@ def clean_env() -> Generator[None, None, None]:
             os.environ[var] = value
         elif var in os.environ:
             del os.environ[var]
+
+
+class FakeLlmBackend:
+    """In-memory LlmBackend for testing. Returns pre-configured responses."""
+
+    def __init__(self, responses: list[str | Exception]) -> None:
+        self._responses = list(responses)
+        self._call_index = 0
+        self.host = "http://fake:11434"
+
+    async def chat(
+        self,
+        model: str,
+        messages: list[Message],
+        *,
+        options: Options | None = None,
+        think: bool | None = None,
+        format_: JsonSchemaValue | None = None,
+    ) -> ChatResponse:
+        idx = self._call_index
+        self._call_index += 1
+        if idx >= len(self._responses):
+            raise RuntimeError(f"FakeLlmBackend: no response configured for call {idx}")
+        item = self._responses[idx]
+        if isinstance(item, Exception):
+            raise item
+        return make_chat_response(item)
+
+    async def ensure_model(self, model: str) -> None:
+        pass
+
+    def list_models(self) -> list[str]:
+        return ["test-model"]

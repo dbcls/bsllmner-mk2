@@ -231,9 +231,7 @@ class TestExceptionHierarchyCatching:
             ),
         ],
     )
-    def test_all_custom_errors_caught_by_base(
-        self, exc_class: type, args: tuple[object, ...]
-    ) -> None:
+    def test_all_custom_errors_caught_by_base(self, exc_class: type, args: tuple[object, ...]) -> None:
         """All custom exceptions must be catchable as Bsllmner2Error."""
         with pytest.raises(Bsllmner2Error):
             raise exc_class(*args)

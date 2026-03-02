@@ -4,6 +4,8 @@ import argparse
 from typing import Any
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from bsllmner2.cli_common import BatchInfo, process_batches, str_to_bool
 
@@ -242,14 +244,44 @@ class TestProcessBatches:
         assert results == [5]
 
     @pytest.mark.asyncio
+    async def test_batch_size_zero_raises_value_error(self) -> None:
+        """batch_size=0 raises ValueError before any processing."""
+
+        async def _noop(x: BatchInfo) -> list[Any]:
+            return []
+
+        with pytest.raises(ValueError, match="batch_size must be positive"):
+            await process_batches(
+                entries=[{"id": 1}],
+                batch_size=0,
+                process_fn=_noop,
+                on_batch_complete=lambda idx, result: None,
+            )
+
+    @pytest.mark.asyncio
+    async def test_batch_size_negative_raises_value_error(self) -> None:
+        """batch_size=-1 raises ValueError before any processing."""
+
+        async def _noop(x: BatchInfo) -> list[Any]:
+            return []
+
+        with pytest.raises(ValueError, match="batch_size must be positive"):
+            await process_batches(
+                entries=[{"id": 1}],
+                batch_size=-1,
+                process_fn=_noop,
+                on_batch_complete=lambda idx, result: None,
+            )
+
+    @pytest.mark.asyncio
     async def test_batch_size_one(self) -> None:
         """batch_size=1 → one batch per entry."""
         entries = [{"id": i} for i in range(3)]
         batch_sizes: list[int] = []
 
-        async def process_fn(batch_info: BatchInfo) -> str:
+        async def process_fn(batch_info: BatchInfo) -> int:
             batch_sizes.append(len(batch_info.entries))
-            return batch_info.entries[0]["id"]
+            return int(batch_info.entries[0]["id"])
 
         results = await process_batches(
             entries=entries,
@@ -260,3 +292,51 @@ class TestProcessBatches:
         assert len(results) == 3
         assert all(s == 1 for s in batch_sizes)
         assert results == [0, 1, 2]
+
+
+# === Property-based tests ===
+
+_TRUTHY = ("true", "1", "yes", "on")
+_FALSY = ("false", "0", "no", "off")
+_ALL_KNOWN = {*_TRUTHY, *_FALSY}
+
+
+def _random_case(s: str) -> st.SearchStrategy[str]:
+    """Strategy that returns s with randomly varied casing."""
+    return st.builds(
+        "".join,
+        st.tuples(*(st.sampled_from([c.lower(), c.upper()]) for c in s)),
+    )
+
+
+@st.composite
+def _truthy_any_case(draw: st.DrawFn) -> str:
+    base = draw(st.sampled_from(_TRUTHY))
+    return draw(_random_case(base))
+
+
+@st.composite
+def _falsy_any_case(draw: st.DrawFn) -> str:
+    base = draw(st.sampled_from(_FALSY))
+    return draw(_random_case(base))
+
+
+class TestStrToBoolPBT:
+    """Property-based tests for str_to_bool."""
+
+    @given(value=_truthy_any_case())
+    @settings(max_examples=200)
+    def test_truthy_strings_always_true(self, value: str) -> None:
+        """Any truthy string in any case always returns True."""
+        assert str_to_bool(value) is True
+
+    @given(
+        value=st.text(min_size=1, max_size=20).filter(
+            lambda s: s.strip().lower() not in _ALL_KNOWN,
+        ),
+    )
+    @settings(max_examples=200)
+    def test_invalid_strings_always_raise(self, value: str) -> None:
+        """Any string not in known truthy/falsy set raises ArgumentTypeError."""
+        with pytest.raises(argparse.ArgumentTypeError):
+            str_to_bool(value)

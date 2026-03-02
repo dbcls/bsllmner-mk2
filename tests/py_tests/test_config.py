@@ -4,8 +4,10 @@ import os
 from collections.abc import Generator
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
-from bsllmner2.config import Config, default_config, get_config
+from bsllmner2.config import Config, _parse_bool_env, default_config, get_config
 
 
 class TestConfig:
@@ -109,3 +111,35 @@ class TestGetConfigDebugParsing:
         os.environ["BSLLMNER2_DEBUG"] = "False"
         config = get_config()
         assert config.debug is False
+
+
+# === Property-based tests ===
+
+_TRUTHY_STRINGS = ("true", "1", "yes", "on")
+
+
+class TestParseBoolEnvPBT:
+    """Property-based tests for _parse_bool_env."""
+
+    @given(value=st.text())
+    @settings(max_examples=200)
+    def test_never_raises(self, value: str) -> None:
+        """Any string input never raises an exception."""
+        result = _parse_bool_env(value)
+        assert isinstance(result, bool)
+
+    @given(value=st.sampled_from(_TRUTHY_STRINGS))
+    @settings(max_examples=200)
+    def test_truthy_returns_true(self, value: str) -> None:
+        """Known truthy strings always return True."""
+        assert _parse_bool_env(value) is True
+
+    @given(
+        value=st.text(min_size=0, max_size=50).filter(
+            lambda s: s.lower() not in _TRUTHY_STRINGS,
+        ),
+    )
+    @settings(max_examples=200)
+    def test_non_truthy_returns_false(self, value: str) -> None:
+        """Non-truthy strings return False."""
+        assert _parse_bool_env(value) is False

@@ -197,7 +197,7 @@ LABEL_URI_PROPS = {
 }
 
 
-def _is_label_prop(prop_uri: str | None) -> bool:
+def is_label_prop(prop_uri: str | None) -> bool:
     if not prop_uri:
         return False
     return prop_uri in LABEL_URI_PROPS
@@ -213,7 +213,7 @@ def build_index(
 
     for ann in iter_term_annotations(ontology, additional_conditions):
         key = _normalize_key(ann.value)
-        if _is_label_prop(ann.prop_uri):
+        if is_label_prop(ann.prop_uri):
             labels = term_id_to_labels.setdefault(ann.term_id, [])
             norms = term_id_label_norms.setdefault(ann.term_id, set())
             if key not in norms:
@@ -275,7 +275,7 @@ def build_index_from_table(
         key = _normalize_key(raw_value)
         value_to_annotations.setdefault(key, []).append(ann)
 
-        if _is_label_prop(prop_uri):
+        if is_label_prop(prop_uri):
             labels = term_id_to_labels.setdefault(ann.term_id, [])
             norms = term_id_label_norms.setdefault(ann.term_id, set())
             if key not in norms:
@@ -463,6 +463,7 @@ def search_terms(
 def search_terms_with_text2term(
     queries: Iterable[str],
     owl_file: Path,
+    index: OntologyIndex | None = None,
 ) -> dict[str, list[SearchResult]]:
     df = text2term.map_terms(
         source_terms=list(queries),
@@ -473,7 +474,8 @@ def search_terms_with_text2term(
     if missing:
         raise ValueError(f"Expected columns missing from text2term output: {missing}. Have: {list(df.columns)}")
 
-    index = build_index_from_owl(owl_file)
+    if index is None:
+        index = build_index_from_owl(owl_file)
 
     results: dict[str, list[SearchResult]] = {q: [] for q in queries}
 
@@ -501,7 +503,7 @@ def search_terms_with_text2term(
                 prop_uri = candidates[0].prop_uri
             elif len(candidates) > 1:
                 # Prefer label property if multiple candidates exist
-                label_candidates = [c for c in candidates if _is_label_prop(c.prop_uri)]
+                label_candidates = [c for c in candidates if is_label_prop(c.prop_uri)]
                 if label_candidates:
                     prop_uri = label_candidates[0].prop_uri
                 else:

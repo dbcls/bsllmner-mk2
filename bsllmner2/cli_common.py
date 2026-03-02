@@ -7,7 +7,10 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, TypeVar
 
-from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, default_config
+from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
+from bsllmner2.io import load_bs_entries
+from bsllmner2.models import BsEntries, RunMetadata
+from bsllmner2.pipeline import get_now_str
 
 T = TypeVar("T")
 
@@ -93,10 +96,60 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
 
 
-def validate_common_args(parsed_args: argparse.Namespace) -> None:
+def validate_common_args(parser: argparse.ArgumentParser, parsed_args: argparse.Namespace) -> None:
     """Validate common arguments and raise errors if invalid."""
     if not parsed_args.bs_entries.exists():
-        raise FileNotFoundError(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
+        parser.error(f"BioSample entries file {parsed_args.bs_entries} does not exist.")
+
+
+def build_config(parsed_args: argparse.Namespace) -> Config:
+    """Build application Config from parsed CLI arguments."""
+    config = get_config()
+    if parsed_args.ollama_host is not None:
+        config.ollama_host = parsed_args.ollama_host
+    config.debug = parsed_args.debug
+    return config
+
+
+def generate_run_name(model: str, run_name: str | None) -> tuple[str, str]:
+    """Generate a run name and start timestamp.
+
+    Returns:
+        Tuple of (resolved_run_name, start_time).
+
+    """
+    start_time = get_now_str()
+    if run_name:
+        return run_name, start_time
+    return f"{model}_{start_time}", start_time
+
+
+def load_and_trim_entries(bs_entries_path: Path, max_entries: int | None) -> BsEntries:
+    """Load BioSample entries and optionally trim to max_entries."""
+    bs_entries = load_bs_entries(bs_entries_path)
+    if max_entries is not None:
+        bs_entries = bs_entries[: max_entries]
+    return bs_entries
+
+
+def build_run_metadata(
+    run_name: str,
+    model: str,
+    thinking: bool | None,
+    start_time: str,
+    end_time: str | None,
+    status: str,
+) -> RunMetadata:
+    """Build RunMetadata from common parameters."""
+    return RunMetadata(
+        run_name=run_name,
+        username=None,
+        model=model,
+        thinking=thinking,
+        start_time=start_time,
+        end_time=end_time,
+        status=status,
+    )
 
 
 @dataclass
@@ -130,6 +183,9 @@ async def process_batches(
         List of results from each batch
 
     """
+    if batch_size <= 0:
+        raise ValueError("batch_size must be positive")
+
     if not entries:
         return []
 

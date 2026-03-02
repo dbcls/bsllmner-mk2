@@ -26,7 +26,6 @@ from bsllmner2.models import (
     WfInput,
 )
 
-
 # === Helpers ===
 
 
@@ -47,7 +46,7 @@ def _make_minimal_extract_args(**overrides: object) -> CliExtractArgs:
     }
     defaults.update(overrides)
 
-    return CliExtractArgs(**defaults)  # type: ignore[arg-type]
+    return CliExtractArgs(**defaults)
 
 
 def _make_minimal_select_args(**overrides: object) -> CliSelectArgs:
@@ -58,7 +57,7 @@ def _make_minimal_select_args(**overrides: object) -> CliSelectArgs:
     }
     defaults.update(overrides)
 
-    return CliSelectArgs(**defaults)  # type: ignore[arg-type]
+    return CliSelectArgs(**defaults)
 
 
 def _make_minimal_run_metadata(**overrides: object) -> RunMetadata:
@@ -69,7 +68,7 @@ def _make_minimal_run_metadata(**overrides: object) -> RunMetadata:
     }
     defaults.update(overrides)
 
-    return RunMetadata(**defaults)  # type: ignore[arg-type]
+    return RunMetadata(**defaults)
 
 
 def _make_minimal_wf_input(**overrides: object) -> WfInput:
@@ -81,7 +80,7 @@ def _make_minimal_wf_input(**overrides: object) -> WfInput:
     }
     defaults.update(overrides)
 
-    return WfInput(**defaults)  # type: ignore[arg-type]
+    return WfInput(**defaults)
 
 
 # === TestPrompt ===
@@ -96,7 +95,7 @@ class TestPrompt:
     @pytest.mark.parametrize("role", ["moderator", "System", "SYSTEM", ""])
     def test_invalid_roles(self, role: str) -> None:
         with pytest.raises(ValidationError):
-            Prompt(role=role, content="hello")  # type: ignore[arg-type]
+            Prompt(role=role, content="hello")
 
     def test_content_required(self) -> None:
         with pytest.raises(ValidationError):
@@ -110,7 +109,7 @@ class TestPrompt:
     @settings(max_examples=50)
     def test_pbt_invalid_roles_rejected(self, role: str) -> None:
         with pytest.raises(ValidationError):
-            Prompt(role=role, content="x")  # type: ignore[arg-type]
+            Prompt(role=role, content="x")
 
 
 # === TestSelectConfigField ===
@@ -123,13 +122,13 @@ class TestSelectConfigField:
 
     @pytest.mark.parametrize("vt", ["string", "array"])
     def test_valid_value_types(self, vt: str) -> None:
-        f = SelectConfigField(value_type=vt)  # type: ignore[arg-type]
+        f = SelectConfigField(value_type=vt)
         assert f.value_type == vt
 
     @pytest.mark.parametrize("vt", ["String", "ARRAY", "list", ""])
     def test_invalid_value_types(self, vt: str) -> None:
         with pytest.raises(ValidationError):
-            SelectConfigField(value_type=vt)  # type: ignore[arg-type]
+            SelectConfigField(value_type=vt)
 
     def test_all_optional_fields_accept_none(self) -> None:
         f = SelectConfigField(
@@ -145,7 +144,7 @@ class TestSelectConfigField:
     @settings(max_examples=50)
     def test_pbt_invalid_value_types_rejected(self, vt: str) -> None:
         with pytest.raises(ValidationError):
-            SelectConfigField(value_type=vt)  # type: ignore[arg-type]
+            SelectConfigField(value_type=vt)
 
 
 # === TestRunMetadata ===
@@ -234,7 +233,7 @@ class TestMappingValue:
     def test_experiment_type_rejects_none(self) -> None:
         with pytest.raises(ValidationError):
             MappingValue(
-                experiment_type=None,  # type: ignore[arg-type]
+                experiment_type=None,
                 extraction_answer=None,
                 mapping_answer_id=None,
                 mapping_answer_label=None,
@@ -361,12 +360,18 @@ class TestLlmOutput:
         o = LlmOutput(accession="SAMN001", chat_response=_make_chat_response())
         assert o.output is None
 
-    def test_output_accepts_various_types(self) -> None:
+    def test_output_accepts_dict_list_none(self) -> None:
         cr = _make_chat_response()
-        assert LlmOutput(accession="a", output="str", chat_response=cr).output == "str"
-        assert LlmOutput(accession="a", output=42, chat_response=cr).output == 42
-        assert LlmOutput(accession="a", output=[1, 2], chat_response=cr).output == [1, 2]
         assert LlmOutput(accession="a", output={"k": "v"}, chat_response=cr).output == {"k": "v"}
+        assert LlmOutput(accession="a", output=[1, 2], chat_response=cr).output == [1, 2]
+        assert LlmOutput(accession="a", output=None, chat_response=cr).output is None
+
+    def test_output_rejects_scalar(self) -> None:
+        cr = _make_chat_response()
+        with pytest.raises(ValidationError):
+            LlmOutput(accession="a", output="str", chat_response=cr)
+        with pytest.raises(ValidationError):
+            LlmOutput(accession="a", output=42, chat_response=cr)
 
     def test_accession_required(self) -> None:
         with pytest.raises(ValidationError):
@@ -398,9 +403,13 @@ class TestSelectResult:
         sr = SelectResult(accession="SAMN001")
         assert sr.extract_output is None
 
-    def test_extract_output_accepts_any(self) -> None:
-        sr = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
-        assert sr.extract_output == {"cell_line": "HeLa"}
+    def test_extract_output_accepts_dict_list_none(self) -> None:
+        sr_dict = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
+        assert sr_dict.extract_output == {"cell_line": "HeLa"}
+        sr_list = SelectResult(accession="SAMN002", extract_output=["a", "b"])
+        assert sr_list.extract_output == ["a", "b"]
+        sr_none = SelectResult(accession="SAMN003", extract_output=None)
+        assert sr_none.extract_output is None
 
 
 # === TestEvaluation ===
@@ -412,7 +421,8 @@ class TestEvaluation:
         assert e.match is False
 
     def test_match_true_with_mismatched_values_accepted(self) -> None:
-        """B5: No cross-field validation — match=True is accepted
+        """B5: No cross-field validation — match=True is accepted.
+
         even when expected != actual. This is by design: the Evaluation
         model is a data container; consistency is the caller's responsibility.
         """
