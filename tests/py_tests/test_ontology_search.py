@@ -1,19 +1,17 @@
 """Tests for ontology_search module."""
 
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
-import pandas as pd
+import pandas as pd  # type: ignore[import-untyped]
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 from pydantic import ValidationError
 
+from bsllmner2.models import OntologyIndex, SearchResult, TermAnnotation
 from bsllmner2.ontology_search import (
     DEFAULT_PREFIX_MAP,
-    OntologyIndex,
-    SearchResult,
-    TermAnnotation,
     _collect_joiners,
     _expand_prop_uri,
     _generate_windows,
@@ -1011,9 +1009,9 @@ class TestSearchTermsWithText2term:
         )
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_basic_flow(self, mock_map_terms: object) -> None:
+    def test_basic_flow(self, mock_map_terms: MagicMock) -> None:
         """Basic flow: text2term returns mapped terms, results are built."""
-        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        mock_map_terms.return_value = self._make_text2term_df()
         index = build_index_from_owl(TEST_OWL_FILE)
         results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
         assert "Alpha Cell" in results
@@ -1021,9 +1019,9 @@ class TestSearchTermsWithText2term:
         assert "TEST:0001" in term_ids
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_exact_match_flag(self, mock_map_terms: object) -> None:
+    def test_exact_match_flag(self, mock_map_terms: MagicMock) -> None:
         """exact_match is True when source and mapped term match."""
-        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        mock_map_terms.return_value = self._make_text2term_df()
         index = build_index_from_owl(TEST_OWL_FILE)
         results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
         alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]
@@ -1031,23 +1029,23 @@ class TestSearchTermsWithText2term:
         assert alpha_results[0].exact_match is True
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_text2term_score_preserved(self, mock_map_terms: object) -> None:
+    def test_text2term_score_preserved(self, mock_map_terms: MagicMock) -> None:
         """text2term_score is preserved in SearchResult."""
-        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        mock_map_terms.return_value = self._make_text2term_df()
         index = build_index_from_owl(TEST_OWL_FILE)
         results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
         scores = {r.term_id: r.text2term_score for r in results["Alpha Cell"]}
         assert scores.get("TEST:0001") == pytest.approx(1.0)
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_missing_columns_raises(self, mock_map_terms: object) -> None:
+    def test_missing_columns_raises(self, mock_map_terms: MagicMock) -> None:
         """Missing required columns in text2term output raises ValueError."""
-        mock_map_terms.return_value = pd.DataFrame({"Source Term": ["A"], "Mapped Term Label": ["B"]})  # type: ignore[union-attr]
+        mock_map_terms.return_value = pd.DataFrame({"Source Term": ["A"], "Mapped Term Label": ["B"]})
         with pytest.raises(ValueError, match="Expected columns missing"):
             search_terms_with_text2term(["A"], TEST_OWL_FILE)
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_deduplicates_by_term_id_and_value(self, mock_map_terms: object) -> None:
+    def test_deduplicates_by_term_id_and_value(self, mock_map_terms: MagicMock) -> None:
         """Duplicate (term_id, value) pairs from text2term are deduplicated."""
         df = pd.DataFrame(
             {
@@ -1061,16 +1059,16 @@ class TestSearchTermsWithText2term:
                 "Mapping Score": [1.0, 0.9],
             }
         )
-        mock_map_terms.return_value = df  # type: ignore[union-attr]
+        mock_map_terms.return_value = df
         index = build_index_from_owl(TEST_OWL_FILE)
         results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
         alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]
         assert len(alpha_results) == 1
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_label_from_index(self, mock_map_terms: object) -> None:
+    def test_label_from_index(self, mock_map_terms: MagicMock) -> None:
         """Label is populated from the OntologyIndex, not text2term output."""
-        mock_map_terms.return_value = self._make_text2term_df()  # type: ignore[union-attr]
+        mock_map_terms.return_value = self._make_text2term_df()
         index = build_index_from_owl(TEST_OWL_FILE)
         results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
         alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]

@@ -481,7 +481,9 @@ class TestDistributeResults:
         exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
         all_results = {"HeLa": [exact]}
         _distribute_results([sr], "cell_line", all_results, "search_results")
-        assert sr.results["cell_line"]["HeLa"] is exact
+        cell_line_results = sr.results["cell_line"]
+        assert isinstance(cell_line_results, dict)
+        assert cell_line_results["HeLa"] is exact
 
     def test_skips_entries_with_existing_results(self) -> None:
         existing = _make_search_result("ID:999", RDFS_LABEL, exact_match=True, value="existing")
@@ -493,7 +495,9 @@ class TestDistributeResults:
         )
         new_result = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
         _distribute_results([sr], "cell_line", {"HeLa": [new_result]}, "search_results")
-        assert sr.results["cell_line"]["HeLa"] is existing
+        cell_line_results = sr.results["cell_line"]
+        assert isinstance(cell_line_results, dict)
+        assert cell_line_results["HeLa"] is existing
 
     def test_handles_list_values(self) -> None:
         sr = SelectResult(
@@ -553,6 +557,7 @@ class TestDistributeResults:
         non_exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")
         _distribute_results([sr], "cell_line", {"HeLa": [non_exact]}, "search_results")
         field_results = sr.results.get("cell_line", {})
+        assert isinstance(field_results, dict)
         assert "HeLa" not in field_results
 
 
@@ -565,21 +570,25 @@ class TestBuildSelectSystemMessage:
     def test_with_reasoning_includes_reasoning_instructions(self) -> None:
         msg = _build_select_system_message(reasoning=True)
         assert msg.role == "system"
+        assert msg.content is not None
         assert "reasoning" in msg.content
 
     def test_without_reasoning_omits_reasoning_instructions(self) -> None:
         msg = _build_select_system_message(reasoning=False)
         assert msg.role == "system"
+        assert msg.content is not None
         assert "reasoning" not in msg.content.lower()
 
     def test_always_contains_curator_role(self) -> None:
         for reasoning in [True, False]:
             msg = _build_select_system_message(reasoning=reasoning)
+            assert msg.content is not None
             assert "curator" in msg.content.lower()
 
     def test_always_mentions_null(self) -> None:
         for reasoning in [True, False]:
             msg = _build_select_system_message(reasoning=reasoning)
+            assert msg.content is not None
             assert "null" in msg.content
 
 
