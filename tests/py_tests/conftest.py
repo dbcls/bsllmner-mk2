@@ -230,7 +230,6 @@ def clean_env() -> Generator[None, None, None]:
         "BSLLMNER2_API_HOST",
         "BSLLMNER2_API_PORT",
         "BSLLMNER2_API_URL_PREFIX",
-        "BSLLMNER2_CONTAINER_NAME",
     ]
     original_values = {k: os.environ.get(k) for k in env_vars_to_clean}
 
@@ -245,6 +244,30 @@ def clean_env() -> Generator[None, None, None]:
             os.environ[var] = value
         elif var in os.environ:
             del os.environ[var]
+
+
+def make_chat_response_with_timing(
+    content: str = "",
+    total_duration: int = 1_000_000_000,
+    load_duration: int = 100_000_000,
+    eval_count: int = 50,
+    eval_duration: int = 500_000_000,
+    prompt_eval_count: int = 100,
+    prompt_eval_duration: int = 200_000_000,
+) -> ChatResponse:
+    """Build a ChatResponse with non-zero timing data for benchmark tests."""
+    return ChatResponse(
+        model="test-model",
+        message=Message(role="assistant", content=content),
+        done=True,
+        done_reason="stop",
+        total_duration=total_duration,
+        load_duration=load_duration,
+        prompt_eval_count=prompt_eval_count,
+        prompt_eval_duration=prompt_eval_duration,
+        eval_count=eval_count,
+        eval_duration=eval_duration,
+    )
 
 
 class FakeLlmBackend:

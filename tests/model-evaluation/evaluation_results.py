@@ -8,12 +8,40 @@ from typing import Any
 
 import httpx
 
+from bsllmner2.benchmark import BenchmarkSummary
 from bsllmner2.models import SelectResult
+from bsllmner2.pipeline import compute_classification_metrics, extract_predicted_term_id
 
 HERE = Path(__file__).parent
-SELECT_RESULTS_DIR = Path("/app/bsllmner2-results/select")
-MAPPING_FILE = Path("/app/tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv")
+RESULT_DIR = Path("/app/bsllmner2-results")
+SELECT_RESULTS_DIR = RESULT_DIR.joinpath("select")
+BENCHMARK_DIR = RESULT_DIR.joinpath("benchmarks")
+MAPPING_FILE = Path("/app/tests/data/eval_gold_standard.tsv")
 OLLAMA_HOST = "http://bsllmner-mk2-ollama:11434"
+
+
+def load_benchmark(run_name: str) -> BenchmarkSummary | None:
+    """Load a BenchmarkSummary from the benchmarks directory.
+
+    Returns None if the file does not exist.
+    """
+    bench_file = BENCHMARK_DIR.joinpath(f"{run_name}_benchmark.json")
+    if not bench_file.exists():
+        return None
+    data = json.loads(bench_file.read_text(encoding="utf-8"))
+    return BenchmarkSummary.model_validate(data)
+
+
+def time_from_benchmark(benchmark: BenchmarkSummary) -> dict[str, float]:
+    """Extract timing data from a BenchmarkSummary."""
+    result: dict[str, float] = {}
+    if benchmark.total_wall_sec is not None:
+        result["total_sec"] = benchmark.total_wall_sec
+    if benchmark.ner_llm_timing is not None:
+        result["extract_sec"] = benchmark.ner_llm_timing.total_duration_sec
+    if benchmark.select_llm_timing is not None:
+        result["selection_sec"] = benchmark.select_llm_timing.total_duration_sec
+    return result
 
 
 def list_models_from_log_dir(log_dir: Path) -> list[str]:
@@ -107,88 +135,9 @@ def load_predicted_mapping(model: str, run_name_base: str) -> dict[str, str | No
     select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
     predicted_mapping: dict[str, str | None] = {}
     for select_result in select_results:
-        accession = select_result.accession
-        results = select_result.results
-        cell_line_info = results.get("cell_line", None)
-        predicted_mapping[accession] = None
-        if isinstance(cell_line_info, dict):
-            cell_line_result = next(iter(cell_line_info.values()), None)
-            if cell_line_result is not None:
-                predicted_mapping[accession] = cell_line_result.term_id
+        predicted_mapping[select_result.accession] = extract_predicted_term_id(select_result, "cell_line")
 
     return predicted_mapping
-
-
-def evaluate_mapping(
-    predicted_mapping: dict[str, str | None],
-    answer_mapping: dict[str, str | None],
-) -> dict[str, float | None]:
-    """Evaluate predicted mapping against answer mapping.
-
-    Evaluation rules:
-
-    answer = "A"  / pred = "A"        -> correct
-    answer = "A"  / pred = "B"        -> incorrect
-    answer = "A"  / pred = None       -> incorrect
-    answer = None / pred = None       -> correct
-    answer = None / pred = "something"-> incorrect
-
-    None is simply one of the valid possible classes.
-    Exact match is used for accuracy.
-
-    Precision: among predicted strings, how many were correct?
-        TP / (TP + FP)
-
-    Recall: among answer strings, how many were correctly predicted?
-        TP / (TP + FN)
-
-    F1-score: harmonic mean of precision and recall.
-        F1 = 2 * P * R / (P + R)
-    """
-    tp = 0  # correct string predictions
-    fp = 0  # predicted string but incorrect
-    fn = 0  # answer is string but model failed to predict it
-
-    correct = 0
-    total = len(answer_mapping)
-
-    for key, answer in answer_mapping.items():
-        pred = predicted_mapping.get(key)
-
-        # exact match for accuracy
-        if pred == answer:
-            correct += 1
-
-        # precision / recall counting
-        if answer is not None:  # answer is a string
-            if pred == answer:
-                tp += 1
-            else:
-                fn += 1
-        elif pred is not None:
-            fp += 1
-
-    precision = tp / (tp + fp) if (tp + fp) > 0 else None
-    recall = tp / (tp + fn) if (tp + fn) > 0 else None
-
-    if precision is not None and recall is not None and (precision + recall) > 0:
-        f1 = 2 * precision * recall / (precision + recall)
-    else:
-        f1 = None
-
-    accuracy = correct / total
-
-    return {
-        "tp": tp,
-        "fp": fp,
-        "fn": fn,
-        "correct": correct,
-        "total": total,
-        "precision": precision,
-        "recall": recall,
-        "f1": f1,
-        "accuracy": accuracy,
-    }
 
 
 def count_results(model: str, run_name_base: str) -> dict[str, int]:
@@ -258,7 +207,7 @@ def write_results_tsv(results: dict[str, dict[str, Any]], result_tsv_path: Path)
         "Accuracy (%)",
         "Precision (%)",
         "Recall (%)",
-        "F1-score",
+        "F1-score (%)",
         "Extract LLM Time (sec)",
         "Selection LLM Time (sec)",
         "Total Time (sec)",
@@ -285,7 +234,7 @@ def write_results_tsv(results: dict[str, dict[str, Any]], result_tsv_path: Path)
             precision_pct = round(precision * 100, 2) if precision is not None else ""
             recall_pct = round(recall * 100, 2) if recall is not None else ""
 
-            f1_val = round(f1, 4) if f1 is not None else ""
+            f1_val = round(f1 * 100, 2) if f1 is not None else ""
 
             row = [
                 model,
@@ -328,12 +277,18 @@ def main() -> None:
         try:
             result: dict[str, Any] = {}
 
-            time_results = parse_time_from_log(model, log_dir)
+            model_safe = model.replace(":", "_")
+            run_name = f"{run_name_base}-{model_safe}"
+            benchmark = load_benchmark(run_name)
+            if benchmark is not None:
+                time_results = time_from_benchmark(benchmark)
+            else:
+                time_results = parse_time_from_log(model, log_dir)
             result.update(time_results)
 
             predicted_mapping = load_predicted_mapping(model, run_name_base)
-            evaluation_results = evaluate_mapping(predicted_mapping, answer_mapping)
-            result.update(evaluation_results)
+            metrics = compute_classification_metrics(predicted_mapping, answer_mapping)
+            result.update(metrics.model_dump())
 
             results_counts = count_results(model, run_name_base)
             result.update(results_counts)

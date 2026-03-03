@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns="http://example.org/test-ontology#"
+     xml:base="http://example.org/test-ontology"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:xml="http://www.w3.org/XML/1998/namespace"
+     xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:oboInOwl="http://www.geneontology.org/formats/oboInOwl#"
+     xmlns:skos="http://www.w3.org/2004/02/skos/core#">
+
+    <owl:Ontology rdf:about="http://example.org/test-ontology"/>
+
+    <!-- Annotation properties -->
+    <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasExactSynonym"/>
+    <owl:AnnotationProperty rdf:about="http://www.w3.org/2004/02/skos/core#prefLabel"/>
+    <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasDbXref"/>
+
+    <!-- Classes -->
+    <owl:Class rdf:about="http://example.org/test-ontology#TEST_0001">
+        <rdfs:label>Alpha Cell</rdfs:label>
+        <oboInOwl:hasExactSynonym>alpha</oboInOwl:hasExactSynonym>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/test-ontology#TEST_0002">
+        <rdfs:label>Beta Cell</rdfs:label>
+        <skos:prefLabel>Beta</skos:prefLabel>
+    </owl:Class>
+
+    <owl:Class rdf:about="http://example.org/test-ontology#TEST_0003">
+        <rdfs:label>Gamma Cell</rdfs:label>
+        <oboInOwl:hasExactSynonym>gamma</oboInOwl:hasExactSynonym>
+        <oboInOwl:hasDbXref>XREF:001</oboInOwl:hasDbXref>
+    </owl:Class>
+</rdf:RDF>

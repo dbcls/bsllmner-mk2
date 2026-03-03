@@ -72,7 +72,7 @@ The `tests/model-evaluation/` directory contains scripts for benchmarking LLM mo
 - <https://zenodo.org/records/14881142>
 - <https://zenodo.org/records/14643285>
 
-600 BioSample entries evaluated against a human-curated gold standard.
+600 BioSample entries evaluated against a human-curated gold standard. Data files are stored in `tests/data/` (see `tests/data/README.md` for details).
 
 **Evaluated models**: deepseek-r1 (8b/32b), gemma3 (4b/12b/27b), gpt-oss (20b), llama3.1 (8b), phi4 (14b), qwen3 (4b/8b/32b)
 

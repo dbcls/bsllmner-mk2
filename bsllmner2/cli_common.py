@@ -11,7 +11,6 @@ from typing import Any, TypeVar
 from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
 from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import load_bs_entries
-from bsllmner2.metrics import LiveMetricsCollector
 from bsllmner2.models import BsEntries, RunMetadata
 from bsllmner2.pipeline import get_now_str
 
@@ -42,11 +41,6 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         help="Path to the input JSON or JSONL file containing BioSample entries.",
     )
     parser.add_argument(
-        "--mapping",
-        type=Path,
-        help="Path to the mapping file in TSV format.",
-    )
-    parser.add_argument(
         "--model",
         type=str,
         default="llama3.1:70b",
@@ -69,11 +63,6 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         type=str,
         default=None,
         help=f"Host URL for the Ollama server (default: {default_config.ollama_host}).",
-    )
-    parser.add_argument(
-        "--with-metrics",
-        action="store_true",
-        help="Enable collection of metrics during processing.",
     )
     parser.add_argument(
         "--debug",
@@ -234,9 +223,7 @@ class _RunState:
 
 
 @contextlib.asynccontextmanager
-async def run_with_lifecycle(
-    metrics_collector: LiveMetricsCollector | None,
-) -> AsyncIterator[_RunState]:
+async def run_with_lifecycle() -> AsyncIterator[_RunState]:
     """Shared try/except/finally lifecycle for CLI commands."""
     state = _RunState()
     try:
@@ -251,6 +238,3 @@ async def run_with_lifecycle(
         LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
         state.status = "failed"
         state.end_time = get_now_str()
-    finally:
-        if metrics_collector is not None:
-            metrics_collector.stop()

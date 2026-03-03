@@ -897,11 +897,11 @@ class TestSearchResult:
 
 # === build_index_from_owl ===
 
-TEST_OWL_FILE = Path(__file__).resolve().parent.parent / "test-data" / "test.owl"
+TEST_OWL_FILE = Path(__file__).resolve().parent.parent / "data" / "test.owl"
 
 
 class TestBuildIndexFromOwl:
-    """Test cases for build_index_from_owl using tests/test-data/test.owl."""
+    """Test cases for build_index_from_owl using tests/data/test.owl."""
 
     def test_rdfs_labels_indexed(self) -> None:
         """All rdfs:label values are indexed in term_id_to_labels."""

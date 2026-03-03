@@ -21,8 +21,6 @@ PROGRESS_DIR = TMP_DIR.joinpath("progress")
 
 RESUME_BATCH_SIZE = 1024
 
-OLLAMA_CONTAINER_NAME = os.environ.get("BSLLMNER2_CONTAINER_NAME", "bsllmner-mk2-ollama")
-
 
 class Config(BaseModel):
     """Application configuration for bsllmner2."""

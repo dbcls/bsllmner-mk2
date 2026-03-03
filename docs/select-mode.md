@@ -39,12 +39,10 @@ SelectResult
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--bs-entries` | Path to the input JSON or JSONL file containing BioSample entries (required) | -- |
-| `--mapping` | Path to the mapping file in TSV format (for evaluation) | `None` |
 | `--model` | LLM model to use for NER | `llama3.1:70b` |
 | `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `None` |
 | `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
 | `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
-| `--with-metrics` | Enable collection of metrics during processing. Requires Docker environment; collects container resource usage (CPU, memory, network, block I/O) via `docker stats` and GPU metrics via `nvidia-smi` from the Ollama container (`bsllmner-mk2-ollama`). | `false` |
 | `--debug` | Enable debug mode for more verbose logging | `false` |
 | `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
 | `--resume` | Resume from the last incomplete run | `false` |
@@ -54,6 +52,7 @@ SelectResult
 
 | Option | Description | Default |
 |--------|-------------|---------|
+| `--mapping` | Path to the mapping file in TSV format (for evaluation) | `None` |
 | `--select-config` | Path to the select configuration file in JSON format (required) | -- |
 | `--no-reasoning` | Disable reasoning step during selection | `false` |
 
@@ -61,7 +60,7 @@ SelectResult
 
 ```bash
 bsllmner2_select \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --select-config scripts/select-config.json \
   --debug

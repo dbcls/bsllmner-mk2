@@ -9,21 +9,26 @@ import pytest
 from bsllmner2.config import Config
 from bsllmner2.io import load_select_config
 from bsllmner2.models import (
-    Evaluation,
+    EvaluationMetrics,
     MappingValue,
     Prompt,
     Result,
     RunMetadata,
+    SearchResult,
     SelectConfig,
     SelectConfigField,
+    SelectResult,
 )
 from bsllmner2.pipeline import (
     build_error_log,
     build_extract_prompt_for_select,
     build_extract_schema_for_select,
+    compute_classification_metrics,
     compute_processing_time,
-    evaluate_output,
+    evaluate_select_output,
+    extract_predicted_term_id,
     get_now_str,
+    populate_run_metadata,
     to_result,
 )
 from tests.py_tests.conftest import make_llm_output
@@ -103,184 +108,6 @@ class TestBuildExtractPromptForSelect:
         assert prompts[0].role == "system"
         assert prompts[1].role == "user"
         assert "cell_line" in prompts[1].content
-
-
-# === evaluate_output ===
-
-
-class TestEvaluateOutput:
-    """Tests for evaluate_output.
-
-    Known limitation:
-    - "cell_line" is hardcoded: other fields silently return actual=None
-    """
-
-    def test_matching_output(self) -> None:
-        """Exact match: actual == expected → match=True."""
-        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id="CVCL:0030",
-                mapping_answer_label="HeLa",
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        assert len(evals) == 1
-        assert evals[0].match is True
-        assert evals[0].actual == "HeLa"
-        assert evals[0].expected == "HeLa"
-
-    def test_non_matching_output(self) -> None:
-        """Mismatch: actual != expected → match=False."""
-        output = [make_llm_output("SAMN001", {"cell_line": "HEK293"})]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id="CVCL:0030",
-                mapping_answer_label="HeLa",
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        assert evals[0].match is False
-        assert evals[0].actual == "HEK293"
-        assert evals[0].expected == "HeLa"
-
-    def test_output_is_none(self) -> None:
-        """When entry.output is None, actual becomes None."""
-        output = [make_llm_output("SAMN001", None)]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        assert evals[0].actual is None
-        assert evals[0].match is False
-
-    def test_output_not_dict(self) -> None:
-        """When entry.output is not a dict (e.g. a list), actual becomes None."""
-        output = [make_llm_output("SAMN001", ["not", "a", "dict"])]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        assert evals[0].actual is None
-        assert evals[0].match is False
-
-    def test_accession_not_in_mapping(self) -> None:
-        """Accession absent from mapping → expected=None."""
-        output = [make_llm_output("SAMN_MISSING", {"cell_line": "HeLa"})]
-        mapping: dict[str, MappingValue] = {}
-        evals = evaluate_output(output, mapping)
-        assert evals[0].expected is None
-        assert evals[0].actual == "HeLa"
-        assert evals[0].match is False
-
-    def test_empty_output_list(self) -> None:
-        """Empty output list → empty evaluations."""
-        evals = evaluate_output([], {})
-        assert evals == []
-
-    def test_both_none_is_not_match(self) -> None:
-        """When both actual and expected are None, match=False.
-
-        actual=None means the LLM produced no output, so it should not
-        count as a correct prediction even when expected is also None.
-        """
-        output = [make_llm_output("SAMN_MISSING", None)]
-        mapping: dict[str, MappingValue] = {}
-        evals = evaluate_output(output, mapping)
-        assert evals[0].actual is None
-        assert evals[0].expected is None
-        assert evals[0].match is False
-
-    def test_hardcoded_cell_line_key(self) -> None:
-        """Limitation documentation: evaluate_output only reads "cell_line" from output.
-
-        If the schema uses a different field name (e.g. "organism"),
-        actual is always None regardless of what the LLM produced.
-        """
-        output = [make_llm_output("SAMN001", {"organism": "Homo sapiens"})]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="Homo sapiens",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        # The output dict has "organism" but evaluate_output only looks at "cell_line"
-        assert evals[0].actual is None
-        assert evals[0].expected == "Homo sapiens"
-        assert evals[0].match is False
-
-    def test_multiple_entries(self) -> None:
-        """Multiple entries produce one evaluation per entry in order."""
-        output = [
-            make_llm_output("SAMN001", {"cell_line": "HeLa"}),
-            make_llm_output("SAMN002", {"cell_line": "HEK293"}),
-            make_llm_output("SAMN003", None),
-        ]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-            "SAMN002": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="K562",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        assert len(evals) == 3
-        assert evals[0].accession == "SAMN001"
-        assert evals[0].match is True
-        assert evals[1].accession == "SAMN002"
-        assert evals[1].match is False
-        assert evals[2].accession == "SAMN003"
-
-    def test_output_dict_without_cell_line_key(self) -> None:
-        """Dict output without "cell_line" key → actual=None via .get()."""
-        output = [make_llm_output("SAMN001", {"tissue": "brain"})]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-        }
-        evals = evaluate_output(output, mapping)
-        assert evals[0].actual is None
-
-    def test_output_is_list(self) -> None:
-        """List output is not a dict → actual=None."""
-        output = [make_llm_output("SAMN001", ["HeLa", "HEK293"])]
-        mapping: dict[str, MappingValue] = {}
-        evals = evaluate_output(output, mapping)
-        assert evals[0].actual is None
-
-    def test_returns_evaluation_objects(self) -> None:
-        """Return values are Evaluation model instances."""
-        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
-        evals = evaluate_output(output, {})
-        assert isinstance(evals[0], Evaluation)
 
 
 # === compute_processing_time ===
@@ -558,83 +385,62 @@ class TestToResult:
     def test_basic_construction(self) -> None:
         """All arguments are correctly wired into Result fields."""
         bs_entries = [{"accession": "SAMN001"}]
-        mapping = {
-            "SAMN001": MappingValue(
-                experiment_type="RNA-seq",
-                extraction_answer="HeLa",
-                mapping_answer_id=None,
-                mapping_answer_label=None,
-            ),
-        }
         prompt = [
             Prompt(role="system", content="sys"),
             Prompt(role="user", content="usr"),
         ]
         output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
-        evaluation = [Evaluation(accession="SAMN001", match=True)]
         config = Config(ollama_host="http://test:11434")
         run_metadata = self._make_run_metadata()
         format_ = {"type": "object"}
 
         result = to_result(
             bs_entries=bs_entries,
-            mapping=mapping,
             prompt=prompt,
             model="test-model",
             output=output,
-            evaluation=evaluation,
             config=config,
             run_metadata=run_metadata,
             format_=format_,
             thinking=True,
             args=None,
-            metrics=None,
         )
 
         assert result.input.bs_entries == bs_entries
-        assert result.input.mapping == mapping
         assert result.input.prompt == prompt
         assert result.input.thinking is True
         assert result.input.format == format_
         assert result.input.config == config
         assert result.input.cli_args is None
         assert result.output == output
-        assert result.evaluation == evaluation
-        assert result.metrics is None
+
         assert result.run_metadata == run_metadata
 
     def test_optional_args_none(self) -> None:
         """Optional parameters default to None without error."""
         result = to_result(
             bs_entries=[],
-            mapping=None,
             prompt=[Prompt(role="system", content="s")],
             model="m",
             output=[],
-            evaluation=[],
             config=Config(ollama_host="http://test:11434"),
             run_metadata=self._make_run_metadata(),
             format_=None,
             thinking=None,
             args=None,
-            metrics=None,
         )
 
-        assert result.input.mapping is None
         assert result.input.format is None
         assert result.input.thinking is None
         assert result.input.cli_args is None
-        assert result.metrics is None
 
     def test_return_type_is_result(self) -> None:
         """Return value is a Result instance."""
         result = to_result(
             bs_entries=[],
-            mapping=None,
             prompt=[Prompt(role="system", content="s")],
             model="m",
             output=[],
-            evaluation=[],
             config=Config(ollama_host="http://test:11434"),
             run_metadata=self._make_run_metadata(),
         )
@@ -645,11 +451,9 @@ class TestToResult:
         """Input.model matches the provided model string."""
         result = to_result(
             bs_entries=[],
-            mapping=None,
             prompt=[Prompt(role="system", content="s")],
             model="llama3.1:70b",
             output=[],
-            evaluation=[],
             config=Config(ollama_host="http://test:11434"),
             run_metadata=self._make_run_metadata(),
         )
@@ -665,11 +469,9 @@ class TestToResult:
 
         result = to_result(
             bs_entries=[{"accession": "SAMN001"}, {"accession": "SAMN002"}],
-            mapping=None,
             prompt=[Prompt(role="system", content="s")],
             model="m",
             output=outputs,
-            evaluation=[],
             config=Config(ollama_host="http://test:11434"),
             run_metadata=self._make_run_metadata(),
         )
@@ -678,3 +480,347 @@ class TestToResult:
         assert len(result.output) == 2
         assert result.output[0].accession == "SAMN001"
         assert result.output[1].accession == "SAMN002"
+
+
+# === populate_run_metadata ===
+
+
+class TestPopulateRunMetadata:
+    """Tests for populate_run_metadata."""
+
+    @staticmethod
+    def _make_metadata(
+        start_time: str = "20240101_120000",
+        end_time: str | None = "20240101_121000",
+    ) -> RunMetadata:
+        return RunMetadata(
+            run_name="test_run",
+            model="test-model",
+            start_time=start_time,
+            end_time=end_time,
+            status="completed",
+        )
+
+    def test_processing_time_computed(self) -> None:
+        md = self._make_metadata(start_time="20240101_120000", end_time="20240101_121000")
+        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
+        result = populate_run_metadata(md, output)
+        assert result.processing_time == 600.0
+
+    def test_accuracy_computed_from_select_metrics(self) -> None:
+        md = self._make_metadata()
+        output = [
+            make_llm_output("SAMN001", {"cell_line": "HeLa"}),
+            make_llm_output("SAMN002", {"cell_line": "HEK293"}),
+        ]
+        select_metrics = EvaluationMetrics(
+            tp=1, fp=0, fn=1, tn=0, correct=1, total=2, accuracy=0.5,
+        )
+        result = populate_run_metadata(md, output, select_metrics=select_metrics)
+        assert result.matched_entries == 1
+        assert result.accuracy == 50.0
+
+    def test_no_end_time_no_processing_time(self) -> None:
+        md = self._make_metadata(end_time=None)
+        result = populate_run_metadata(md, [])
+        assert result.processing_time is None
+
+    def test_no_select_metrics_no_accuracy(self) -> None:
+        md = self._make_metadata()
+        result = populate_run_metadata(md, [])
+        assert result.accuracy is None
+        assert result.matched_entries is None
+
+    def test_immutable_original(self) -> None:
+        md = self._make_metadata()
+        output = [make_llm_output("SAMN001", {"cell_line": "HeLa"})]
+        select_metrics = EvaluationMetrics(tp=1, correct=1, total=1, accuracy=1.0)
+        result = populate_run_metadata(md, output, select_metrics=select_metrics)
+        assert md.processing_time is None
+        assert md.total_entries is None
+        assert md.accuracy is None
+        assert result is not md
+
+    def test_total_entries_set(self) -> None:
+        md = self._make_metadata()
+        output = [
+            make_llm_output("SAMN001", None),
+            make_llm_output("SAMN002", None),
+            make_llm_output("SAMN003", None),
+        ]
+        result = populate_run_metadata(md, output)
+        assert result.total_entries == 3
+
+
+# === extract_predicted_term_id ===
+
+
+def _make_search_result(term_id: str) -> SearchResult:
+    return SearchResult(
+        term_uri=f"http://example.org/{term_id}",
+        term_id=term_id,
+        value="test",
+        exact_match=True,
+    )
+
+
+class TestExtractPredictedTermId:
+    """Tests for extract_predicted_term_id."""
+
+    def test_normal_extraction(self) -> None:
+        """Extracts term_id from first value in results[field_name]."""
+        sr = SelectResult(
+            accession="SAMN001",
+            results={"cell_line": {"HeLa": _make_search_result("CVCL:0030")}},
+        )
+        assert extract_predicted_term_id(sr, "cell_line") == "CVCL:0030"
+
+    def test_field_not_present(self) -> None:
+        """Returns None when field_name is not in results."""
+        sr = SelectResult(accession="SAMN001", results={})
+        assert extract_predicted_term_id(sr, "cell_line") is None
+
+    def test_field_not_dict(self) -> None:
+        """Returns None when results[field_name] is not a dict (e.g. string)."""
+        sr = SelectResult(accession="SAMN001", results={"cell_line": "some_string"})
+        assert extract_predicted_term_id(sr, "cell_line") is None
+
+    def test_all_values_none(self) -> None:
+        """Returns None when the SearchResult value is None."""
+        sr = SelectResult(
+            accession="SAMN001",
+            results={"cell_line": {"HeLa": None}},
+        )
+        assert extract_predicted_term_id(sr, "cell_line") is None
+
+
+# === compute_classification_metrics ===
+
+
+class TestComputeClassificationMetrics:
+    """Tests for compute_classification_metrics."""
+
+    def test_all_correct(self) -> None:
+        """All predictions correct → accuracy=1.0, precision=1.0, recall=1.0, f1=1.0."""
+        predicted = {"A": "X", "B": "Y", "C": None}
+        expected = {"A": "X", "B": "Y", "C": None}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.correct == 3
+        assert m.total == 3
+        assert m.tp == 2
+        assert m.tn == 1
+        assert m.fp == 0
+        assert m.fn == 0
+        assert m.accuracy == pytest.approx(1.0)
+        assert m.precision == pytest.approx(1.0)
+        assert m.recall == pytest.approx(1.0)
+        assert m.f1 == pytest.approx(1.0)
+
+    def test_empty_inputs(self) -> None:
+        """Empty dicts → total=0, accuracy=None."""
+        m = compute_classification_metrics({}, {})
+        assert m.total == 0
+        assert m.tn == 0
+        assert m.accuracy is None
+        assert m.precision is None
+        assert m.recall is None
+        assert m.f1 is None
+
+    def test_none_equals_none(self) -> None:
+        """None == None counts as correct and TN."""
+        predicted: dict[str, str | None] = {"A": None}
+        expected: dict[str, str | None] = {"A": None}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.correct == 1
+        assert m.accuracy == pytest.approx(1.0)
+        assert m.tp == 0
+        assert m.fp == 0
+        assert m.fn == 0
+        assert m.tn == 1
+
+    def test_no_positive_in_expected(self) -> None:
+        """When expected has no non-None values → precision/recall are None."""
+        predicted: dict[str, str | None] = {"A": None, "B": None}
+        expected: dict[str, str | None] = {"A": None, "B": None}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.tn == 2
+        assert m.precision is None
+        assert m.recall is None
+        assert m.f1 is None
+
+    def test_fp_and_fn(self) -> None:
+        """Verify FP and FN counting."""
+        predicted = {"A": "wrong", "B": None}
+        expected = {"A": None, "B": "correct"}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.tp == 0
+        assert m.fp == 1  # A: expected=None, predicted="wrong"
+        assert m.fn == 1  # B: expected="correct", predicted=None
+        assert m.tn == 0
+        assert m.correct == 0
+        assert m.accuracy == pytest.approx(0.0)
+
+    def test_key_only_in_predicted_counts_as_fp(self) -> None:
+        """Key present in predicted but not in expected with non-None value → FP."""
+        predicted: dict[str, str | None] = {"A": "X", "B": "Y"}
+        expected: dict[str, str | None] = {"A": "X"}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.total == 2
+        assert m.tp == 1  # A: correct
+        assert m.fp == 1  # B: expected=None (absent), predicted="Y"
+        assert m.fn == 0
+        assert m.tn == 0
+
+    def test_key_only_in_predicted_none_counts_as_tn(self) -> None:
+        """Key present in predicted but not in expected with None value → TN."""
+        predicted: dict[str, str | None] = {"A": "X", "B": None}
+        expected: dict[str, str | None] = {"A": "X"}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.total == 2
+        assert m.tp == 1  # A: correct
+        assert m.tn == 1  # B: expected=None (absent), predicted=None
+        assert m.fp == 0
+        assert m.fn == 0
+        assert m.correct == 2
+
+    def test_key_only_in_expected(self) -> None:
+        """Key present in expected but not in predicted → FN if non-None, TN if None."""
+        predicted: dict[str, str | None] = {"A": "X"}
+        expected: dict[str, str | None] = {"A": "X", "B": "Y", "C": None}
+        m = compute_classification_metrics(predicted, expected)
+        assert m.total == 3
+        assert m.tp == 1  # A: correct
+        assert m.fn == 1  # B: expected="Y", predicted=None (absent)
+        assert m.tn == 1  # C: expected=None, predicted=None (absent)
+        assert m.fp == 0
+
+
+# === evaluate_select_output ===
+
+
+class TestEvaluateSelectOutput:
+    """Tests for evaluate_select_output."""
+
+    def _make_mapping_value(
+        self,
+        mapping_answer_id: str | None = None,
+    ) -> MappingValue:
+        return MappingValue(
+            experiment_type="RNA-seq",
+            extraction_answer=None,
+            mapping_answer_id=mapping_answer_id,
+            mapping_answer_label=None,
+        )
+
+    def test_correct_match(self) -> None:
+        """Predicted term_id matches answer → TP."""
+        sr = SelectResult(
+            accession="A",
+            results={"cell_line": {"HeLa": _make_search_result("CVCL:0030")}},
+        )
+        mapping = {"A": self._make_mapping_value("CVCL:0030")}
+        m = evaluate_select_output([sr], mapping)
+        assert m.tp == 1
+        assert m.tn == 0
+        assert m.correct == 1
+
+    def test_mismatch(self) -> None:
+        """Predicted term_id != answer → FN."""
+        sr = SelectResult(
+            accession="A",
+            results={"cell_line": {"HeLa": _make_search_result("CVCL:9999")}},
+        )
+        mapping = {"A": self._make_mapping_value("CVCL:0030")}
+        m = evaluate_select_output([sr], mapping)
+        assert m.tp == 0
+        assert m.fn == 1
+
+    def test_none_equals_none(self) -> None:
+        """Both predicted and answer are None → correct, TN."""
+        sr = SelectResult(accession="A", results={})
+        mapping = {"A": self._make_mapping_value(None)}
+        m = evaluate_select_output([sr], mapping)
+        assert m.correct == 1
+        assert m.tn == 1
+
+    def test_false_positive(self) -> None:
+        """Predicted something but answer is None → FP."""
+        sr = SelectResult(
+            accession="A",
+            results={"cell_line": {"HeLa": _make_search_result("CVCL:0030")}},
+        )
+        mapping = {"A": self._make_mapping_value(None)}
+        m = evaluate_select_output([sr], mapping)
+        assert m.fp == 1
+
+    def test_false_negative(self) -> None:
+        """No prediction but answer exists → FN."""
+        sr = SelectResult(accession="A", results={})
+        mapping = {"A": self._make_mapping_value("CVCL:0030")}
+        m = evaluate_select_output([sr], mapping)
+        assert m.fn == 1
+
+    def test_empty_results(self) -> None:
+        """Empty inputs → total=0."""
+        m = evaluate_select_output([], {})
+        assert m.total == 0
+
+    def test_custom_field_name(self) -> None:
+        """field_name parameter selects which field to evaluate."""
+        sr = SelectResult(
+            accession="A",
+            results={"organism": {"Human": _make_search_result("NCBITaxon:9606")}},
+        )
+        mapping = {"A": self._make_mapping_value("NCBITaxon:9606")}
+        m = evaluate_select_output([sr], mapping, field_name="organism")
+        assert m.tp == 1
+        assert m.correct == 1
+
+    def test_precision_recall_f1(self) -> None:
+        """Verify precision/recall/f1 calculation."""
+        results = [
+            SelectResult(
+                accession="A",
+                results={"cell_line": {"HeLa": _make_search_result("CVCL:0030")}},
+            ),
+            SelectResult(
+                accession="B",
+                results={"cell_line": {"HEK": _make_search_result("CVCL:9999")}},
+            ),
+            SelectResult(accession="C", results={}),
+        ]
+        mapping = {
+            "A": self._make_mapping_value("CVCL:0030"),
+            "B": self._make_mapping_value("CVCL:0045"),
+            "C": self._make_mapping_value(None),
+        }
+        m = evaluate_select_output(results, mapping)
+        assert m.tp == 1
+        assert m.fp == 0
+        assert m.fn == 1
+        assert m.tn == 1  # C: None==None
+        assert m.correct == 2  # A correct, C correct (None==None)
+        assert m.total == 3
+        assert m.precision == pytest.approx(1.0)  # 1/(1+0)
+        assert m.recall == pytest.approx(0.5)  # 1/(1+1)
+
+    def test_multiple_entries(self) -> None:
+        """Multiple entries are processed correctly."""
+        results = [
+            SelectResult(
+                accession="A",
+                results={"cell_line": {"HeLa": _make_search_result("CVCL:0030")}},
+            ),
+            SelectResult(
+                accession="B",
+                results={"cell_line": {"K562": _make_search_result("CVCL:0004")}},
+            ),
+        ]
+        mapping = {
+            "A": self._make_mapping_value("CVCL:0030"),
+            "B": self._make_mapping_value("CVCL:0004"),
+        }
+        m = evaluate_select_output(results, mapping)
+        assert m.tp == 2
+        assert m.correct == 2
+        assert m.accuracy == pytest.approx(1.0)

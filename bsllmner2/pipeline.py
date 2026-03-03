@@ -1,3 +1,4 @@
+import contextlib
 import traceback
 from datetime import datetime, timezone
 
@@ -10,63 +11,122 @@ from bsllmner2.models import (
     CliSelectArgs,
     ErrorInfo,
     ErrorLog,
-    Evaluation,
+    EvaluationMetrics,
     LlmOutput,
     Mapping,
-    Metrics,
     Prompt,
     Result,
     RunMetadata,
     SelectConfig,
+    SelectResult,
     WfInput,
 )
 
 
-def evaluate_output(output: list[LlmOutput], mapping: Mapping) -> list[Evaluation]:
-    """Evaluate the LLM outputs against the mapping.
+def extract_predicted_term_id(select_result: SelectResult, field_name: str) -> str | None:
+    """Extract term_id from SelectResult.results[field_name].
 
-    Returns a list of Evaluation objects containing the results.
+    Returns the term_id of the first SearchResult found, or None.
     """
-    evaluations = []
-    for entry in output:
-        accession = entry.accession
-        if entry.output is None or not isinstance(entry.output, dict):
-            actual = None
-        else:
-            actual = entry.output.get("cell_line", None)
-        if accession not in mapping:
-            expected = None
-        else:
-            expected = mapping[accession].extraction_answer
-        evaluation = Evaluation(
-            accession=accession,
-            expected=expected,
-            actual=actual,
-            match=(actual is not None and actual == expected),
-        )
-        evaluations.append(evaluation)
+    field_info = select_result.results.get(field_name)
+    if not isinstance(field_info, dict):
+        return None
+    first_result = next(iter(field_info.values()), None)
+    if first_result is None:
+        return None
+    return first_result.term_id
 
-    return evaluations
+
+def compute_classification_metrics(
+    predicted: dict[str, str | None],
+    expected: dict[str, str | None],
+) -> EvaluationMetrics:
+    """Compute accuracy/precision/recall/f1 from predicted vs expected mappings.
+
+    None is treated as a valid class (None == None is a correct prediction).
+    Precision/recall are computed over the "positive" class (non-None values).
+    Keys are taken from the union of predicted and expected to avoid missing FPs.
+    """
+    tp = 0
+    fp = 0
+    fn = 0
+    tn = 0
+    correct = 0
+    all_keys = expected.keys() | predicted.keys()
+    total = len(all_keys)
+
+    for key in all_keys:
+        answer = expected.get(key)
+        pred = predicted.get(key)
+
+        if pred == answer:
+            correct += 1
+
+        if answer is not None:
+            if pred == answer:
+                tp += 1
+            else:
+                fn += 1
+        elif pred is not None:
+            fp += 1
+        else:
+            tn += 1
+
+    accuracy = correct / total if total > 0 else None
+    precision = tp / (tp + fp) if (tp + fp) > 0 else None
+    recall = tp / (tp + fn) if (tp + fn) > 0 else None
+
+    if precision is not None and recall is not None and (precision + recall) > 0:
+        f1 = 2 * precision * recall / (precision + recall)
+    else:
+        f1 = None
+
+    return EvaluationMetrics(
+        tp=tp,
+        fp=fp,
+        fn=fn,
+        tn=tn,
+        correct=correct,
+        total=total,
+        accuracy=accuracy,
+        precision=precision,
+        recall=recall,
+        f1=f1,
+    )
+
+
+def evaluate_select_output(
+    select_results: list[SelectResult],
+    mapping: Mapping,
+    field_name: str = "cell_line",
+) -> EvaluationMetrics:
+    """Evaluate Select results by comparing term_id against mapping_answer_id."""
+    predicted: dict[str, str | None] = {}
+    expected: dict[str, str | None] = {}
+    for sr in select_results:
+        accession = sr.accession
+        predicted[accession] = extract_predicted_term_id(sr, field_name)
+        if accession in mapping:
+            expected[accession] = mapping[accession].mapping_answer_id
+        else:
+            expected[accession] = None
+    return compute_classification_metrics(predicted, expected)
 
 
 def to_result(
     bs_entries: BsEntries,
-    mapping: Mapping | None,
     prompt: list[Prompt],
     model: str,
     output: list[LlmOutput],
-    evaluation: list[Evaluation],
     config: Config,
     run_metadata: RunMetadata,
     format_: JsonSchemaValue | None = None,
     thinking: bool | None = None,
     args: CliExtractArgs | CliSelectArgs | None = None,
-    metrics: list[Metrics] | None = None,
 ) -> Result:
     return Result(
         input=WfInput(
             bs_entries=bs_entries,
-            mapping=mapping,
             prompt=prompt,
             model=model,
             thinking=thinking,
@@ -75,8 +135,6 @@ def to_result(
             cli_args=args,
         ),
         output=output,
-        evaluation=evaluation,
-        metrics=metrics,
         run_metadata=run_metadata,
     )
 
@@ -95,6 +153,30 @@ def compute_processing_time(start_time: str, end_time: str) -> float:
     if seconds < 0:
         raise ValueError(f"end_time ({end_time}) is before start_time ({start_time})")
     return seconds
+
+
+def populate_run_metadata(
+    run_metadata: RunMetadata,
+    output: list[LlmOutput],
+    select_metrics: EvaluationMetrics | None = None,
+) -> RunMetadata:
+    """Compute and fill unused RunMetadata fields. Returns a new instance."""
+    updates: dict[str, object] = {
+        "total_entries": len(output),
+    }
+
+    if run_metadata.end_time is not None:
+        with contextlib.suppress(ValueError):
+            updates["processing_time"] = compute_processing_time(
+                run_metadata.start_time,
+                run_metadata.end_time,
+            )
+
+    if select_metrics is not None:
+        updates["matched_entries"] = select_metrics.correct
+        updates["accuracy"] = (select_metrics.accuracy * 100) if select_metrics.accuracy is not None else None
+
+    return run_metadata.model_copy(update=updates)
 
 
 def build_error_log(

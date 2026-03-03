@@ -58,34 +58,6 @@ class TestGetConfig:
         assert config.debug is True
 
 
-class TestOllamaContainerNameEnv:
-    """Test cases for OLLAMA_CONTAINER_NAME environment variable."""
-
-    def test_default_value(self) -> None:
-        """Default OLLAMA_CONTAINER_NAME is 'bsllmner-mk2-ollama'."""
-        import bsllmner2.config as config_mod
-
-        assert os.environ.get("BSLLMNER2_CONTAINER_NAME", "bsllmner-mk2-ollama") == config_mod.OLLAMA_CONTAINER_NAME
-
-    def test_env_var_expression(self) -> None:
-        """os.environ.get expression used in config produces correct results."""
-        assert os.environ.get("BSLLMNER2_CONTAINER_NAME", "bsllmner-mk2-ollama") == "bsllmner-mk2-ollama"
-
-    def test_env_var_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """BSLLMNER2_CONTAINER_NAME env var overrides the default via monkeypatch on module attr."""
-        import bsllmner2.config as config_mod
-
-        monkeypatch.setattr(config_mod, "OLLAMA_CONTAINER_NAME", "custom-container")
-        assert config_mod.OLLAMA_CONTAINER_NAME == "custom-container"
-
-    def test_empty_env_var_override(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """Empty BSLLMNER2_CONTAINER_NAME is respected via monkeypatch on module attr."""
-        import bsllmner2.config as config_mod
-
-        monkeypatch.setattr(config_mod, "OLLAMA_CONTAINER_NAME", "")
-        assert config_mod.OLLAMA_CONTAINER_NAME == ""
-
-
 class TestGetConfigDebugParsing:
     """Test cases for debug flag parsing with various string values."""
 

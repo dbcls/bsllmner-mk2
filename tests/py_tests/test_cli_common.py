@@ -5,7 +5,6 @@ import json
 import re
 from pathlib import Path
 from typing import Any
-from unittest.mock import MagicMock
 
 import pytest
 from hypothesis import given, settings
@@ -500,8 +499,7 @@ class TestRunWithLifecycle:
     @pytest.mark.asyncio
     async def test_completed_status(self) -> None:
         """Normal flow sets status='completed' and end_time is set."""
-        mock_collector = MagicMock()
-        async with run_with_lifecycle(mock_collector) as state:
+        async with run_with_lifecycle() as state:
             pass
         assert state.status == "completed"
         assert state.end_time is not None
@@ -509,8 +507,7 @@ class TestRunWithLifecycle:
     @pytest.mark.asyncio
     async def test_bsllmner2_error_sets_failed(self) -> None:
         """Raising Bsllmner2Error sets status='failed'."""
-        mock_collector = MagicMock()
-        async with run_with_lifecycle(mock_collector) as state:
+        async with run_with_lifecycle() as state:
             raise Bsllmner2Error("test error")
         assert state.status == "failed"
         assert state.end_time is not None
@@ -518,23 +515,7 @@ class TestRunWithLifecycle:
     @pytest.mark.asyncio
     async def test_generic_exception_sets_failed(self) -> None:
         """Raising a generic Exception sets status='failed'."""
-        mock_collector = MagicMock()
-        async with run_with_lifecycle(mock_collector) as state:
+        async with run_with_lifecycle() as state:
             raise Exception("unexpected")
         assert state.status == "failed"
         assert state.end_time is not None
-
-    @pytest.mark.asyncio
-    async def test_metrics_collector_stopped(self) -> None:
-        """metrics_collector.stop() is called in the finally block."""
-        mock_collector = MagicMock()
-        async with run_with_lifecycle(mock_collector):
-            pass
-        mock_collector.stop.assert_called_once()
-
-    @pytest.mark.asyncio
-    async def test_none_metrics_collector(self) -> None:
-        """Works fine when metrics_collector is None."""
-        async with run_with_lifecycle(None) as state:
-            pass
-        assert state.status == "completed"

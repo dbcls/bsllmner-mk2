@@ -143,7 +143,7 @@ docker exec -it bsllmner-mk2-app bash
 # Select mode
 bsllmner2_select \
   --debug \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --select-config ./scripts/select-config.json \
   --run-name small-test
@@ -151,7 +151,7 @@ bsllmner2_select \
 # Extract mode
 bsllmner2_extract \
   --debug \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --run-name small-test
 ```

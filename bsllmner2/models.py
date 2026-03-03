@@ -32,62 +32,6 @@ class SearchResult(TermAnnotation):
     reasoning: str | None = None
 
 
-# === Metrics models (moved from metrics.py) ===
-
-
-class DockerStatsResponse(BaseModel):
-    """Response schema for ``docker stats --format '{{json .}}'``.
-
-    Example::
-
-        {"BlockIO": "3.62GB / 42.5GB", "CPUPerc": "0.00%", "Container": "bsllmner-mk2-ollama", "ID": "8a8678a1dd25", "MemPerc": "8.16%",
-            "MemUsage": "41.09GiB / 503.6GiB", "Name": "bsllmner-mk2-ollama", "NetIO": "42.8GB / 88.8MB", "PIDs": "26"}
-    """
-
-    BlockIO: str
-    CPUPerc: str
-    Container: str
-    ID: str
-    MemPerc: str
-    MemUsage: str
-    Name: str
-    NetIO: str
-    PIDs: str
-
-
-class NvidiaSmiResponse(BaseModel):
-    """Response schema for ``nvidia-smi --query-gpu=... --format=csv``.
-
-    Example::
-
-        GPU-415f6582-1df0-82e8-67fe-4577cce30c15, NVIDIA RTX 6000 Ada Generation, 37, 49140, 0, 5.24
-        GPU-5b0aaa0f-cd30-62ac-a444-d489e55fe266, NVIDIA RTX 6000 Ada Generation, 18, 49140, 0, 8.43
-    """
-
-    uuid: str
-    name: str
-    memory_used_bytes: float  # MiB to bytes
-    memory_total_bytes: float  # MiB to bytes
-    utilization_gpu: int  # percentage (0-100)
-    power_draw: float  # in Watts
-
-
-class Metrics(BaseModel):
-    timestamp: str  # e.g., "2023-10-01T00:00:00Z"
-    block_io_read_bytes: float
-    block_io_write_bytes: float
-    cpu_percentage: float
-    container_name: str
-    container_id: str
-    memory_percentage: float
-    memory_used_bytes: float
-    memory_total_bytes: float
-    net_io_received_bytes: float
-    net_io_sent_bytes: float
-    pids: int
-    gpus: list[NvidiaSmiResponse]
-
-
 class CliExtractArgs(BaseModel):
     """Command-line arguments for the bsllmner2 CLI extract mode."""
 
@@ -95,11 +39,6 @@ class CliExtractArgs(BaseModel):
         ...,
         description="Path to the input JSON or JSONL file containing BioSample entries.",
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
-    )
-    mapping: Path | None = Field(
-        None,
-        description="Path to the mapping file in TSV format.",
-        examples=["mapping/mapping.tsv"],
     )
     prompt: Path = Field(
         ...,
@@ -114,7 +53,6 @@ class CliExtractArgs(BaseModel):
     model: str = "llama3.1:70b"
     thinking: bool | None = None
     max_entries: int | None = None
-    with_metrics: bool = False
     run_name: str | None = None
     resume: bool = False
     batch_size: int = Field(..., gt=0)
@@ -165,7 +103,6 @@ class CliSelectArgs(BaseModel):
     model: str = "llama3.1:70b"
     thinking: bool | None = None
     max_entries: int | None = None
-    with_metrics: bool = False
     run_name: str | None = None
     resume: bool = False
     batch_size: int = Field(..., gt=0)
@@ -206,7 +143,6 @@ Mapping = dict[str, MappingValue]  # key: bs_entry accession
 
 class WfInput(BaseModel):
     bs_entries: BsEntries
-    mapping: Mapping | None = None
     prompt: list[Prompt] = Field(..., min_length=1)
     model: str = Field(..., min_length=1)
     thinking: bool | None = None
@@ -240,11 +176,17 @@ class SelectResult(BaseModel):
     results: dict[str, SelectFieldResults | str | list[str] | None] = Field(default_factory=dict)
 
 
-class Evaluation(BaseModel):
-    accession: str
-    expected: str | None = None
-    actual: str | None = None
-    match: bool = False
+class EvaluationMetrics(BaseModel):
+    tp: int = 0
+    fp: int = 0
+    fn: int = 0
+    tn: int = 0
+    correct: int = 0
+    total: int = 0
+    accuracy: float | None = None
+    precision: float | None = None
+    recall: float | None = None
+    f1: float | None = None
 
 
 class RunMetadata(BaseModel):
@@ -276,7 +218,5 @@ class ErrorLog(BaseModel):
 class Result(BaseModel):
     input: WfInput
     output: list[LlmOutput] = []
-    evaluation: list[Evaluation] = []
-    metrics: list[Metrics] | None = None
     run_metadata: RunMetadata
     error_log: ErrorLog | None = None

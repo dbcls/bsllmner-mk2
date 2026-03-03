@@ -6,21 +6,38 @@ import json
 import os
 import pickle
 from pathlib import Path
-from typing import Any
+from typing import Any, TypedDict
 
 import ollama
 from ollama import ChatResponse, Message
 from pydantic.json_schema import JsonSchemaValue
 
+from bsllmner2.benchmark import DiskIoTimings, stage_timer
 from bsllmner2.config import LOGGER
-from bsllmner2.llm import OLLAMA_OPTIONS, LlmBackend, _parse_response_json
-from bsllmner2.models import BsEntries, LlmOutput, OntologyIndex, SearchResult, SelectConfig, SelectResult
+from bsllmner2.llm import OLLAMA_OPTIONS, LlmBackend, parse_response_json
+from bsllmner2.models import (
+    BsEntries,
+    LlmOutput,
+    OntologyIndex,
+    SearchResult,
+    SelectConfig,
+    SelectResult,
+)
 from bsllmner2.ontology_search import (
     build_index_from_file,
     is_label_prop,
     search_terms,
     search_terms_with_text2term,
 )
+
+
+class SelectStageTimings(TypedDict):
+    """Stage timings collected during a single select() call."""
+
+    ontology_search_sec: float
+    text2term_sec: float
+    llm_select_sec: float
+
 
 INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontology/index_cache"))
 
@@ -56,10 +73,11 @@ def _compute_filter_hash(ontology_filter: dict[str, str] | None) -> str:
     return hashlib.sha256(filter_str.encode()).hexdigest()[:16]
 
 
-def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
+def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyIndex], DiskIoTimings]:
     INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
 
     mapping: dict[Path, OntologyIndex] = {}
+    disk_io = DiskIoTimings()
 
     for field_config in select_config.fields.values():
         ontology_file_path = field_config.ontology_file
@@ -72,23 +90,27 @@ def build_index_map(select_config: SelectConfig) -> dict[Path, OntologyIndex]:
         cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{filter_hash}.pkl")
         if cache_file_path.exists():
             try:
-                with cache_file_path.open("rb") as f:
+                with stage_timer("cache_load") as t, cache_file_path.open("rb") as f:
                     index = pickle.load(f)
+                disk_io.index_cache_load_sec.append(t.elapsed_sec)
                 mapping[ontology_file_path] = index
                 continue
             except (OSError, EOFError, AttributeError, ModuleNotFoundError, pickle.UnpicklingError):
                 LOGGER.warning("Failed to load cache %s", cache_file_path, exc_info=True)
 
-        index = build_index_from_file(ontology_file_path, ontology_filter=field_config.ontology_filter)
+        with stage_timer("index_build") as t:
+            index = build_index_from_file(ontology_file_path, ontology_filter=field_config.ontology_filter)
+        disk_io.index_build_from_file_sec.append(t.elapsed_sec)
         mapping[ontology_file_path] = index
 
         try:
-            with cache_file_path.open("wb") as f:
+            with stage_timer("cache_save") as t, cache_file_path.open("wb") as f:
                 pickle.dump(index, f)
+            disk_io.index_cache_save_sec.append(t.elapsed_sec)
         except OSError:
             LOGGER.warning("Failed to save cache %s", cache_file_path, exc_info=True)
 
-    return mapping
+    return mapping, disk_io
 
 
 def _collect_queries(
@@ -415,7 +437,7 @@ def _build_select_prompt_and_schema(
 
 def _parse_output_object(chat_response: ChatResponse) -> dict[str, Any] | None:
     """Parse a ChatResponse into a dict, or None if not a valid JSON object."""
-    parsed = _parse_response_json(chat_response)
+    parsed = parse_response_json(chat_response)
     if isinstance(parsed, dict):
         return parsed
 
@@ -434,7 +456,7 @@ async def select(
     thinking: bool | None = None,
     include_reasoning: bool = True,
     index_map: dict[Path, OntologyIndex] | None = None,
-) -> list[SelectResult]:
+) -> tuple[list[SelectResult], SelectStageTimings]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
 
@@ -463,10 +485,12 @@ async def select(
         intermediate_results.append(sr)
 
     # 1. Perform ontology search for each field specified in the select configuration.
-    _ontology_search_wrapper(intermediate_results, select_config, index_map=index_map)
+    with stage_timer("ontology_search") as t_ontology:
+        _ontology_search_wrapper(intermediate_results, select_config, index_map=index_map)
 
     # 2. Perform text2term search for each field specified in the select configuration.
-    _text2term_wrapper(intermediate_results, select_config, index_map=index_map)
+    with stage_timer("text2term") as t_text2term:
+        _text2term_wrapper(intermediate_results, select_config, index_map=index_map)
 
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
 
@@ -508,41 +532,48 @@ async def select(
         for (field_name, value), (messages, schema) in field_prompts_and_schemas.items():
             coros.append(_process_field_selection(accession, field_name, value, messages, schema))
 
-    if coros:
-        LOGGER.info(
-            "Performing LLM selection for %d fields across %d entries...",
-            len(coros),
-            len(intermediate_results),
-        )
-        acc_to_result_map = {result.accession: result for result in intermediate_results}
-        llm_results = await asyncio.gather(*coros)
+    with stage_timer("llm_select") as t_llm_select:
+        if coros:
+            LOGGER.info(
+                "Performing LLM selection for %d fields across %d entries...",
+                len(coros),
+                len(intermediate_results),
+            )
+            acc_to_result_map = {result.accession: result for result in intermediate_results}
+            llm_results = await asyncio.gather(*coros)
 
-        for accession, field_name, value, chat_response in llm_results:
-            select_result = acc_to_result_map[accession]
-            if select_result is None or chat_response is None:
-                continue
+            for accession, field_name, value, chat_response in llm_results:
+                select_result = acc_to_result_map[accession]
+                if select_result is None or chat_response is None:
+                    continue
 
-            select_result.llm_chat_response.setdefault(field_name, {})[value] = chat_response
+                select_result.llm_chat_response.setdefault(field_name, {})[value] = chat_response
 
-            output_obj = _parse_output_object(chat_response)
-            chosen_id = output_obj.get("id", None) if output_obj else None
-            reasoning = output_obj.get("reasoning", None) if output_obj else None
+                output_obj = _parse_output_object(chat_response)
+                chosen_id = output_obj.get("id", None) if output_obj else None
+                reasoning = output_obj.get("reasoning", None) if output_obj else None
 
-            if not isinstance(chosen_id, str):
-                continue
+                if not isinstance(chosen_id, str):
+                    continue
 
-            picked_result = _pick_search_result_by_id(select_result, field_name, value, chosen_id.strip())
-            if picked_result is None:
-                continue
+                picked_result = _pick_search_result_by_id(select_result, field_name, value, chosen_id.strip())
+                if picked_result is None:
+                    continue
 
-            picked_copy = picked_result.model_copy(deep=True)
-            if isinstance(reasoning, str):
-                picked_copy.reasoning = reasoning
+                picked_copy = picked_result.model_copy(deep=True)
+                if isinstance(reasoning, str):
+                    picked_copy.reasoning = reasoning
 
-            field_dict = select_result.results.get(field_name)
-            if not isinstance(field_dict, dict):
-                field_dict = {}
-                select_result.results[field_name] = field_dict
-            field_dict[value] = picked_copy
+                field_dict = select_result.results.get(field_name)
+                if not isinstance(field_dict, dict):
+                    field_dict = {}
+                    select_result.results[field_name] = field_dict
+                field_dict[value] = picked_copy
 
-    return intermediate_results
+    timings = SelectStageTimings(
+        ontology_search_sec=t_ontology.elapsed_sec,
+        text2term_sec=t_text2term.elapsed_sec,
+        llm_select_sec=t_llm_select.elapsed_sec,
+    )
+
+    return intermediate_results, timings

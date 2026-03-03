@@ -139,7 +139,7 @@ def _extract_last_json(text: str) -> str | None:
     return None
 
 
-def _parse_response_json(chat_response: ChatResponse) -> dict[str, Any] | list[Any] | None:
+def parse_response_json(chat_response: ChatResponse) -> dict[str, Any] | list[Any] | None:
     """Parse JSON from a ChatResponse, normalizing string 'null'/'None' values to None."""
     try:
         res_text = chat_response.message.content
@@ -165,7 +165,7 @@ def _parse_response_json(chat_response: ChatResponse) -> dict[str, Any] | list[A
 
 
 def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> LlmOutput:
-    output_obj = _parse_response_json(chat_response)
+    output_obj = parse_response_json(chat_response)
     res_text_json = _extract_last_json(chat_response.message.content or "") if chat_response.message.content else None
 
     output_ins = LlmOutput(

@@ -61,7 +61,7 @@ Extract mode performs Named Entity Recognition (NER) to extract biological terms
 
 ```bash
 docker compose exec app bsllmner2_extract \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --debug
 ```
@@ -74,7 +74,7 @@ Select mode extends extract mode by mapping extracted terms to ontology entries.
 
 ```bash
 docker compose exec app bsllmner2_select \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
+  --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --select-config scripts/select-config.json \
   --debug
@@ -112,7 +112,7 @@ jq '.[0].results' bsllmner2-results/select/*.json
 ### Result Structure
 
 - **Extract results**: `bsllmner2-results/extract/{run_name}.json`
-  - Contains extracted entities, evaluation metrics (if mapping provided), and metadata
+  - Contains extracted entities and metadata
 
 - **Select results**: `bsllmner2-results/select/select_{run_name}.json`
   - Contains ontology-mapped results for each field

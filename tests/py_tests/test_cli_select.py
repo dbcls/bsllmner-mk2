@@ -7,10 +7,18 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
+from bsllmner2.benchmark import DiskIoTimings
 from bsllmner2.cli_select import parse_args, run_cli_select_async
 from bsllmner2.config import RESUME_BATCH_SIZE
 from bsllmner2.models import LlmOutput, SelectResult
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
+
+_EMPTY_INDEX_MAP_RESULT: tuple[dict[str, object], DiskIoTimings] = ({}, DiskIoTimings())
+_EMPTY_SELECT_TIMINGS: dict[str, float] = {
+    "ontology_search_sec": 0.0,
+    "text2term_sec": 0.0,
+    "llm_select_sec": 0.0,
+}
 
 
 class TestParseArgsSelect:
@@ -32,7 +40,6 @@ class TestParseArgsSelect:
         assert cli_args.model == "llama3.1:70b"
         assert cli_args.thinking is None
         assert cli_args.max_entries is None
-        assert cli_args.with_metrics is False
         assert cli_args.run_name is None
         assert cli_args.resume is False
         assert cli_args.batch_size == RESUME_BATCH_SIZE
@@ -60,7 +67,6 @@ class TestParseArgsSelect:
             "100",
             "--ollama-host",
             "http://custom:11434",
-            "--with-metrics",
             "--debug",
             "--run-name",
             "test-run",
@@ -76,7 +82,6 @@ class TestParseArgsSelect:
         assert cli_args.mapping == mapping_file.resolve()
         assert cli_args.model == "qwen2.5:72b"
         assert cli_args.max_entries == 100
-        assert cli_args.with_metrics is True
         assert cli_args.run_name == "test-run"
         assert cli_args.resume is True
         assert cli_args.batch_size == 512
@@ -260,12 +265,13 @@ class TestRunCliSelectAsync:
                     ]
                 ),
             ),
-            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch("bsllmner2.cli_select.dump_extract_result", return_value=tmp_path / "extract.json"),
             patch("bsllmner2.cli_select.dump_select_result", return_value=tmp_path / "select.json"),
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
+            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
@@ -315,7 +321,7 @@ class TestRunCliSelectAsync:
                 "bsllmner2.cli_select.validate_resume_consistency",
                 return_value=({"SAMN00000001"}, set()),
             ),
-            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch(
                 "bsllmner2.cli_select.dump_extract_result",
                 return_value=tmp_path / "extract.json",
@@ -327,6 +333,7 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
+            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
@@ -341,12 +348,15 @@ class TestRunCliSelectAsync:
             patch(
                 "bsllmner2.cli_select.select",
                 new_callable=AsyncMock,
-                return_value=[
-                    SelectResult(
-                        accession="SAMN00000002",
-                        extract_output={"cell_line": "HEK293"},
-                    ),
-                ],
+                return_value=(
+                    [
+                        SelectResult(
+                            accession="SAMN00000002",
+                            extract_output={"cell_line": "HEK293"},
+                        ),
+                    ],
+                    _EMPTY_SELECT_TIMINGS,
+                ),
             ),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
@@ -412,7 +422,7 @@ class TestRunCliSelectAsync:
                 "bsllmner2.cli_select.validate_resume_consistency",
                 return_value=({"SAMN00000001"}, {"SAMN00000002"}),
             ),
-            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch(
                 "bsllmner2.cli_select.dump_extract_result",
                 return_value=tmp_path / "extract.json",
@@ -424,6 +434,7 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
+            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
@@ -432,12 +443,15 @@ class TestRunCliSelectAsync:
             patch(
                 "bsllmner2.cli_select.select",
                 new_callable=AsyncMock,
-                return_value=[
-                    SelectResult(
-                        accession="SAMN00000002",
-                        extract_output={"cell_line": "HEK293"},
-                    ),
-                ],
+                return_value=(
+                    [
+                        SelectResult(
+                            accession="SAMN00000002",
+                            extract_output={"cell_line": "HEK293"},
+                        ),
+                    ],
+                    _EMPTY_SELECT_TIMINGS,
+                ),
             ) as mock_select,
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
@@ -485,7 +499,7 @@ class TestRunCliSelectAsync:
                     [ConnectionError("refused")],
                 ),
             ),
-            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch(
                 "bsllmner2.cli_select.dump_extract_result",
                 return_value=tmp_path / "extract.json",
@@ -497,6 +511,7 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files") as mock_remove,
+            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
@@ -546,10 +561,11 @@ class TestCliSelectIntegration:
                     ]
                 ),
             ),
-            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch("bsllmner2.io.EXTRACT_RESULT_DIR", extract_dir),
             patch("bsllmner2.io.SELECT_RESULT_DIR", select_dir),
             patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
+            patch("bsllmner2.benchmark.BENCHMARK_DIR", tmp_path / "benchmarks"),
             patch("bsllmner2.cli_select.remove_resume_files"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
@@ -599,12 +615,13 @@ class TestCliSelectIntegration:
                     ]
                 ),
             ),
-            patch("bsllmner2.cli_select.build_index_map", return_value={}),
+            patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch("bsllmner2.cli_select.dump_extract_result", return_value=tmp_path / "extract.json"),
             patch("bsllmner2.cli_select.dump_select_result", return_value=tmp_path / "select.json"),
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
+            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
 

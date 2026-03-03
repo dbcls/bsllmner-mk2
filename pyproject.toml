@@ -52,7 +52,6 @@ tests = [
 [project.scripts]
 bsllmner2_extract = "bsllmner2.cli_extract:run_cli_extract"
 bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
-bsllmner2_metrics = "bsllmner2.metrics:main"
 
 [dependency-groups]
 dev = ["mkdocs-material>=9.7.1"]
@@ -180,7 +179,6 @@ ignore = [
   "T201",
 ]
 "scripts/**/*.py" = ["INP001", "T201"]
-"bsllmner2/metrics.py" = ["T201"]
 "bsllmner2/io.py" = ["T201"]
 "bsllmner2/ontology_search.py" = ["T201"]
 

@@ -30,19 +30,12 @@ BioSample JSON
 | Parse JSON |
 | response   |
 +------------+
-      |
-      v
-+------------+
-| Evaluate   |
-| (optional) |
-+------------+
 ```
 
 1. Load BioSample entries from JSON/JSONL
 2. Apply prompt (YAML) and format schema (JSON Schema)
 3. Send batch requests to Ollama
 4. Extract and parse JSON from responses
-5. Evaluate accuracy if a mapping file is provided
 
 ## CLI Options
 
@@ -51,12 +44,10 @@ BioSample JSON
 | Option | Description | Default |
 |--------|-------------|---------|
 | `--bs-entries` | Path to the input JSON or JSONL file containing BioSample entries (required) | -- |
-| `--mapping` | Path to the mapping file in TSV format (for evaluation) | `None` |
 | `--model` | LLM model to use for NER | `llama3.1:70b` |
 | `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `None` |
 | `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
 | `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
-| `--with-metrics` | Enable collection of metrics during processing. Requires Docker environment; collects container resource usage (CPU, memory, network, block I/O) via `docker stats` and GPU metrics via `nvidia-smi` from the Ollama container (`bsllmner-mk2-ollama`). | `false` |
 | `--debug` | Enable debug mode for more verbose logging | `false` |
 | `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
 | `--resume` | Resume from the last incomplete run | `false` |
@@ -73,12 +64,10 @@ BioSample JSON
 
 ```bash
 bsllmner2_extract \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
-  --mapping tests/test-data/cell_line_example.mapping.tsv \
+  --bs-entries tests/data/example_biosample.json \
   --prompt bsllmner2/prompt/prompt_extract.yml \
   --format bsllmner2/format/cell_line.schema.json \
   --model llama3.1:70b \
-  --with-metrics \
   --debug
 ```
 
@@ -86,8 +75,7 @@ With Docker:
 
 ```bash
 docker compose exec app bsllmner2_extract \
-  --bs-entries tests/test-data/cell_line_example.biosample.json \
-  --mapping tests/test-data/cell_line_example.mapping.tsv \
+  --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b
 ```
 
@@ -149,10 +137,3 @@ See [Data Formats](data-formats.md) for the full result schema.
 | `bsllmner2-results/extract/{run_name}_resume.json` | Resume intermediate file (during processing only) |
 
 The default `run_name` is `{model}_{YYYYMMDD_HHMMSS}` (UTC).
-
-## Evaluation
-
-When a mapping file is provided, the extract result is compared against the ground truth to calculate accuracy.
-
-- `evaluation[].match`: Exact match between the extracted value (`output.cell_line`) and the ground truth (`mapping[accession].extraction_answer`)
-- `run_metadata.accuracy`: `matched_entries / total_entries * 100` (%)

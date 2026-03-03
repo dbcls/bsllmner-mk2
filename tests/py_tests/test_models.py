@@ -14,7 +14,7 @@ from bsllmner2.models import (
     CliSelectArgs,
     ErrorInfo,
     ErrorLog,
-    Evaluation,
+    EvaluationMetrics,
     LlmOutput,
     MappingValue,
     Prompt,
@@ -293,9 +293,7 @@ class TestCliExtractArgs:
     def test_default_values(self) -> None:
         args = _make_minimal_extract_args()
         assert args.model == "llama3.1:70b"
-        assert args.with_metrics is False
         assert args.resume is False
-        assert args.mapping is None
         assert args.thinking is None
         assert args.max_entries is None
         assert args.run_name is None
@@ -412,37 +410,6 @@ class TestSelectResult:
         assert sr_none.extract_output is None
 
 
-# === TestEvaluation ===
-
-
-class TestEvaluation:
-    def test_default_match_is_false(self) -> None:
-        e = Evaluation(accession="SAMN001")
-        assert e.match is False
-
-    def test_match_true_with_mismatched_values_accepted(self) -> None:
-        """B5: No cross-field validation — match=True is accepted.
-
-        even when expected != actual. This is by design: the Evaluation
-        model is a data container; consistency is the caller's responsibility.
-        """
-        e = Evaluation(accession="SAMN001", expected="HeLa", actual="HEK293", match=True)
-        assert e.match is True
-        assert e.expected != e.actual
-
-    def test_defaults_for_optional_fields(self) -> None:
-        e = Evaluation(accession="SAMN001")
-        assert e.expected is None
-        assert e.actual is None
-
-    @given(expected=st.text(), actual=st.text())
-    @settings(max_examples=50)
-    def test_pbt_match_true_always_accepted(self, expected: str, actual: str) -> None:
-        """B5 (record): match=True is always accepted regardless of expected/actual."""
-        e = Evaluation(accession="X", expected=expected, actual=actual, match=True)
-        assert e.match is True
-
-
 # === TestWfInput ===
 
 
@@ -465,10 +432,6 @@ class TestWfInput:
     def test_cli_args_none_accepted(self) -> None:
         wf = _make_minimal_wf_input(cli_args=None)
         assert wf.cli_args is None
-
-    def test_mapping_none_accepted(self) -> None:
-        wf = _make_minimal_wf_input(mapping=None)
-        assert wf.mapping is None
 
     def test_format_none_accepted(self) -> None:
         wf = _make_minimal_wf_input(format=None)
@@ -526,13 +489,12 @@ class TestErrorLog:
 
 
 class TestResult:
-    def test_output_evaluation_default_empty_list(self) -> None:
+    def test_output_default_empty_list(self) -> None:
         r = Result(
             input=_make_minimal_wf_input(),
             run_metadata=_make_minimal_run_metadata(),
         )
         assert r.output == []
-        assert r.evaluation == []
 
     def test_two_instances_lists_independent(self) -> None:
         r1 = Result(input=_make_minimal_wf_input(), run_metadata=_make_minimal_run_metadata())
@@ -540,6 +502,48 @@ class TestResult:
         r1.output.append(LlmOutput(accession="A", chat_response=_make_chat_response()))
         assert r2.output == []
 
-    def test_metrics_default_is_none(self) -> None:
+    def test_error_log_default_is_none(self) -> None:
         r = Result(input=_make_minimal_wf_input(), run_metadata=_make_minimal_run_metadata())
-        assert r.metrics is None
+        assert r.error_log is None
+
+
+# === TestEvaluationMetrics ===
+
+
+class TestEvaluationMetrics:
+    def test_defaults(self) -> None:
+        m = EvaluationMetrics()
+        assert m.tp == 0
+        assert m.fp == 0
+        assert m.fn == 0
+        assert m.tn == 0
+        assert m.correct == 0
+        assert m.total == 0
+        assert m.accuracy is None
+        assert m.precision is None
+        assert m.recall is None
+        assert m.f1 is None
+
+    def test_all_fields_specified(self) -> None:
+        m = EvaluationMetrics(
+            tp=10,
+            fp=2,
+            fn=3,
+            tn=5,
+            correct=12,
+            total=20,
+            accuracy=0.6,
+            precision=0.833,
+            recall=0.769,
+            f1=0.8,
+        )
+        assert m.tp == 10
+        assert m.fp == 2
+        assert m.fn == 3
+        assert m.tn == 5
+        assert m.correct == 12
+        assert m.total == 20
+        assert m.accuracy == pytest.approx(0.6)
+        assert m.precision == pytest.approx(0.833)
+        assert m.recall == pytest.approx(0.769)
+        assert m.f1 == pytest.approx(0.8)

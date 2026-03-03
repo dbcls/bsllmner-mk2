@@ -8,10 +8,10 @@ The evaluation measures both **runtime performance** (extract/select stages) and
 Two datasets are used:
 
 - Input BioSample dataset (600 entries)
-  - [`../tests/zenodo-data/biosample_cellosaurus_mapping_testset.json`](../tests/zenodo-data/biosample_cellosaurus_mapping_testset.json)
+  - [`../data/eval_biosample.json`](../data/eval_biosample.json)
   - This file contains 600 BioSample entries used as input for extraction and selection.
 - Human-curated ontology mapping
-  - [`../tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv`](../tests/zenodo-data/biosample_cellosaurus_mapping_gold_standard.tsv)
+  - [`../data/eval_gold_standard.tsv`](../data/eval_gold_standard.tsv)
   - This file contains the correct ontology IDs for the `cell_line` field and is used to compute evaluation metrics.
 
 ## Models Evaluated

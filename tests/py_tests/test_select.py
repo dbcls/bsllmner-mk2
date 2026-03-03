@@ -649,9 +649,12 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results = await select(backend, entries, "test-model", extract_outputs, config)
+        results, timings = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         assert results[0].results["cell_line"] == "HeLa"
+        assert timings["ontology_search_sec"] >= 0
+        assert timings["text2term_sec"] >= 0
+        assert timings["llm_select_sec"] >= 0
 
     async def test_extract_output_none_handled(self) -> None:
         """Entries with output=None are handled gracefully."""
@@ -665,7 +668,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _ = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         assert "cell_line" not in results[0].results
 
@@ -690,7 +693,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results = await select(backend, bs_entries, "test-model", extract_outputs, config)
+        results, _ = await select(backend, bs_entries, "test-model", extract_outputs, config)
 
         result_map = {r.accession: r for r in results}
         assert result_map["SAMN003"].results["cell_line"] == "K562"
@@ -700,7 +703,7 @@ class TestSelect:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results = await select(backend, entries, "test-model", [], config)
+        results, _ = await select(backend, entries, "test-model", [], config)
         assert results == []
 
     async def test_non_dict_output_warns_in_no_select_fields(
@@ -723,7 +726,7 @@ class TestSelect:
         try:
             logger.propagate = True
             with caplog.at_level(logging.WARNING, logger="bsllmner2"):
-                results = await select(backend, entries, "test-model", extract_outputs, config)
+                results, _ = await select(backend, entries, "test-model", extract_outputs, config)
         finally:
             logger.propagate = original_propagate
 
@@ -757,7 +760,7 @@ class TestBuildIndexMap:
             },
         )
         with patch("bsllmner2.select.INDEX_CACHE_DIR", tmp_path):
-            result = build_index_map(config)
+            result, _disk_io = build_index_map(config)
         assert result == {}
 
     def test_tsv_file_builds_index(self, tmp_path: Path) -> None:
@@ -774,7 +777,7 @@ class TestBuildIndexMap:
         )
         cache_dir = tmp_path / "cache"
         with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
-            result = build_index_map(config)
+            result, _disk_io = build_index_map(config)
         assert tsv in result
         assert isinstance(result[tsv], OntologyIndex)
 
@@ -810,10 +813,10 @@ class TestBuildIndexMap:
         )
         cache_dir = tmp_path / "cache"
         with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
-            result1 = build_index_map(config)
+            result1, _ = build_index_map(config)
         tsv.unlink()
         with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
-            result2 = build_index_map(config)
+            result2, _ = build_index_map(config)
         assert tsv in result2
         pkl_files = list(cache_dir.glob("*.pkl"))
         with pkl_files[0].open("rb") as f:
@@ -840,7 +843,7 @@ class TestBuildIndexMap:
         )
         cache_dir = tmp_path / "cache"
         with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
-            result = build_index_map(config)
+            result, _ = build_index_map(config)
         assert len(result) == 1
         assert tsv in result
 
@@ -879,6 +882,6 @@ class TestBuildIndexMap:
         corrupted_pkl.write_bytes(b"not a valid pickle")
 
         with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
-            result = build_index_map(config)
+            result, _disk_io = build_index_map(config)
         assert tsv in result
         assert isinstance(result[tsv], OntologyIndex)

@@ -38,7 +38,7 @@ MODELS=(
   "gpt-oss:20b"
 )
 
-BS_ENTRIES="/app/tests/zenodo-data/biosample_cellosaurus_mapping_testset.json"
+BS_ENTRIES="/app/tests/data/eval_biosample.json"
 SELECT_CONFIG="/app/scripts/select-config-hg38.json"
 
 RUN_NAME_BASE="model-eval-${BATCH_NAME}"
