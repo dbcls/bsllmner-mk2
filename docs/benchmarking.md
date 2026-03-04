@@ -46,7 +46,7 @@ total_duration = load_duration + prompt_eval_duration + eval_duration + internal
 
 ## Diagnosing execution time variance
 
-Execution time varies between runs even with identical inputs. The BenchmarkSummary JSON provides data to isolate the cause.
+Execution time varies between runs even with identical inputs. The `performance` field in the result JSON provides data to isolate the cause.
 
 ### Layer 1: LLM internal
 
@@ -77,7 +77,7 @@ GPU saturation means adding more parallelism no longer increases total throughpu
 ### Method
 
 1. Run the same workload with different concurrency levels (e.g., 1, 4, 16, 64, 256).
-2. From BenchmarkSummary, compute:
+2. From the result's `performance` field, compute:
    - `T_N`: mean per-request tokens/sec at concurrency N
    - `N * T_N`: estimated total throughput
 
@@ -104,20 +104,19 @@ Report **median +- IQR** (interquartile range) over at least 3 runs. Mean is sen
 
 Wall-clock time depends on the number of tokens generated, which varies with input. Use `tokens_per_sec` to compare across different inputs.
 
-## Reading BenchmarkSummary JSON
+## Reading PerformanceSummary
 
-Saved to `bsllmner2-results/benchmarks/{run_name}_benchmark.json`.
+Performance data is embedded in the result file's `performance` field (both `ExtractResult` and `SelectResult`).
 
 ### Top-level fields
 
 | Field | What to check |
 |-------|---------------|
-| `total_wall_sec` | End-to-end wall-clock time |
-| `total_entries` / `completed_count` | Did all entries complete? |
-| `select_accuracy` / `select_matched_entries` | Select accuracy regression check (Select mode only) |
-| `select_precision` / `select_recall` / `select_f1` | Select precision/recall/f1 (%) (Select mode only) |
+| `performance.total_wall_sec` | End-to-end wall-clock time |
+| `performance.total_input_entries` / `performance.completed_count` | Did all entries complete? |
+| `evaluation.accuracy` / `evaluation.precision` / `evaluation.recall` / `evaluation.f1` | Accuracy regression check (Select mode only, in `SelectResult.evaluation`) |
 
-### `ner_llm_timing` / `select_llm_timing`
+### `performance.ner_llm_timing` / `performance.select_llm_timing`
 
 | Field | What to check |
 |-------|---------------|
@@ -128,11 +127,11 @@ Saved to `bsllmner2-results/benchmarks/{run_name}_benchmark.json`.
 | `p50_latency_sec` vs `p99_latency_sec` | Tail latency (outlier detection) |
 | `total_prompt_tokens` / `total_eval_tokens` | Token budget |
 
-### `stage_timings[]`
+### `performance.stage_timings[]`
 
 Per-batch breakdown. Compare `ner_sec`, `ontology_search_sec`, `text2term_sec`, `llm_select_sec` to identify the bottleneck stage.
 
-### `disk_io`
+### `performance.disk_io`
 
 | Field | What to check |
 |-------|---------------|

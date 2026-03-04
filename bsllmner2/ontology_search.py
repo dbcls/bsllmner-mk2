@@ -190,6 +190,24 @@ def is_label_prop(prop_uri: str | None) -> bool:
     return prop_uri in LABEL_URI_PROPS
 
 
+_PROP_URI_SHORT_NAMES: dict[str, str] = {
+    DEFAULT_PREFIX_MAP["rdfs"] + "label": "rdfs:label",
+    DEFAULT_PREFIX_MAP["skos"] + "prefLabel": "skos:prefLabel",
+    DEFAULT_PREFIX_MAP["skos"] + "altLabel": "skos:altLabel",
+    DEFAULT_PREFIX_MAP["skos"] + "hiddenLabel": "skos:hiddenLabel",
+    DEFAULT_PREFIX_MAP["oboInOwl"] + "hasExactSynonym": "oboInOwl:hasExactSynonym",
+    DEFAULT_PREFIX_MAP["oboInOwl"] + "hasRelatedSynonym": "oboInOwl:hasRelatedSynonym",
+    DEFAULT_PREFIX_MAP["oboInOwl"] + "hasBroadSynonym": "oboInOwl:hasBroadSynonym",
+    DEFAULT_PREFIX_MAP["oboInOwl"] + "hasNarrowSynonym": "oboInOwl:hasNarrowSynonym",
+}
+
+
+def _human_readable_prop(prop_uri: str | None) -> str:
+    if prop_uri is None:
+        return "unknown property"
+    return _PROP_URI_SHORT_NAMES.get(prop_uri, prop_uri)
+
+
 def build_index(
     ontology: Ontology,
     additional_conditions: dict[str, str] | None = None,
@@ -436,13 +454,16 @@ def search_terms(
                 label_list = index.term_id_to_labels.get(ann.term_id, [])
                 label = label_list[0] if label_list else None
 
+                is_exact = _normalize_key(query) == _normalize_key(ann.value)
+                reasoning = f"Exact match on {_human_readable_prop(ann.prop_uri)}" if is_exact else None
                 result = SearchResult(
                     term_uri=ann.term_uri,
                     term_id=ann.term_id,
                     prop_uri=ann.prop_uri,
                     value=ann.value,
                     label=label,
-                    exact_match=(_normalize_key(query) == _normalize_key(ann.value)),
+                    exact_match=is_exact,
+                    reasoning=reasoning,
                 )
                 results.setdefault(query, []).append(result)
 
@@ -516,6 +537,7 @@ def search_terms_with_text2term(
                 label=label,
                 exact_match=_normalize_key(query) == value_key,
                 text2term_score=text2term_score,
+                reasoning=f"text2term score: {text2term_score:.2f}",
             )
             results[query].append(result)
 

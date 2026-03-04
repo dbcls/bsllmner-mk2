@@ -6,7 +6,14 @@ import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
 
-from bsllmner2.benchmark import StageTimer, aggregate_llm_timings, compute_percentile, stage_timer
+from bsllmner2.benchmark import (
+    StageTimer,
+    aggregate_from_timing_fields,
+    aggregate_llm_timings,
+    compute_percentile,
+    stage_timer,
+)
+from bsllmner2.models import LlmTimingFields
 from tests.py_tests.conftest import make_chat_response_with_timing
 
 
@@ -162,3 +169,55 @@ class TestAggregateLlmTimings:
         summary = aggregate_llm_timings(responses)
         expected = sum(d / 1e9 for d in durations)
         assert summary.total_duration_sec == pytest.approx(expected, rel=1e-6)
+
+
+class TestAggregateFromTimingFields:
+    def test_empty_list(self) -> None:
+        summary = aggregate_from_timing_fields([])
+        assert summary.call_count == 0
+        assert summary.total_duration_sec == 0.0
+        assert summary.mean_tokens_per_sec is None
+
+    def test_single_field(self) -> None:
+        field = LlmTimingFields(
+            total_duration=1_000_000_000,
+            load_duration=100_000_000,
+            eval_count=50,
+            eval_duration=500_000_000,
+            prompt_eval_count=100,
+        )
+        summary = aggregate_from_timing_fields([field])
+        assert summary.call_count == 1
+        assert summary.total_duration_sec == pytest.approx(1.0)
+        assert summary.mean_latency_sec == pytest.approx(0.9)
+        assert summary.mean_tokens_per_sec == pytest.approx(100.0)
+        assert summary.total_prompt_tokens == 100
+        assert summary.total_eval_tokens == 50
+
+    def test_consistent_with_aggregate_llm_timings(self) -> None:
+        """aggregate_from_timing_fields should produce the same result as aggregate_llm_timings."""
+        resp = make_chat_response_with_timing(
+            content="test",
+            total_duration=2_000_000_000,
+            load_duration=200_000_000,
+            eval_count=100,
+            eval_duration=1_000_000_000,
+            prompt_eval_count=200,
+        )
+        from_responses = aggregate_llm_timings([resp])
+        from_fields = aggregate_from_timing_fields(
+            [
+                LlmTimingFields(
+                    total_duration=2_000_000_000,
+                    load_duration=200_000_000,
+                    eval_count=100,
+                    eval_duration=1_000_000_000,
+                    prompt_eval_count=200,
+                )
+            ]
+        )
+        assert from_responses.call_count == from_fields.call_count
+        assert from_responses.total_duration_sec == pytest.approx(from_fields.total_duration_sec)
+        assert from_responses.mean_latency_sec == pytest.approx(from_fields.mean_latency_sec)
+        assert from_responses.total_prompt_tokens == from_fields.total_prompt_tokens
+        assert from_responses.total_eval_tokens == from_fields.total_eval_tokens

@@ -12,11 +12,12 @@ import ollama
 from ollama import ChatResponse, Message
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.benchmark import DiskIoTimings, stage_timer
+from bsllmner2.benchmark import stage_timer
 from bsllmner2.config import LOGGER
 from bsllmner2.llm import OLLAMA_OPTIONS, LlmBackend, parse_response_json
 from bsllmner2.models import (
     BsEntries,
+    DiskIoTimings,
     ExtractEntry,
     OntologyIndex,
     ResolvedValue,
@@ -32,16 +33,28 @@ from bsllmner2.ontology_search import (
     search_terms_with_text2term,
 )
 
-
 class SelectStageTimings(TypedDict):
-    """Stage timings collected during a single select() call."""
-
     ontology_search_sec: float
     text2term_sec: float
     llm_select_sec: float
 
 
 INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontology/index_cache"))
+
+
+def _resolved_from_search_result(
+    value: str,
+    search_result: SearchResult,
+    reasoning: str | None = None,
+) -> ResolvedValue:
+    return ResolvedValue(
+        value=value,
+        term_id=search_result.term_id,
+        term_uri=search_result.term_uri,
+        label=search_result.label,
+        exact_match=search_result.exact_match,
+        reasoning=reasoning if reasoning is not None else search_result.reasoning,
+    )
 
 
 def _pick_exact_match_search_result(
@@ -193,14 +206,7 @@ def _distribute_results(
 
             exact_match_result = _pick_exact_match_search_result(candidates)
             if exact_match_result is not None:
-                existing_resolved.append(ResolvedValue(
-                    value=value,
-                    term_id=exact_match_result.term_id,
-                    term_uri=exact_match_result.term_uri,
-                    label=exact_match_result.label,
-                    exact_match=exact_match_result.exact_match,
-                    reasoning=exact_match_result.reasoning,
-                ))
+                existing_resolved.append(_resolved_from_search_result(value, exact_match_result))
 
         if existing_resolved:
             entry.results[field_name] = existing_resolved
@@ -577,7 +583,9 @@ async def select(
                     continue
 
                 all_select_chat_responses.append(chat_response)
-                select_entry.select_timings.setdefault(field_name, {})[value] = llm_timing_from_chat_response(chat_response)
+                select_entry.select_timings.setdefault(field_name, {})[value] = llm_timing_from_chat_response(
+                    chat_response
+                )
 
                 output_obj = _parse_output_object(chat_response)
                 chosen_id = output_obj.get("id", None) if output_obj else None
@@ -590,12 +598,9 @@ async def select(
                 if picked_result is None:
                     continue
 
-                resolved = ResolvedValue(
-                    value=value,
-                    term_id=picked_result.term_id,
-                    term_uri=picked_result.term_uri,
-                    label=picked_result.label,
-                    exact_match=picked_result.exact_match,
+                resolved = _resolved_from_search_result(
+                    value,
+                    picked_result,
                     reasoning=reasoning if isinstance(reasoning, str) else None,
                 )
 

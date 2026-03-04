@@ -1,84 +1,20 @@
-"""Benchmark utilities: timing, models, I/O, and logging."""
+"""Benchmark utilities: timing, aggregation, and logging."""
 
 import contextlib
-import json
 import time
 from collections.abc import Generator
 from dataclasses import dataclass, field
-from pathlib import Path
 
 from ollama import ChatResponse
-from pydantic import BaseModel, Field
 
-from bsllmner2.config import LOGGER, RESULT_DIR
-
-# === Benchmark models ===
-
-BENCHMARK_DIR = RESULT_DIR.joinpath("benchmarks")
-
-
-class LlmTimingSummary(BaseModel):
-    """Timing statistics aggregated from multiple LLM calls."""
-
-    call_count: int
-    total_duration_sec: float
-    # Latency is computed as total_duration minus load_duration, in seconds.
-    mean_latency_sec: float
-    p50_latency_sec: float
-    p95_latency_sec: float
-    p99_latency_sec: float
-    # tokens/sec = eval_count / (eval_duration / 1e9)
-    mean_tokens_per_sec: float | None
-    p50_tokens_per_sec: float | None
-    p95_tokens_per_sec: float | None
-    # load_duration (warm-up impact analysis)
-    mean_load_duration_sec: float
-    max_load_duration_sec: float
-    # token counts
-    total_prompt_tokens: int
-    total_eval_tokens: int
-
-
-class StageTimings(BaseModel):
-    """Wall-clock timings per stage for a single batch."""
-
-    batch_idx: int
-    batch_size: int
-    ner_sec: float | None = None
-    ontology_search_sec: float | None = None
-    text2term_sec: float | None = None
-    llm_select_sec: float | None = None
-    resume_write_sec: float | None = None
-
-
-class DiskIoTimings(BaseModel):
-    """Timing data for disk I/O operations."""
-
-    index_cache_load_sec: list[float] = Field(default_factory=list)
-    index_cache_save_sec: list[float] = Field(default_factory=list)
-    index_build_from_file_sec: list[float] = Field(default_factory=list)
-    resume_write_sec: list[float] = Field(default_factory=list)
-
-
-class BenchmarkSummary(BaseModel):
-    """Per-run benchmark summary (saved as JSON file)."""
-
-    run_name: str
-    model: str
-    thinking: bool | None = None
-    total_entries: int
-    completed_count: int
-    total_wall_sec: float | None = None
-    stage_timings: list[StageTimings] = Field(default_factory=list)
-    ner_llm_timing: LlmTimingSummary | None = None
-    select_llm_timing: LlmTimingSummary | None = None
-    disk_io: DiskIoTimings = Field(default_factory=DiskIoTimings)
-    select_accuracy: float | None = None
-    select_precision: float | None = None
-    select_recall: float | None = None
-    select_f1: float | None = None
-    select_matched_entries: int | None = None
-
+from bsllmner2.config import LOGGER
+from bsllmner2.models import (
+    EvaluationMetrics,
+    LlmTimingFields,
+    LlmTimingSummary,
+    PerformanceSummary,
+    llm_timing_from_chat_response,
+)
 
 # === Timer utilities ===
 
@@ -133,14 +69,12 @@ def compute_percentile(values: list[float], p: int) -> float:
     return sorted_values[lower] + fraction * (sorted_values[upper] - sorted_values[lower])
 
 
-def aggregate_llm_timings(responses: list[ChatResponse]) -> LlmTimingSummary:
-    """Compute LlmTimingSummary from a list of ChatResponse objects.
+# === Aggregation ===
 
-    - latency = (total_duration - load_duration) / 1e9
-    - tokens_per_sec = eval_count / (eval_duration / 1e9)
-    - load_duration_sec = load_duration / 1e9
-    """
-    if not responses:
+
+def aggregate_from_timing_fields(fields: list[LlmTimingFields]) -> LlmTimingSummary:
+    """Compute LlmTimingSummary from a list of LlmTimingFields objects."""
+    if not fields:
         return LlmTimingSummary(
             call_count=0,
             total_duration_sec=0.0,
@@ -164,23 +98,17 @@ def aggregate_llm_timings(responses: list[ChatResponse]) -> LlmTimingSummary:
     total_prompt_tokens = 0
     total_eval_tokens = 0
 
-    for resp in responses:
-        td = getattr(resp, "total_duration", 0) or 0
-        ld = getattr(resp, "load_duration", 0) or 0
-        ec = getattr(resp, "eval_count", 0) or 0
-        ed = getattr(resp, "eval_duration", 0) or 0
-        pec = getattr(resp, "prompt_eval_count", 0) or 0
+    for f in fields:
+        total_duration_sum += f.total_duration / 1e9
+        latencies.append((f.total_duration - f.load_duration) / 1e9)
+        load_durations.append(f.load_duration / 1e9)
+        total_prompt_tokens += f.prompt_eval_count
+        total_eval_tokens += f.eval_count
 
-        total_duration_sum += td / 1e9
-        latencies.append((td - ld) / 1e9)
-        load_durations.append(ld / 1e9)
-        total_prompt_tokens += pec
-        total_eval_tokens += ec
+        if f.eval_duration > 0:
+            tokens_per_sec_list.append(f.eval_count / (f.eval_duration / 1e9))
 
-        if ed > 0:
-            tokens_per_sec_list.append(ec / (ed / 1e9))
-
-    call_count = len(responses)
+    call_count = len(fields)
     mean_latency = sum(latencies) / call_count
     mean_load = sum(load_durations) / call_count
 
@@ -209,27 +137,23 @@ def aggregate_llm_timings(responses: list[ChatResponse]) -> LlmTimingSummary:
     )
 
 
-# === I/O ===
-
-
-def dump_benchmark(summary: BenchmarkSummary, run_name: str) -> Path:
-    """Write a BenchmarkSummary as JSON to the benchmarks directory."""
-    BENCHMARK_DIR.mkdir(parents=True, exist_ok=True)
-    bench_file = BENCHMARK_DIR.joinpath(f"{run_name}_benchmark.json")
-    with bench_file.open("w", encoding="utf-8") as f:
-        json.dump(summary.model_dump(mode="json"), f, ensure_ascii=False, indent=2)
-
-    return bench_file
+def aggregate_llm_timings(responses: list[ChatResponse]) -> LlmTimingSummary:
+    """Compute LlmTimingSummary from a list of ChatResponse objects."""
+    timing_fields = [llm_timing_from_chat_response(r) for r in responses]
+    return aggregate_from_timing_fields(timing_fields)
 
 
 # === Logging ===
 
 
-def log_benchmark_summary(summary: BenchmarkSummary) -> None:
-    """Log a human-readable benchmark summary to the logger."""
-    LOGGER.info("=== Benchmark Summary ===")
+def log_performance_summary(
+    summary: PerformanceSummary,
+    evaluation: EvaluationMetrics | None = None,
+) -> None:
+    """Log a human-readable performance summary to the logger."""
+    LOGGER.info("=== Performance Summary ===")
     LOGGER.info("  total_wall_sec: %.2f", summary.total_wall_sec or 0.0)
-    LOGGER.info("  total_entries: %d, completed: %d", summary.total_entries, summary.completed_count)
+    LOGGER.info("  total_input_entries: %d, completed: %d", summary.total_input_entries, summary.completed_count)
     if summary.ner_llm_timing:
         t = summary.ner_llm_timing
         LOGGER.info(
@@ -246,11 +170,11 @@ def log_benchmark_summary(summary: BenchmarkSummary) -> None:
             t.mean_latency_sec,
             f"{t.mean_tokens_per_sec:.1f}" if t.mean_tokens_per_sec is not None else "N/A",
         )
-    if summary.select_accuracy is not None:
+    if evaluation is not None and evaluation.accuracy is not None:
         LOGGER.info(
             "  Select: accuracy=%.2f%%, precision=%.2f%%, recall=%.2f%%, f1=%.2f%%",
-            summary.select_accuracy,
-            summary.select_precision or 0.0,
-            summary.select_recall or 0.0,
-            summary.select_f1 or 0.0,
+            evaluation.accuracy * 100,
+            (evaluation.precision or 0.0) * 100,
+            (evaluation.recall or 0.0) * 100,
+            (evaluation.f1 or 0.0) * 100,
         )

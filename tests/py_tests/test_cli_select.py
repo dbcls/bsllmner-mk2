@@ -7,10 +7,9 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 
-from bsllmner2.benchmark import DiskIoTimings
 from bsllmner2.cli_select import parse_args, run_cli_select_async
 from bsllmner2.config import RESUME_BATCH_SIZE
-from bsllmner2.models import ExtractEntry, SelectEntry
+from bsllmner2.models import DiskIoTimings, ExtractEntry, SelectEntry
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 _EMPTY_INDEX_MAP_RESULT: tuple[dict[str, object], DiskIoTimings] = ({}, DiskIoTimings())
@@ -270,7 +269,6 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
-            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
@@ -329,7 +327,6 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
-            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
@@ -419,7 +416,6 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
-            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
@@ -488,7 +484,6 @@ class TestRunCliSelectAsync:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files") as mock_remove,
-            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
@@ -540,7 +535,6 @@ class TestCliSelectIntegration:
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch("bsllmner2.io.SELECT_RESULT_DIR", select_dir),
             patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
-            patch("bsllmner2.benchmark.BENCHMARK_DIR", tmp_path / "benchmarks"),
             patch("bsllmner2.cli_select.remove_resume_files"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
@@ -587,7 +581,6 @@ class TestCliSelectIntegration:
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files"),
-            patch("bsllmner2.cli_select.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]
 

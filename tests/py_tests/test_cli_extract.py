@@ -214,7 +214,6 @@ class TestRunCliExtractAsync:
             patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
             patch("bsllmner2.cli_extract.dump_extract_resume_file"),
             patch("bsllmner2.cli_extract.remove_resume_files"),
-            patch("bsllmner2.cli_extract.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]
             await run_cli_extract_async()
@@ -263,7 +262,6 @@ class TestRunCliExtractAsync:
             patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
             patch("bsllmner2.cli_extract.dump_extract_resume_file"),
             patch("bsllmner2.cli_extract.remove_resume_files"),
-            patch("bsllmner2.cli_extract.dump_benchmark", return_value=tmp_path / "benchmark.json"),
             patch(
                 "bsllmner2.cli_extract.ner",
                 new_callable=AsyncMock,
@@ -312,7 +310,6 @@ class TestRunCliExtractAsync:
             ) as mock_dump,
             patch("bsllmner2.cli_extract.dump_extract_resume_file"),
             patch("bsllmner2.cli_extract.remove_resume_files") as mock_remove,
-            patch("bsllmner2.cli_extract.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]
             await run_cli_extract_async()
@@ -363,7 +360,6 @@ class TestCliExtractIntegration:
             ),
             patch("bsllmner2.io.EXTRACT_RESULT_DIR", result_dir),
             patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
-            patch("bsllmner2.benchmark.BENCHMARK_DIR", tmp_path / "benchmarks"),
             patch("bsllmner2.cli_extract.remove_resume_files"),
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]
@@ -411,7 +407,6 @@ class TestCliExtractIntegration:
             patch("bsllmner2.cli_extract.dump_extract_result", return_value=tmp_path / "result.json"),
             patch("bsllmner2.cli_extract.dump_extract_resume_file"),
             patch("bsllmner2.cli_extract.remove_resume_files"),
-            patch("bsllmner2.cli_extract.dump_benchmark", return_value=tmp_path / "benchmark.json"),
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]
 

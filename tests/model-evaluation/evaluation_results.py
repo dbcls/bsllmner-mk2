@@ -8,40 +8,29 @@ from typing import Any
 
 import httpx
 
-from bsllmner2.benchmark import BenchmarkSummary
 from bsllmner2.models import SelectResult
 from bsllmner2.pipeline import compute_classification_metrics, extract_predicted_term_id
 
 HERE = Path(__file__).parent
 RESULT_DIR = Path("/app/bsllmner2-results")
 SELECT_RESULTS_DIR = RESULT_DIR.joinpath("select")
-BENCHMARK_DIR = RESULT_DIR.joinpath("benchmarks")
 MAPPING_FILE = Path("/app/tests/data/eval_gold_standard.tsv")
 OLLAMA_HOST = "http://bsllmner-mk2-ollama:11434"
 
 
-def load_benchmark(run_name: str) -> BenchmarkSummary | None:
-    """Load a BenchmarkSummary from the benchmarks directory.
-
-    Returns None if the file does not exist.
-    """
-    bench_file = BENCHMARK_DIR.joinpath(f"{run_name}_benchmark.json")
-    if not bench_file.exists():
-        return None
-    data = json.loads(bench_file.read_text(encoding="utf-8"))
-    return BenchmarkSummary.model_validate(data)
-
-
-def time_from_benchmark(benchmark: BenchmarkSummary) -> dict[str, float]:
-    """Extract timing data from a BenchmarkSummary."""
-    result: dict[str, float] = {}
-    if benchmark.total_wall_sec is not None:
-        result["total_sec"] = benchmark.total_wall_sec
-    if benchmark.ner_llm_timing is not None:
-        result["extract_sec"] = benchmark.ner_llm_timing.total_duration_sec
-    if benchmark.select_llm_timing is not None:
-        result["selection_sec"] = benchmark.select_llm_timing.total_duration_sec
-    return result
+def time_from_result(result: SelectResult) -> dict[str, float]:
+    """Extract timing data from a SelectResult's performance field."""
+    timing: dict[str, float] = {}
+    if result.performance is None:
+        return timing
+    perf = result.performance
+    if perf.total_wall_sec is not None:
+        timing["total_sec"] = perf.total_wall_sec
+    if perf.ner_llm_timing is not None:
+        timing["extract_sec"] = perf.ner_llm_timing.total_duration_sec
+    if perf.select_llm_timing is not None:
+        timing["selection_sec"] = perf.select_llm_timing.total_duration_sec
+    return timing
 
 
 def list_models_from_log_dir(log_dir: Path) -> list[str]:
@@ -274,9 +263,13 @@ def main() -> None:
 
             model_safe = model.replace(":", "_")
             run_name = f"{run_name_base}-{model_safe}"
-            benchmark = load_benchmark(run_name)
-            if benchmark is not None:
-                time_results = time_from_benchmark(benchmark)
+
+            # Try to get timing from the select result file's performance field
+            select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
+            if select_results_path.exists():
+                select_result_data = json.loads(select_results_path.read_text(encoding="utf-8"))
+                sr = SelectResult.model_validate(select_result_data)
+                time_results = time_from_result(sr)
             else:
                 time_results = parse_time_from_log(model, log_dir)
             result.update(time_results)

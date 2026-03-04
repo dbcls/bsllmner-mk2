@@ -70,13 +70,13 @@ Saved to `bsllmner2-results/extract/{run_name}.json`.
     "run_name": "llama3.1:70b_20250101_120000",
     "model": "llama3.1:70b",
     "thinking": null,
-    "username": null,
     "start_time": "2025-01-01T12:00:00Z",
     "end_time": "2025-01-01T12:10:00Z",
     "status": "completed",
     "processing_time_sec": 600.0,
     "total_entries": 1
   },
+  "performance": null,
   "errors": []
 }
 ```
@@ -164,7 +164,6 @@ Saved to `bsllmner2-results/select/select_{run_name}.json`.
     "run_name": "llama3.1:70b_20250101_120000",
     "model": "llama3.1:70b",
     "thinking": null,
-    "username": null,
     "start_time": "2025-01-01T12:00:00Z",
     "end_time": "2025-01-01T12:15:00Z",
     "status": "completed",
@@ -172,6 +171,7 @@ Saved to `bsllmner2-results/select/select_{run_name}.json`.
     "total_entries": 1
   },
   "evaluation": null,
+  "performance": null,
   "errors": []
 }
 ```
@@ -185,7 +185,7 @@ Saved to `bsllmner2-results/select/select_{run_name}.json`.
 | `entries[].text2term_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2b text2term results |
 | `entries[].select_timings` | `dict[field, dict[value, LlmTimingFields]]` | Per-field LLM timing |
 | `entries[].results` | `dict[field, list[ResolvedValue]]` | Final mapping results |
-| `evaluation` | `EvaluationMetrics \| null` | Evaluation metrics (independent from RunMetadata) |
+| `evaluation` | `EvaluationMetrics \| null` | Evaluation metrics (independent from RunMetadata). All ratio fields (`accuracy`, `precision`, `recall`, `f1`) are stored as 0–1 ratios, not percentages. |
 | `errors` | `list[ErrorLog]` | Error information |
 
 ### ResolvedValue
@@ -263,78 +263,23 @@ A JSON Schema that controls the LLM output format. Passed to the Ollama `format`
 
 In Select mode, the schema is dynamically generated from the SelectConfig field definitions (`build_extract_schema_for_select`). For `value_type: "array"`, it is generated as `{"type": ["array", "null"], "items": {"type": "string"}}`. The generated schema always includes `"additionalProperties": false`.
 
-## Benchmark Summary JSON
+## PerformanceSummary
 
-Saved to `bsllmner2-results/benchmarks/{run_name}_benchmark.json`. Generated automatically on every Extract/Select run.
-
-```json
-{
-  "run_name": "llama3.1:70b_20250101_120000",
-  "model": "llama3.1:70b",
-  "thinking": null,
-  "total_entries": 100,
-  "completed_count": 100,
-  "total_wall_sec": 342.5,
-  "stage_timings": [
-    {
-      "batch_idx": 0,
-      "batch_size": 50,
-      "ner_sec": 120.3,
-      "ontology_search_sec": null,
-      "text2term_sec": null,
-      "llm_select_sec": null,
-      "resume_write_sec": 0.05
-    }
-  ],
-  "ner_llm_timing": {
-    "call_count": 100,
-    "total_duration_sec": 280.0,
-    "mean_latency_sec": 2.7,
-    "p50_latency_sec": 2.5,
-    "p95_latency_sec": 4.1,
-    "p99_latency_sec": 5.8,
-    "mean_tokens_per_sec": 45.2,
-    "p50_tokens_per_sec": 46.0,
-    "p95_tokens_per_sec": 38.1,
-    "mean_load_duration_sec": 0.001,
-    "max_load_duration_sec": 0.85,
-    "total_prompt_tokens": 50000,
-    "total_eval_tokens": 5000
-  },
-  "select_llm_timing": null,
-  "disk_io": {
-    "index_cache_load_sec": [],
-    "index_cache_save_sec": [],
-    "index_build_from_file_sec": [],
-    "resume_write_sec": []
-  },
-  "select_accuracy": null,
-  "select_precision": null,
-  "select_recall": null,
-  "select_f1": null,
-  "select_matched_entries": null
-}
-```
+Performance data is embedded in the `performance` field of `ExtractResult` and `SelectResult`. There is no separate benchmark file; all data lives inside the result JSON.
 
 ### Key Fields
 
 | Path | Type | Description |
 |------|------|-------------|
-| `run_name` | `string` | Run identifier |
-| `model` | `string` | Ollama model name |
-| `thinking` | `bool \| null` | Whether thinking mode was enabled |
-| `total_entries` | `int` | Total input entries |
-| `completed_count` | `int` | Entries that completed processing |
-| `total_wall_sec` | `float \| null` | Total wall-clock time (seconds) |
-| `stage_timings[]` | `StageTimings[]` | Per-batch stage breakdown |
-| `ner_llm_timing` | `LlmTimingSummary \| null` | Aggregated NER LLM timing stats |
-| `select_llm_timing` | `LlmTimingSummary \| null` | Aggregated Select LLM timing stats (Select mode only) |
-| `disk_io` | `DiskIoTimings` | Disk I/O timing breakdown (Select mode only) |
-| `select_accuracy` | `float \| null` | Select accuracy (%) (Select mode only) |
-| `select_precision` | `float \| null` | Select precision (%) (Select mode only) |
-| `select_recall` | `float \| null` | Select recall (%) (Select mode only) |
-| `select_f1` | `float \| null` | Select F1-score (%) (Select mode only) |
-| `select_matched_entries` | `int \| null` | Number of correctly matched entries (Select mode only) |
+| `performance.total_input_entries` | `int` | Total input entries |
+| `performance.completed_count` | `int` | Entries that completed processing |
+| `performance.total_wall_sec` | `float \| null` | Total wall-clock time (seconds) |
+| `performance.stage_timings[]` | `StageTimings[]` | Per-batch stage breakdown |
+| `performance.ner_llm_timing` | `LlmTimingSummary \| null` | Aggregated NER LLM timing stats |
+| `performance.select_llm_timing` | `LlmTimingSummary \| null` | Aggregated Select LLM timing stats (Select mode only) |
+| `performance.disk_io` | `DiskIoTimings` | Disk I/O timing breakdown (Select mode only) |
+
+Accuracy metrics (`accuracy`, `precision`, `recall`, `f1`) are in `SelectResult.evaluation`, not in `PerformanceSummary`.
 
 ### LlmTimingSummary Fields
 

@@ -57,7 +57,7 @@ class TestExtractLastJson:
 
     def test_unicode_preserved(self) -> None:
         result = _extract_last_json('{"name": "日本語"}')
-        assert result is not None
+        assert isinstance(result, dict)
         assert result["name"] == "日本語"
 
     def test_mixed_valid_invalid(self) -> None:

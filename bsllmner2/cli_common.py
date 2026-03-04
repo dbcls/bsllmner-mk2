@@ -137,7 +137,6 @@ def build_run_metadata(
     """Build RunMetadata from common parameters."""
     return RunMetadata(
         run_name=run_name,
-        username=None,
         model=model,
         thinking=thinking,
         start_time=start_time,

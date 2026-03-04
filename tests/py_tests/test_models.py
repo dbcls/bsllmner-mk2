@@ -154,7 +154,6 @@ class TestRunMetadata:
             processing_time_sec=None,
             total_entries=None,
             thinking=None,
-            username=None,
         )
         assert m.end_time is None
         assert m.processing_time_sec is None
@@ -464,7 +463,6 @@ class TestEvaluationMetrics:
             fp=2,
             fn=3,
             tn=5,
-            correct=12,
             total=20,
             accuracy=0.6,
             precision=0.833,
@@ -475,9 +473,17 @@ class TestEvaluationMetrics:
         assert m.fp == 2
         assert m.fn == 3
         assert m.tn == 5
-        assert m.correct == 12
+        assert m.correct == m.tp + m.tn
         assert m.total == 20
         assert m.accuracy == pytest.approx(0.6)
         assert m.precision == pytest.approx(0.833)
         assert m.recall == pytest.approx(0.769)
         assert m.f1 == pytest.approx(0.8)
+
+    def test_correct_is_computed_field(self) -> None:
+        """Correct is always tp + tn, computed automatically."""
+        m = EvaluationMetrics(tp=7, tn=3)
+        assert m.correct == 10
+        dumped = m.model_dump()
+        assert "correct" in dumped
+        assert dumped["correct"] == 10

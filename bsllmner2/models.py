@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ollama import ChatResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, computed_field
 
 RunStatus = Literal["running", "completed", "failed"]
 
@@ -32,14 +32,28 @@ class SearchResult(TermAnnotation):
     reasoning: str | None = None
 
 
-class CliExtractArgs(BaseModel):
-    """Command-line arguments for the bsllmner2 CLI extract mode."""
+# === CLI args models ===
+
+
+class CliCommonArgs(BaseModel):
+    """Common command-line arguments shared between extract and select modes."""
 
     bs_entries: Path = Field(
         ...,
         description="Path to the input JSON or JSONL file containing BioSample entries.",
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
     )
+    model: str = "llama3.1:70b"
+    thinking: bool | None = None
+    max_entries: int | None = None
+    run_name: str | None = None
+    resume: bool = False
+    batch_size: int = Field(..., gt=0)
+
+
+class CliExtractArgs(CliCommonArgs):
+    """Command-line arguments for the bsllmner2 CLI extract mode."""
+
     prompt: Path = Field(
         ...,
         description="Path to the prompt file in YAML format.",
@@ -50,12 +64,6 @@ class CliExtractArgs(BaseModel):
         description="Path to the JSON schema file for the output format.",
         examples=["format/cell_line.schema.json"],
     )
-    model: str = "llama3.1:70b"
-    thinking: bool | None = None
-    max_entries: int | None = None
-    run_name: str | None = None
-    resume: bool = False
-    batch_size: int = Field(..., gt=0)
 
 
 class SelectConfigField(BaseModel):
@@ -87,26 +95,14 @@ class SelectConfig(BaseModel):
     )
 
 
-class CliSelectArgs(BaseModel):
+class CliSelectArgs(CliCommonArgs):
     """Command-line arguments for the bsllmner2 CLI select mode."""
 
-    bs_entries: Path = Field(
-        ...,
-        description="Path to the input JSON or JSONL file containing BioSample entries.",
-        examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
-    )
     mapping: Path | None = Field(
         None,
         description="Path to the mapping file in TSV format.",
         examples=["mapping/mapping.tsv"],
     )
-    model: str = "llama3.1:70b"
-    thinking: bool | None = None
-    max_entries: int | None = None
-    run_name: str | None = None
-    resume: bool = False
-    batch_size: int = Field(..., gt=0)
-
     select_config: Path = Field(
         ...,
         description="Path to the select configuration file in JSON format.",
@@ -146,12 +142,16 @@ class EvaluationMetrics(BaseModel):
     fp: int = 0
     fn: int = 0
     tn: int = 0
-    correct: int = 0
     total: int = 0
     accuracy: float | None = None
     precision: float | None = None
     recall: float | None = None
     f1: float | None = None
+
+    @computed_field  # type: ignore[prop-decorator]
+    @property
+    def correct(self) -> int:
+        return self.tp + self.tn
 
 
 class ErrorInfo(BaseModel):
@@ -214,7 +214,6 @@ class RunMetadata(BaseModel):
     run_name: str
     model: str
     thinking: bool | None = None
-    username: str | None = None
     start_time: datetime
     end_time: datetime | None = None
     status: RunStatus = "running"
@@ -222,9 +221,68 @@ class RunMetadata(BaseModel):
     total_entries: int | None = None
 
 
+# === Timing models (moved from benchmark.py) ===
+
+
+class LlmTimingSummary(BaseModel):
+    """Timing statistics aggregated from multiple LLM calls."""
+
+    call_count: int
+    total_duration_sec: float
+    # Latency is computed as total_duration minus load_duration, in seconds.
+    mean_latency_sec: float
+    p50_latency_sec: float
+    p95_latency_sec: float
+    p99_latency_sec: float
+    # tokens/sec = eval_count / (eval_duration / 1e9)
+    mean_tokens_per_sec: float | None
+    p50_tokens_per_sec: float | None
+    p95_tokens_per_sec: float | None
+    # load_duration (warm-up impact analysis)
+    mean_load_duration_sec: float
+    max_load_duration_sec: float
+    # token counts
+    total_prompt_tokens: int
+    total_eval_tokens: int
+
+
+class StageTimings(BaseModel):
+    """Wall-clock timings per stage for a single batch."""
+
+    batch_idx: int
+    batch_size: int
+    ner_sec: float | None = None
+    ontology_search_sec: float | None = None
+    text2term_sec: float | None = None
+    llm_select_sec: float | None = None
+    resume_write_sec: float | None = None
+
+
+class DiskIoTimings(BaseModel):
+    """Timing data for disk I/O operations."""
+
+    index_cache_load_sec: list[float] = Field(default_factory=list)
+    index_cache_save_sec: list[float] = Field(default_factory=list)
+    index_build_from_file_sec: list[float] = Field(default_factory=list)
+    resume_write_sec: list[float] = Field(default_factory=list)
+
+
+class PerformanceSummary(BaseModel):
+    """Performance data embedded in result files."""
+
+    total_input_entries: int
+    completed_count: int
+    total_wall_sec: float | None = None
+    stage_timings: list[StageTimings] = Field(default_factory=list)
+    ner_llm_timing: LlmTimingSummary | None = None
+    select_llm_timing: LlmTimingSummary | None = None
+    disk_io: DiskIoTimings = Field(default_factory=DiskIoTimings)
+
+
 class ExtractResult(BaseModel):
     entries: list[ExtractEntry]
     run_metadata: RunMetadata
+    performance: PerformanceSummary | None = None
     errors: list[ErrorLog] = []
 
 
@@ -232,4 +290,5 @@ class SelectResult(BaseModel):
     entries: list[SelectEntry]
     run_metadata: RunMetadata
     evaluation: EvaluationMetrics | None = None
+    performance: PerformanceSummary | None = None
     errors: list[ErrorLog] = []

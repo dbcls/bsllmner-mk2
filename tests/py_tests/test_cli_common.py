@@ -21,6 +21,7 @@ from bsllmner2.cli_common import (
     str_to_bool,
 )
 from bsllmner2.errors import Bsllmner2Error
+from bsllmner2.models import RunStatus
 
 
 class TestStrToBool:
@@ -438,7 +439,6 @@ class TestBuildRunMetadata:
         assert meta.start_time == start
         assert meta.end_time == end
         assert meta.status == "completed"
-        assert meta.username is None
 
     def test_thinking_none(self) -> None:
         """thinking=None is preserved in metadata."""
@@ -453,7 +453,7 @@ class TestBuildRunMetadata:
         assert meta.thinking is None
 
     @pytest.mark.parametrize("status", ["running", "completed", "failed"])
-    def test_status_values(self, status: str) -> None:
+    def test_status_values(self, status: RunStatus) -> None:
         """All valid status values are accepted."""
         meta = build_run_metadata(
             run_name="run",

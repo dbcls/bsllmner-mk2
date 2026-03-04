@@ -7,11 +7,8 @@ from pathlib import Path
 from ollama import ChatResponse
 
 from bsllmner2.benchmark import (
-    BenchmarkSummary,
-    StageTimings,
     aggregate_llm_timings,
-    dump_benchmark,
-    log_benchmark_summary,
+    log_performance_summary,
     stage_timer,
 )
 from bsllmner2.cli_common import (
@@ -38,14 +35,14 @@ from bsllmner2.io import (
     validate_resume_consistency,
 )
 from bsllmner2.llm import OllamaBackend, ner
-from bsllmner2.models import CliSelectArgs, ExtractEntry, SelectEntry, SelectResult
+from bsllmner2.models import CliSelectArgs, ExtractEntry, PerformanceSummary, SelectEntry, SelectResult, StageTimings
 from bsllmner2.pipeline import (
     build_extract_prompt_for_select,
     build_extract_schema_for_select,
     evaluate_select_output,
     populate_run_metadata,
 )
-from bsllmner2.select import build_index_map, select
+from bsllmner2.select import SelectStageTimings, build_index_map, select
 
 
 def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
@@ -186,7 +183,9 @@ async def run_cli_select_async() -> None:
 
         async def process_select_batch(
             batch_info: BatchInfo,
-        ) -> tuple[list[ExtractEntry], list[SelectEntry], list[ChatResponse], list[ChatResponse], float]:
+        ) -> tuple[
+            list[ExtractEntry], list[SelectEntry], list[ChatResponse], list[ChatResponse], float, SelectStageTimings
+        ]:
             LOGGER.info("Extracting entities...")
             with stage_timer("ner") as t_ner:
                 batch_extract_outputs, batch_ner_responses = await ner(
@@ -200,7 +199,7 @@ async def run_cli_select_async() -> None:
                     len(batch_info.entries) - len(batch_extract_outputs),
                 )
             LOGGER.info("Selecting entities...")
-            batch_select_results, batch_select_responses, _select_timings = await select(
+            batch_select_results, batch_select_responses, select_timings = await select(
                 backend,
                 batch_info.entries,
                 args.model,
@@ -211,13 +210,29 @@ async def run_cli_select_async() -> None:
                 index_map=select_index_map,
             )
 
-            return batch_extract_outputs, batch_select_results, batch_ner_responses, batch_select_responses, t_ner.elapsed_sec
+            return (
+                batch_extract_outputs,
+                batch_select_results,
+                batch_ner_responses,
+                batch_select_responses,
+                t_ner.elapsed_sec,
+                select_timings,
+            )
 
         def on_select_batch_complete(
             batch_idx: int,
-            batch_result: tuple[list[ExtractEntry], list[SelectEntry], list[ChatResponse], list[ChatResponse], float],
+            batch_result: tuple[
+                list[ExtractEntry], list[SelectEntry], list[ChatResponse], list[ChatResponse], float, SelectStageTimings
+            ],
         ) -> None:
-            batch_extract_outputs, batch_select_results, batch_ner_responses, batch_select_responses, ner_sec = batch_result
+            (
+                batch_extract_outputs,
+                batch_select_results,
+                batch_ner_responses,
+                batch_select_responses,
+                ner_sec,
+                select_timings,
+            ) = batch_result
             with stage_timer("resume_write") as t_resume:
                 extract_outputs.extend(batch_extract_outputs)
                 select_results.extend(batch_select_results)
@@ -231,6 +246,9 @@ async def run_cli_select_async() -> None:
                     batch_idx=batch_idx,
                     batch_size=len(batch_extract_outputs),
                     ner_sec=ner_sec,
+                    ontology_search_sec=select_timings["ontology_search_sec"],
+                    text2term_sec=select_timings["text2term_sec"],
+                    llm_select_sec=select_timings["llm_select_sec"],
                     resume_write_sec=t_resume.elapsed_sec,
                 ),
             )
@@ -252,41 +270,32 @@ async def run_cli_select_async() -> None:
     run_metadata = build_run_metadata(run_name, args.model, args.thinking, start_time, end_time, status)
     run_metadata_populated = populate_run_metadata(run_metadata, extract_outputs)
 
-    select_result = SelectResult(
-        entries=select_results,
-        run_metadata=run_metadata_populated,
-        evaluation=select_metrics,
-    )
-
-    # Build benchmark summary
+    # Build performance summary
     ner_timing = aggregate_llm_timings(all_ner_chat_responses)
     select_timing = aggregate_llm_timings(all_select_chat_responses)
 
-    benchmark = BenchmarkSummary(
-        run_name=run_name,
-        model=args.model,
-        thinking=args.thinking,
-        total_entries=len(all_bs_entries),
+    performance = PerformanceSummary(
+        total_input_entries=len(all_bs_entries),
         completed_count=len(extract_outputs),
         total_wall_sec=total_wall_sec,
         stage_timings=stage_timings_list,
         ner_llm_timing=ner_timing if ner_timing.call_count > 0 else None,
         select_llm_timing=select_timing if select_timing.call_count > 0 else None,
         disk_io=disk_io_timings,
-        select_accuracy=select_metrics.accuracy * 100 if select_metrics and select_metrics.accuracy is not None else None,
-        select_precision=select_metrics.precision * 100 if select_metrics and select_metrics.precision is not None else None,
-        select_recall=select_metrics.recall * 100 if select_metrics and select_metrics.recall is not None else None,
-        select_f1=select_metrics.f1 * 100 if select_metrics and select_metrics.f1 is not None else None,
-        select_matched_entries=select_metrics.correct if select_metrics else None,
+    )
+
+    select_result = SelectResult(
+        entries=select_results,
+        run_metadata=run_metadata_populated,
+        evaluation=select_metrics,
+        performance=performance,
     )
 
     select_result_file = dump_select_result(select_result, run_name)
-    bench_file = dump_benchmark(benchmark, run_name)
     if status == "completed":
         remove_resume_files(run_name)
     LOGGER.info("Processing %s. Result saved to %s", status, select_result_file)
-    LOGGER.info("Benchmark saved to %s", bench_file)
-    log_benchmark_summary(benchmark)
+    log_performance_summary(performance, select_metrics)
 
 
 def run_cli_select() -> None:

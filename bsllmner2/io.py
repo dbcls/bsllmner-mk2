@@ -5,7 +5,7 @@ import shutil
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, TypeVar, cast
 
 import ijson
 import yaml
@@ -184,44 +184,43 @@ def load_select_config(path: Path) -> SelectConfig:
     return SelectConfig.model_validate(data)
 
 
-def dump_extract_result(result: ExtractResult, run_name: str) -> Path:
-    EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
+def _dump_result(result: BaseModel, result_dir: Path, filename: str) -> Path:
+    result_dir.mkdir(parents=True, exist_ok=True)
+    result_file = result_dir.joinpath(filename)
     with result_file.open("w", encoding="utf-8") as f:
         json_str = json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2)
         f.write(_replace_surrogates(json_str))
 
     return result_file
+
+
+def dump_extract_result(result: ExtractResult, run_name: str) -> Path:
+    return _dump_result(result, EXTRACT_RESULT_DIR, f"{run_name}.json")
 
 
 def dump_select_result(result: SelectResult, run_name: str) -> Path:
-    SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
-    result_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}.json")
-    with result_file.open("w", encoding="utf-8") as f:
-        json_str = json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2)
-        f.write(_replace_surrogates(json_str))
+    return _dump_result(result, SELECT_RESULT_DIR, f"select_{run_name}.json")
 
-    return result_file
+
+_T = TypeVar("_T", bound=BaseModel)
+
+
+def _load_result(path: Path, model_class: type[_T]) -> _T:
+    if not path.exists():
+        raise FileNotFoundError(f"Result file {path} does not exist.")
+
+    with path.open("r", encoding="utf-8") as f:
+        content = f.read()
+
+    return model_class.model_validate_json(content)
 
 
 def load_extract_result(path: Path) -> ExtractResult:
-    if not path.exists():
-        raise FileNotFoundError(f"Result file {path} does not exist.")
-
-    with path.open("r", encoding="utf-8") as f:
-        content = f.read()
-
-    return ExtractResult.model_validate_json(content)
+    return _load_result(path, ExtractResult)
 
 
 def load_select_result(path: Path) -> SelectResult:
-    if not path.exists():
-        raise FileNotFoundError(f"Result file {path} does not exist.")
-
-    with path.open("r", encoding="utf-8") as f:
-        content = f.read()
-
-    return SelectResult.model_validate_json(content)
+    return _load_result(path, SelectResult)
 
 
 def load_run_metadata(path: Path) -> RunMetadata:

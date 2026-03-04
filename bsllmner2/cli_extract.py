@@ -7,11 +7,8 @@ from pathlib import Path
 from ollama import ChatResponse
 
 from bsllmner2.benchmark import (
-    BenchmarkSummary,
-    StageTimings,
     aggregate_llm_timings,
-    dump_benchmark,
-    log_benchmark_summary,
+    log_performance_summary,
     stage_timer,
 )
 from bsllmner2.cli_common import (
@@ -43,7 +40,7 @@ from bsllmner2.io import (
     validate_extract_resume_file,
 )
 from bsllmner2.llm import OllamaBackend, ner
-from bsllmner2.models import CliExtractArgs, ExtractEntry
+from bsllmner2.models import CliExtractArgs, ExtractEntry, PerformanceSummary, StageTimings
 from bsllmner2.pipeline import build_extract_result, populate_run_metadata
 
 
@@ -184,31 +181,28 @@ async def run_cli_extract_async() -> None:
 
     run_metadata = build_run_metadata(run_name, args.model, args.thinking, start_time, end_time, status)
     run_metadata = populate_run_metadata(run_metadata, extract_outputs)
-    result = build_extract_result(
-        entries=extract_outputs,
-        run_metadata=run_metadata,
-    )
 
-    # Build benchmark summary
+    # Build performance summary
     ner_timing = aggregate_llm_timings(all_chat_responses)
-    benchmark = BenchmarkSummary(
-        run_name=run_name,
-        model=args.model,
-        thinking=args.thinking,
-        total_entries=total_entries,
+    performance = PerformanceSummary(
+        total_input_entries=total_entries,
         completed_count=len(extract_outputs),
         total_wall_sec=total_wall_sec,
         stage_timings=stage_timings_list,
         ner_llm_timing=ner_timing if ner_timing.call_count > 0 else None,
     )
 
+    result = build_extract_result(
+        entries=extract_outputs,
+        run_metadata=run_metadata,
+        performance=performance,
+    )
+
     extract_result_file = dump_extract_result(result, run_name)
-    bench_file = dump_benchmark(benchmark, run_name)
     if status == "completed":
         remove_resume_files(run_name)
     LOGGER.info("Processing %s. Result saved to %s", status, extract_result_file)
-    LOGGER.info("Benchmark saved to %s", bench_file)
-    log_benchmark_summary(benchmark)
+    log_performance_summary(performance)
 
 
 def run_cli_extract() -> None:

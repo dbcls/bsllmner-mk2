@@ -11,6 +11,7 @@ from bsllmner2.models import (
     ExtractEntry,
     ExtractResult,
     Mapping,
+    PerformanceSummary,
     Prompt,
     RunMetadata,
     SelectConfig,
@@ -46,16 +47,12 @@ def compute_classification_metrics(
     fp = 0
     fn = 0
     tn = 0
-    correct = 0
     all_keys = expected.keys() | predicted.keys()
     total = len(all_keys)
 
     for key in all_keys:
         answer = expected.get(key)
         pred = predicted.get(key)
-
-        if pred == answer:
-            correct += 1
 
         if answer is not None:
             if pred == answer:
@@ -67,6 +64,7 @@ def compute_classification_metrics(
         else:
             tn += 1
 
+    correct = tp + tn
     accuracy = correct / total if total > 0 else None
     precision = tp / (tp + fp) if (tp + fp) > 0 else None
     recall = tp / (tp + fn) if (tp + fn) > 0 else None
@@ -81,7 +79,6 @@ def compute_classification_metrics(
         fp=fp,
         fn=fn,
         tn=tn,
-        correct=correct,
         total=total,
         accuracy=accuracy,
         precision=precision,
@@ -111,11 +108,13 @@ def evaluate_select_output(
 def build_extract_result(
     entries: list[ExtractEntry],
     run_metadata: RunMetadata,
+    performance: PerformanceSummary | None = None,
     errors: list[ErrorLog] | None = None,
 ) -> ExtractResult:
     return ExtractResult(
         entries=entries,
         run_metadata=run_metadata,
+        performance=performance,
         errors=errors or [],
     )
 
