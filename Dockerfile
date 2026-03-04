@@ -2,7 +2,7 @@ FROM python:3.10.18-bookworm
 
 COPY --from=ghcr.io/astral-sh/uv:latest /uv /usr/local/bin/uv
 
-ARG VERSION=dev
+ARG VERSION=0.0.0.dev0
 
 LABEL org.opencontainers.image.source="https://github.com/dbcls/bsllmner-mk2"
 LABEL org.opencontainers.image.version="${VERSION}"
