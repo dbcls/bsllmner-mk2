@@ -2,6 +2,7 @@
 
 import json
 import logging
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
@@ -9,8 +10,8 @@ import pytest
 import yaml
 from hypothesis import given, settings
 from hypothesis import strategies as st
+from pydantic import ValidationError
 
-from bsllmner2.config import Config
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.io import (
     _replace_surrogates,
@@ -27,20 +28,20 @@ from bsllmner2.io import (
     load_prompt_file,
     load_run_metadata,
     load_select_config,
+    load_select_result,
     load_select_resume_file,
     remove_resume_files,
     validate_extract_resume_file,
     validate_resume_consistency,
 )
 from bsllmner2.models import (
-    LlmOutput,
-    Prompt,
-    Result,
+    ExtractEntry,
+    ExtractResult,
     RunMetadata,
+    SelectEntry,
     SelectResult,
-    WfInput,
 )
-from tests.py_tests.conftest import make_llm_output
+from tests.py_tests.conftest import make_extract_entry
 
 
 class TestLoadBsEntries:
@@ -190,41 +191,24 @@ class TestResumeFileFunctions:
         return temp_dir
 
     @pytest.fixture
-    def sample_llm_output(self) -> LlmOutput:
-        """Create a sample LlmOutput for testing."""
-        from ollama import ChatResponse
-
-        # Create a minimal ChatResponse-like dict
-        chat_response: ChatResponse = {  # type: ignore[assignment]
-            "model": "test-model",
-            "created_at": "2024-01-01T00:00:00Z",
-            "message": {"role": "assistant", "content": "test"},
-            "done": True,
-        }
-
-        return LlmOutput(
-            accession="SAMN00000001",
-            output={"cell_line": "HeLa"},
-            chat_response=chat_response,
-        )
+    def sample_extract_entry(self) -> ExtractEntry:
+        """Create a sample ExtractEntry for testing."""
+        return ExtractEntry(accession="SAMN00000001", extracted={"cell_line": "HeLa"})
 
     @pytest.fixture
-    def sample_select_result(self) -> SelectResult:
-        """Create a sample SelectResult for testing."""
-        return SelectResult(
-            accession="SAMN00000001",
-            extract_output={"cell_line": "HeLa"},
-        )
+    def sample_select_entry(self) -> SelectEntry:
+        """Create a sample SelectEntry for testing."""
+        return SelectEntry(extract=ExtractEntry(accession="SAMN00000001", extracted={"cell_line": "HeLa"}))
 
     def test_dump_and_load_extract_resume(
         self,
         temp_dir: Path,
-        sample_llm_output: LlmOutput,
+        sample_extract_entry: ExtractEntry,
     ) -> None:
         """Test dumping and loading extract resume files."""
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
             # Dump
-            outputs = [sample_llm_output]
+            outputs = [sample_extract_entry]
             dump_extract_resume_file(outputs, "test-run")
 
             # Verify file exists
@@ -235,7 +219,7 @@ class TestResumeFileFunctions:
             loaded = load_extract_resume_file("test-run")
             assert len(loaded) == 1
             assert loaded[0].accession == "SAMN00000001"
-            assert loaded[0].output == {"cell_line": "HeLa"}
+            assert loaded[0].extracted == {"cell_line": "HeLa"}
 
     def test_load_extract_resume_missing_file(self, temp_dir: Path) -> None:
         """Test that loading missing resume file returns empty list."""
@@ -246,12 +230,12 @@ class TestResumeFileFunctions:
     def test_dump_and_load_select_resume(
         self,
         temp_dir: Path,
-        sample_select_result: SelectResult,
+        sample_select_entry: SelectEntry,
     ) -> None:
         """Test dumping and loading select resume files."""
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
             # Dump
-            results = [sample_select_result]
+            results = [sample_select_entry]
             dump_select_resume_file(results, "test-run")
 
             # Verify file exists
@@ -261,7 +245,7 @@ class TestResumeFileFunctions:
             # Load
             loaded = load_select_resume_file("test-run")
             assert len(loaded) == 1
-            assert loaded[0].accession == "SAMN00000001"
+            assert loaded[0].extract.accession == "SAMN00000001"
 
     def test_load_select_resume_missing_file(self, temp_dir: Path) -> None:
         """Test that loading missing resume file returns empty list."""
@@ -274,20 +258,20 @@ class TestValidateResumeConsistency:
     """Test cases for validate_resume_consistency function."""
 
     @staticmethod
-    def _make_select_result(accession: str) -> SelectResult:
-        return SelectResult(accession=accession, extract_output={"cell_line": "Test"})
+    def _make_select_entry(accession: str) -> SelectEntry:
+        return SelectEntry(extract=ExtractEntry(accession=accession, extracted={"cell_line": "Test"}))
 
     def test_consistent_data_returns_done_ids(self) -> None:
         """Test that consistent data returns done_ids and empty orphans."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
-            make_llm_output("SAMN003"),
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
+            make_extract_entry("SAMN003"),
         ]
         select_results = [
-            self._make_select_result("SAMN001"),
-            self._make_select_result("SAMN002"),
-            self._make_select_result("SAMN003"),
+            self._make_select_entry("SAMN001"),
+            self._make_select_entry("SAMN002"),
+            self._make_select_entry("SAMN003"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -298,15 +282,15 @@ class TestValidateResumeConsistency:
     def test_orphan_entries_detected(self) -> None:
         """Test that orphan entries (extract only) are detected."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
-            make_llm_output("SAMN003"),
-            make_llm_output("SAMN004"),  # Orphan
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
+            make_extract_entry("SAMN003"),
+            make_extract_entry("SAMN004"),  # Orphan
         ]
         select_results = [
-            self._make_select_result("SAMN001"),
-            self._make_select_result("SAMN002"),
-            self._make_select_result("SAMN003"),
+            self._make_select_entry("SAMN001"),
+            self._make_select_entry("SAMN002"),
+            self._make_select_entry("SAMN003"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -317,12 +301,12 @@ class TestValidateResumeConsistency:
     def test_multiple_orphans_detected(self) -> None:
         """Test that multiple orphan entries are detected."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
-            make_llm_output("SAMN003"),
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
+            make_extract_entry("SAMN003"),
         ]
         select_results = [
-            self._make_select_result("SAMN001"),
+            self._make_select_entry("SAMN001"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -333,13 +317,13 @@ class TestValidateResumeConsistency:
     def test_invalid_data_raises_error(self) -> None:
         """Test that select entries without extract raise ResumeDataError."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
         ]
         select_results = [
-            self._make_select_result("SAMN001"),
-            self._make_select_result("SAMN002"),
-            self._make_select_result("SAMN003"),  # No extract for this
+            self._make_select_entry("SAMN001"),
+            self._make_select_entry("SAMN002"),
+            self._make_select_entry("SAMN003"),  # No extract for this
         ]
 
         with pytest.raises(ResumeDataError) as exc_info:
@@ -358,8 +342,8 @@ class TestValidateResumeConsistency:
     def test_extract_only_returns_all_orphans(self) -> None:
         """Test that extract-only data returns all as orphans."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
         ]
 
         done_ids, orphan_ids = validate_resume_consistency(extract_outputs, [], "test-run")
@@ -374,9 +358,9 @@ class TestValidateExtractResumeFile:
     def test_returns_all_ids(self) -> None:
         """Test that all accession IDs are returned."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
-            make_llm_output("SAMN003"),
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
+            make_extract_entry("SAMN003"),
         ]
 
         done_ids = validate_extract_resume_file(extract_outputs, "test-run")
@@ -394,10 +378,10 @@ class TestValidateExtractResumeFile:
     ) -> None:
         """Test that duplicate entries are detected and logged as warning."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN002"),
-            make_llm_output("SAMN001"),  # Duplicate
-            make_llm_output("SAMN003"),
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN002"),
+            make_extract_entry("SAMN001"),  # Duplicate
+            make_extract_entry("SAMN003"),
         ]
 
         logger = logging.getLogger("bsllmner2")
@@ -422,11 +406,11 @@ class TestValidateExtractResumeFile:
     ) -> None:
         """Test that multiple duplicates are all detected."""
         extract_outputs = [
-            make_llm_output("SAMN001"),
-            make_llm_output("SAMN001"),  # Duplicate 1
-            make_llm_output("SAMN002"),
-            make_llm_output("SAMN002"),  # Duplicate 2
-            make_llm_output("SAMN001"),  # Duplicate 3
+            make_extract_entry("SAMN001"),
+            make_extract_entry("SAMN001"),  # Duplicate 1
+            make_extract_entry("SAMN002"),
+            make_extract_entry("SAMN002"),  # Duplicate 2
+            make_extract_entry("SAMN001"),  # Duplicate 3
         ]
 
         logger = logging.getLogger("bsllmner2")
@@ -445,35 +429,15 @@ class TestValidateExtractResumeFile:
 # === Helpers for Phase 2 tests ===
 
 
-def _make_chat_response() -> dict[str, object]:
-    """Minimal ChatResponse-like dict for building LlmOutput / Result."""
-    return {
-        "model": "test-model",
-        "created_at": "2024-01-01T00:00:00Z",
-        "message": {"role": "assistant", "content": '{"cell_line": "HeLa"}'},
-        "done": True,
-    }
-
-
-def _make_result(run_name: str = "test-run") -> Result:
-    return Result(
-        input=WfInput(
-            bs_entries=[{"accession": "SAMN001", "title": "s1"}],
-            prompt=[Prompt(role="system", content="test")],
-            model="test-model",
-            config=Config(),
-        ),
-        output=[
-            LlmOutput(
-                accession="SAMN001",
-                output={"cell_line": "HeLa"},
-                chat_response=_make_chat_response(),
-            ),
+def _make_extract_result(run_name: str = "test-run") -> ExtractResult:
+    return ExtractResult(
+        entries=[
+            ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
         ],
         run_metadata=RunMetadata(
             run_name=run_name,
             model="test-model",
-            start_time="2024-01-01T00:00:00Z",
+            start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
         ),
     )
 
@@ -484,25 +448,25 @@ def _make_result(run_name: str = "test-run") -> Result:
 class TestDumpExtractResult:
     def test_dump_creates_file(self, temp_dir: Path) -> None:
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            dump_extract_result(_make_result(), "my-run")
+            dump_extract_result(_make_extract_result(), "my-run")
         assert (temp_dir / "my-run.json").exists()
 
     def test_dump_content_is_valid_json(self, temp_dir: Path) -> None:
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            dump_extract_result(_make_result(), "my-run")
+            dump_extract_result(_make_extract_result(), "my-run")
         data = json.loads((temp_dir / "my-run.json").read_text())
         assert "run_metadata" in data
 
     def test_dump_roundtrip_preserves_accession(self, temp_dir: Path) -> None:
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            dump_extract_result(_make_result(), "my-run")
+            dump_extract_result(_make_extract_result(), "my-run")
         data = json.loads((temp_dir / "my-run.json").read_text())
-        assert data["output"][0]["accession"] == "SAMN001"
+        assert data["entries"][0]["accession"] == "SAMN001"
 
     def test_dump_surrogate_characters_replaced(self, temp_dir: Path) -> None:
         """Surrogate chars in LLM output are replaced with U+FFFD."""
-        result = _make_result()
-        result.output[0].output = {"cell_line": "bad\ud800char"}
+        result = _make_extract_result()
+        result.entries[0].extracted = {"cell_line": "bad\ud800char"}
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
             dump_extract_result(result, "surr-run")
         content = (temp_dir / "surr-run.json").read_text()
@@ -511,13 +475,13 @@ class TestDumpExtractResult:
 
     def test_dump_returns_correct_path(self, temp_dir: Path) -> None:
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            path = dump_extract_result(_make_result(), "my-run")
+            path = dump_extract_result(_make_extract_result(), "my-run")
         assert path == temp_dir / "my-run.json"
 
     def test_dump_creates_parent_dir(self, temp_dir: Path) -> None:
         nested = temp_dir / "sub" / "dir"
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", nested):
-            dump_extract_result(_make_result(), "my-run")
+            dump_extract_result(_make_extract_result(), "my-run")
         assert (nested / "my-run.json").exists()
 
 
@@ -525,29 +489,53 @@ class TestDumpExtractResult:
 
 
 class TestDumpSelectResult:
+    def _make_select_result(self) -> SelectResult:
+        return SelectResult(
+            entries=[SelectEntry(extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}))],
+            run_metadata=RunMetadata(
+                run_name="my-run",
+                model="test-model",
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            ),
+        )
+
     def test_dump_creates_file(self, temp_dir: Path) -> None:
-        sr = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
-            dump_select_result([sr], "my-run")
+            dump_select_result(self._make_select_result(), "my-run")
         assert (temp_dir / "select_my-run.json").exists()
 
     def test_dump_content_is_valid_json(self, temp_dir: Path) -> None:
-        sr = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
-            dump_select_result([sr], "my-run")
+            dump_select_result(self._make_select_result(), "my-run")
         data = json.loads((temp_dir / "select_my-run.json").read_text())
-        assert isinstance(data, list)
-        assert data[0]["accession"] == "SAMN001"
+        assert isinstance(data, dict)
+        assert data["entries"][0]["extract"]["accession"] == "SAMN001"
 
-    def test_dump_empty_list(self, temp_dir: Path) -> None:
+    def test_dump_empty_entries(self, temp_dir: Path) -> None:
+        result = SelectResult(
+            entries=[],
+            run_metadata=RunMetadata(
+                run_name="my-run",
+                model="test-model",
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            ),
+        )
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
-            dump_select_result([], "my-run")
+            dump_select_result(result, "my-run")
         data = json.loads((temp_dir / "select_my-run.json").read_text())
-        assert data == []
+        assert data["entries"] == []
 
     def test_dump_returns_correct_path(self, temp_dir: Path) -> None:
+        result = SelectResult(
+            entries=[],
+            run_metadata=RunMetadata(
+                run_name="my-run",
+                model="test-model",
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            ),
+        )
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
-            path = dump_select_result([], "my-run")
+            path = dump_select_result(result, "my-run")
         assert path == temp_dir / "select_my-run.json"
 
 
@@ -556,38 +544,43 @@ class TestDumpSelectResult:
 
 class TestLoadExtractResult:
     def test_load_roundtrip(self, temp_dir: Path) -> None:
-        with (
-            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
-            patch("bsllmner2.io.PROGRESS_DIR", temp_dir),
-        ):
-            dump_extract_result(_make_result("rt-run"), "rt-run")
+        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
+            dump_extract_result(_make_extract_result("rt-run"), "rt-run")
             loaded = load_extract_result(temp_dir / "rt-run.json")
-        assert loaded.output[0].accession == "SAMN001"
+        assert loaded.entries[0].accession == "SAMN001"
         assert loaded.run_metadata.model == "test-model"
-
-    def test_load_with_progress_file(self, temp_dir: Path) -> None:
-        with (
-            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
-            patch("bsllmner2.io.PROGRESS_DIR", temp_dir),
-        ):
-            dump_extract_result(_make_result("prog-run"), "prog-run")
-            progress = temp_dir / "prog-run.txt"
-            progress.write_text("SAMN001\nSAMN002\nSAMN003\n")
-            loaded = load_extract_result(temp_dir / "prog-run.json")
-        assert loaded.run_metadata.completed_count == 3
-
-    def test_load_without_progress_file(self, temp_dir: Path) -> None:
-        with (
-            patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir),
-            patch("bsllmner2.io.PROGRESS_DIR", temp_dir),
-        ):
-            dump_extract_result(_make_result("noprog-run"), "noprog-run")
-            loaded = load_extract_result(temp_dir / "noprog-run.json")
-        assert loaded.run_metadata.completed_count is None
 
     def test_load_file_not_found(self) -> None:
         with pytest.raises(FileNotFoundError):
             load_extract_result(Path("/nonexistent/result.json"))
+
+
+# === TestLoadSelectResult ===
+
+
+class TestLoadSelectResult:
+    @staticmethod
+    def _make_select_result() -> SelectResult:
+        return SelectResult(
+            entries=[SelectEntry(extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}))],
+            run_metadata=RunMetadata(
+                run_name="my-run",
+                model="test-model",
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            ),
+        )
+
+    def test_load_roundtrip(self, temp_dir: Path) -> None:
+        result = self._make_select_result()
+        with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
+            dump_select_result(result, "my-run")
+            loaded = load_select_result(temp_dir / "select_my-run.json")
+        assert loaded.entries[0].extract.accession == "SAMN001"
+        assert loaded.run_metadata.model == "test-model"
+
+    def test_load_file_not_found(self) -> None:
+        with pytest.raises(FileNotFoundError):
+            load_select_result(Path("/nonexistent/result.json"))
 
 
 # === TestLoadRunMetadata ===
@@ -596,7 +589,7 @@ class TestLoadExtractResult:
 class TestLoadRunMetadata:
     def test_load_existing_metadata(self, temp_dir: Path) -> None:
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            dump_extract_result(_make_result("meta-run"), "meta-run")
+            dump_extract_result(_make_extract_result("meta-run"), "meta-run")
         metadata = load_run_metadata(temp_dir / "meta-run.json")
         assert metadata.run_name == "meta-run"
         assert metadata.model == "test-model"
@@ -782,7 +775,7 @@ class TestLoadExtractResumeFileAdditional:
         with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
             path = temp_dir / "bad_resume.json"
             path.write_text('{"key": "val"}')
-            with pytest.raises(ValueError, match="must contain a list"):
+            with pytest.raises((ValueError, ValidationError)):
                 load_extract_resume_file("bad")
 
     def test_empty_whitespace_content(self, temp_dir: Path) -> None:
@@ -852,10 +845,10 @@ class TestValidateExtractResumeFileTruncation:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """With exactly 5 duplicates, no '...' in warning message."""
-        outputs: list[LlmOutput] = []
+        outputs: list[ExtractEntry] = []
         for i in range(5):
-            outputs.append(make_llm_output(f"SAMN{i:03d}"))
-            outputs.append(make_llm_output(f"SAMN{i:03d}"))  # duplicate
+            outputs.append(make_extract_entry(f"SAMN{i:03d}"))
+            outputs.append(make_extract_entry(f"SAMN{i:03d}"))  # duplicate
 
         logger = logging.getLogger("bsllmner2")
         original_propagate = logger.propagate
@@ -874,10 +867,10 @@ class TestValidateExtractResumeFileTruncation:
         caplog: pytest.LogCaptureFixture,
     ) -> None:
         """With 6 duplicates, '...' appears in warning message."""
-        outputs: list[LlmOutput] = []
+        outputs: list[ExtractEntry] = []
         for i in range(6):
-            outputs.append(make_llm_output(f"SAMN{i:03d}"))
-            outputs.append(make_llm_output(f"SAMN{i:03d}"))  # duplicate
+            outputs.append(make_extract_entry(f"SAMN{i:03d}"))
+            outputs.append(make_extract_entry(f"SAMN{i:03d}"))  # duplicate
 
         logger = logging.getLogger("bsllmner2")
         original_propagate = logger.propagate
@@ -902,15 +895,15 @@ class TestValidateResumeConsistencyTruncation:
     """
 
     @staticmethod
-    def _make_select_result(accession: str) -> SelectResult:
-        return SelectResult(accession=accession, extract_output={"cell_line": "Test"})
+    def _make_select_entry(accession: str) -> SelectEntry:
+        return SelectEntry(extract=ExtractEntry(accession=accession, extracted={"cell_line": "Test"}))
 
     def test_exactly_5_invalid_no_ellipsis(self) -> None:
         """With exactly 5 invalid IDs, no '...' in error message."""
-        extract_outputs = [make_llm_output("SAMN001")]
-        select_results = [self._make_select_result("SAMN001")]
+        extract_outputs = [make_extract_entry("SAMN001")]
+        select_results = [self._make_select_entry("SAMN001")]
         # Add 5 invalid (select-only) entries
-        select_results.extend(self._make_select_result(f"INVALID{i:03d}") for i in range(5))
+        select_results.extend(self._make_select_entry(f"INVALID{i:03d}") for i in range(5))
 
         with pytest.raises(ResumeDataError, match="5 entries") as exc_info:
             validate_resume_consistency(extract_outputs, select_results, "test-run")
@@ -918,10 +911,10 @@ class TestValidateResumeConsistencyTruncation:
 
     def test_6_invalid_has_ellipsis(self) -> None:
         """With 6 invalid IDs, '...' appears in error message."""
-        extract_outputs = [make_llm_output("SAMN001")]
-        select_results = [self._make_select_result("SAMN001")]
+        extract_outputs = [make_extract_entry("SAMN001")]
+        select_results = [self._make_select_entry("SAMN001")]
         # Add 6 invalid (select-only) entries
-        select_results.extend(self._make_select_result(f"INVALID{i:03d}") for i in range(6))
+        select_results.extend(self._make_select_entry(f"INVALID{i:03d}") for i in range(6))
 
         with pytest.raises(ResumeDataError, match="6 entries") as exc_info:
             validate_resume_consistency(extract_outputs, select_results, "test-run")

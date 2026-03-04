@@ -9,12 +9,13 @@ from unittest.mock import patch
 import pytest
 
 from bsllmner2.models import (
-    LlmOutput,
+    ExtractEntry,
     OntologyIndex,
+    ResolvedValue,
     SearchResult,
     SelectConfig,
     SelectConfigField,
-    SelectResult,
+    SelectEntry,
 )
 from bsllmner2.select import (
     _build_select_schema,
@@ -248,62 +249,62 @@ class TestCollectCandidatesForField:
     def test_merges_search_and_text2term(self) -> None:
         sr1 = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="label1")
         sr2 = _make_search_result("ID:002", RDFS_LABEL, exact_match=False, value="label2")
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr1]}},
             text2term_results={"field": {"val": [sr2]}},
         )
-        candidates = _collect_candidates_for_field("field", "val", select_result)
+        candidates = _collect_candidates_for_field("field", "val", select_entry)
         term_ids = {c.term_id for c in candidates}
         assert term_ids == {"ID:001", "ID:002"}
 
     def test_deduplicates_same_term_id(self) -> None:
         sr1 = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="syn")
         sr2 = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="label")
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr1]}},
             text2term_results={"field": {"val": [sr2]}},
         )
-        candidates = _collect_candidates_for_field("field", "val", select_result)
+        candidates = _collect_candidates_for_field("field", "val", select_entry)
         assert len(candidates) == 1
 
     def test_prefers_label_prop_in_dedup(self) -> None:
         sr_syn = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="syn")
         sr_label = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="label")
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr_syn]}},
             text2term_results={"field": {"val": [sr_label]}},
         )
-        candidates = _collect_candidates_for_field("field", "val", select_result)
+        candidates = _collect_candidates_for_field("field", "val", select_entry)
         assert len(candidates) == 1
         assert candidates[0].prop_uri == RDFS_LABEL
 
     def test_label_not_replaced_by_non_label(self) -> None:
         sr_label = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="label")
         sr_syn = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=False, value="syn")
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr_label]}},
             text2term_results={"field": {"val": [sr_syn]}},
         )
-        candidates = _collect_candidates_for_field("field", "val", select_result)
+        candidates = _collect_candidates_for_field("field", "val", select_entry)
         assert len(candidates) == 1
         assert candidates[0].prop_uri == RDFS_LABEL
 
     def test_empty_results_returns_empty(self) -> None:
-        select_result = SelectResult(accession="SAMN001")
-        candidates = _collect_candidates_for_field("field", "val", select_result)
+        select_entry = SelectEntry(extract=ExtractEntry(accession="SAMN001"))
+        candidates = _collect_candidates_for_field("field", "val", select_entry)
         assert candidates == []
 
     def test_missing_field_returns_empty(self) -> None:
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True)
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"other_field": {"val": [sr]}},
         )
-        candidates = _collect_candidates_for_field("field", "val", select_result)
+        candidates = _collect_candidates_for_field("field", "val", select_entry)
         assert candidates == []
 
 
@@ -314,36 +315,36 @@ class TestPickSearchResultById:
     def test_prefers_label_prop(self) -> None:
         sr_label = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="label")
         sr_syn = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="syn")
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr_syn, sr_label]}},
         )
-        result = _pick_search_result_by_id(select_result, "field", "val", "ID:001")
+        result = _pick_search_result_by_id(select_entry, "field", "val", "ID:001")
         assert result is not None
         assert result.prop_uri == RDFS_LABEL
 
     def test_fallback_to_non_label(self) -> None:
         sr_syn = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="syn")
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr_syn]}},
         )
-        result = _pick_search_result_by_id(select_result, "field", "val", "ID:001")
+        result = _pick_search_result_by_id(select_entry, "field", "val", "ID:001")
         assert result is not None
         assert result.prop_uri == HAS_EXACT_SYN
 
     def test_not_found_returns_none(self) -> None:
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True)
-        select_result = SelectResult(
-            accession="SAMN001",
+        select_entry = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001"),
             search_results={"field": {"val": [sr]}},
         )
-        result = _pick_search_result_by_id(select_result, "field", "val", "ID:999")
+        result = _pick_search_result_by_id(select_entry, "field", "val", "ID:999")
         assert result is None
 
     def test_empty_candidates_returns_none(self) -> None:
-        select_result = SelectResult(accession="SAMN001")
-        result = _pick_search_result_by_id(select_result, "field", "val", "ID:001")
+        select_entry = SelectEntry(extract=ExtractEntry(accession="SAMN001"))
+        result = _pick_search_result_by_id(select_entry, "field", "val", "ID:001")
         assert result is None
 
 
@@ -351,80 +352,71 @@ class TestPickSearchResultById:
 
 
 class TestCollectQueries:
-    """Tests for _collect_queries: gather unique query strings from SelectResults."""
+    """Tests for _collect_queries: gather unique query strings from SelectEntries."""
 
     def test_collects_string_value(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             results={},
         )
         queries = _collect_queries([sr], "cell_line")
         assert queries == {"HeLa"}
 
     def test_collects_list_values(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"diseases": ["cancer", "diabetes"]},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"diseases": ["cancer", "diabetes"]}),
             results={},
         )
         queries = _collect_queries([sr], "diseases")
         assert queries == {"cancer", "diabetes"}
 
     def test_skips_entries_with_existing_results(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
-            results={"cell_line": {"HeLa": _make_search_result("ID:001", RDFS_LABEL, exact_match=True)}},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
+            results={"cell_line": [ResolvedValue(value="HeLa", term_id="ID:001")]},
         )
         queries = _collect_queries([sr], "cell_line")
         assert queries == set()
 
     def test_skips_entries_without_field(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"organism": "human"},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"organism": "human"}),
             results={},
         )
         queries = _collect_queries([sr], "cell_line")
         assert queries == set()
 
     def test_skips_non_dict_extract_output(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output=["not", "a", "dict"],
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
             results={},
         )
         queries = _collect_queries([sr], "cell_line")
         assert queries == set()
 
     def test_skips_none_extract_output(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output=None,
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted=None),
             results={},
         )
         queries = _collect_queries([sr], "cell_line")
         assert queries == set()
 
     def test_multiple_results_deduplicates(self) -> None:
-        sr1 = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
+        sr1 = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             results={},
         )
-        sr2 = SelectResult(
-            accession="SAMN002",
-            extract_output={"cell_line": "HeLa"},
+        sr2 = SelectEntry(
+            extract=ExtractEntry(accession="SAMN002", extracted={"cell_line": "HeLa"}),
             results={},
         )
         queries = _collect_queries([sr1, sr2], "cell_line")
         assert queries == {"HeLa"}
 
     def test_list_with_non_string_elements_skipped(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"diseases": ["cancer", 42, None, "diabetes"]},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"diseases": ["cancer", 42, None, "diabetes"]}),
             results={},
         )
         queries = _collect_queries([sr], "diseases")
@@ -434,10 +426,9 @@ class TestCollectQueries:
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Non-dict, non-None extract_output logs a WARNING."""
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output=["not", "a", "dict"],
+        """Non-dict, non-None extracted logs a WARNING."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
             results={},
         )
         logger = logging.getLogger("bsllmner2")
@@ -457,12 +448,11 @@ class TestCollectQueries:
 
 
 class TestDistributeResults:
-    """Tests for _distribute_results: distribute search results back into SelectResult objects."""
+    """Tests for _distribute_results: distribute search results back into SelectEntry objects."""
 
     def test_distributes_candidates_to_search_results(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             search_results={"cell_line": {}},
             results={},
         )
@@ -472,9 +462,8 @@ class TestDistributeResults:
         assert sr.search_results["cell_line"]["HeLa"] == candidates
 
     def test_exact_match_sets_result_automatically(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             search_results={"cell_line": {}},
             results={},
         )
@@ -482,27 +471,27 @@ class TestDistributeResults:
         all_results = {"HeLa": [exact]}
         _distribute_results([sr], "cell_line", all_results, "search_results")
         cell_line_results = sr.results["cell_line"]
-        assert isinstance(cell_line_results, dict)
-        assert cell_line_results["HeLa"] is exact
+        assert isinstance(cell_line_results, list)
+        assert len(cell_line_results) == 1
+        assert cell_line_results[0].term_id == "ID:001"
+        assert cell_line_results[0].value == "HeLa"
 
     def test_skips_entries_with_existing_results(self) -> None:
-        existing = _make_search_result("ID:999", RDFS_LABEL, exact_match=True, value="existing")
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             search_results={"cell_line": {}},
-            results={"cell_line": {"HeLa": existing}},
+            results={"cell_line": [ResolvedValue(value="existing", term_id="ID:999")]},
         )
         new_result = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
         _distribute_results([sr], "cell_line", {"HeLa": [new_result]}, "search_results")
         cell_line_results = sr.results["cell_line"]
-        assert isinstance(cell_line_results, dict)
-        assert cell_line_results["HeLa"] is existing
+        assert isinstance(cell_line_results, list)
+        assert len(cell_line_results) == 1
+        assert cell_line_results[0].term_id == "ID:999"
 
     def test_handles_list_values(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"diseases": ["cancer", "diabetes"]},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"diseases": ["cancer", "diabetes"]}),
             search_results={"diseases": {}},
             results={},
         )
@@ -516,9 +505,8 @@ class TestDistributeResults:
         assert sr.search_results["diseases"]["diabetes"] == []
 
     def test_skips_non_dict_extract_output(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output=["not", "a", "dict"],
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
             search_results={},
             results={},
         )
@@ -528,10 +516,9 @@ class TestDistributeResults:
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Non-dict, non-None extract_output logs a WARNING in _distribute_results."""
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output=["not", "a", "dict"],
+        """Non-dict, non-None extracted logs a WARNING in _distribute_results."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
             search_results={},
             results={},
         )
@@ -548,17 +535,14 @@ class TestDistributeResults:
         assert len(warning_records) >= 1
 
     def test_no_exact_match_does_not_set_result(self) -> None:
-        sr = SelectResult(
-            accession="SAMN001",
-            extract_output={"cell_line": "HeLa"},
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             search_results={"cell_line": {}},
             results={},
         )
         non_exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")
         _distribute_results([sr], "cell_line", {"HeLa": [non_exact]}, "search_results")
-        field_results = sr.results.get("cell_line", {})
-        assert isinstance(field_results, dict)
-        assert "HeLa" not in field_results
+        assert sr.results.get("cell_line") is None
 
 
 # === TestBuildSelectSystemMessage (NEW) ===
@@ -641,34 +625,34 @@ class TestSelect:
         """When ontology_file=None, extract output is passed through directly."""
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         extract_outputs = [
-            LlmOutput(
+            ExtractEntry(
                 accession="SAMN001",
-                output={"cell_line": "HeLa"},
-                chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+                extracted={"cell_line": "HeLa"},
             ),
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, timings = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _responses, timings = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
-        assert results[0].results["cell_line"] == "HeLa"
+        cell_line_results = results[0].results["cell_line"]
+        assert isinstance(cell_line_results, list)
+        assert cell_line_results[0].value == "HeLa"
         assert timings["ontology_search_sec"] >= 0
         assert timings["text2term_sec"] >= 0
         assert timings["llm_select_sec"] >= 0
 
     async def test_extract_output_none_handled(self) -> None:
-        """Entries with output=None are handled gracefully."""
+        """Entries with extracted=None are handled gracefully."""
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         extract_outputs = [
-            LlmOutput(
+            ExtractEntry(
                 accession="SAMN001",
-                output=None,
-                chat_response=make_chat_response("no json"),
+                extracted=None,
             ),
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _ = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         assert "cell_line" not in results[0].results
 
@@ -680,43 +664,44 @@ class TestSelect:
             {"accession": "SAMN003", "title": "Sample 3"},
         ]
         extract_outputs = [
-            LlmOutput(
+            ExtractEntry(
                 accession="SAMN001",
-                output={"cell_line": "HeLa"},
-                chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+                extracted={"cell_line": "HeLa"},
             ),
-            LlmOutput(
+            ExtractEntry(
                 accession="SAMN003",
-                output={"cell_line": "K562"},
-                chat_response=make_chat_response('{"cell_line": "K562"}'),
+                extracted={"cell_line": "K562"},
             ),
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _ = await select(backend, bs_entries, "test-model", extract_outputs, config)
+        results, _, _ = await select(backend, bs_entries, "test-model", extract_outputs, config)
 
-        result_map = {r.accession: r for r in results}
-        assert result_map["SAMN003"].results["cell_line"] == "K562"
-        assert result_map["SAMN001"].results["cell_line"] == "HeLa"
+        result_map = {r.extract.accession: r for r in results}
+        k562_results = result_map["SAMN003"].results["cell_line"]
+        assert isinstance(k562_results, list)
+        assert k562_results[0].value == "K562"
+        hela_results = result_map["SAMN001"].results["cell_line"]
+        assert isinstance(hela_results, list)
+        assert hela_results[0].value == "HeLa"
 
     async def test_empty_extract_outputs(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _ = await select(backend, entries, "test-model", [], config)
+        results, _, _ = await select(backend, entries, "test-model", [], config)
         assert results == []
 
     async def test_non_dict_output_warns_in_no_select_fields(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Non-dict output for no_select_fields logs a WARNING."""
+        """Non-dict output for no_select_fields logs a WARNING and treats as None."""
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         extract_outputs = [
-            LlmOutput(
+            ExtractEntry(
                 accession="SAMN001",
-                output=["not", "a", "dict"],
-                chat_response=make_chat_response('["not", "a", "dict"]'),
+                extracted=["not", "a", "dict"],
             ),
         ]
         backend = FakeLlmBackend([])
@@ -726,13 +711,45 @@ class TestSelect:
         try:
             logger.propagate = True
             with caplog.at_level(logging.WARNING, logger="bsllmner2"):
-                results, _ = await select(backend, entries, "test-model", extract_outputs, config)
+                results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
         finally:
             logger.propagate = original_propagate
 
         assert len(results) == 1
+        # Step 6: extracted should be nullified
+        assert results[0].extract.extracted is None
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
         assert len(warning_records) >= 1
+
+    async def test_extracted_none_field_gets_empty_results(self) -> None:
+        """Step 7: extracted={"cell_line": None} → results["cell_line"] == []."""
+        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
+        extract_outputs = [
+            ExtractEntry(
+                accession="SAMN001",
+                extracted={"cell_line": None},
+            ),
+        ]
+        backend = FakeLlmBackend([])
+        config = _make_select_config_no_ontology()
+        results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
+        assert len(results) == 1
+        assert results[0].results["cell_line"] == []
+
+    async def test_extracted_none_no_results_keys(self) -> None:
+        """Step 7: extracted=None → no keys in results (extraction itself failed)."""
+        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
+        extract_outputs = [
+            ExtractEntry(
+                accession="SAMN001",
+                extracted=None,
+            ),
+        ]
+        backend = FakeLlmBackend([])
+        config = _make_select_config_no_ontology()
+        results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
+        assert len(results) == 1
+        assert "cell_line" not in results[0].results
 
 
 # === TestBuildIndexMap ===

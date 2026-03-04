@@ -25,7 +25,9 @@ The `mapping_answer_id` column, on the other hand, is human-curated and compares
 - Detecting GPU saturation
 - Estimating wall-clock time for a given workload
 
-## Ollama ChatResponse timing fields
+## LLM timing fields
+
+Each `ExtractEntry` persists an `LlmTimingFields` object with the subset of Ollama timing data needed for benchmarking. `ChatResponse` objects are kept in memory during the run for aggregate statistics but are not saved to disk.
 
 Every `ChatResponse` from Ollama contains nanosecond-precision timing data:
 

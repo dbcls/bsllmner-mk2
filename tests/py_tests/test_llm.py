@@ -10,7 +10,14 @@ from hypothesis import given, settings
 from hypothesis import strategies as st
 
 from bsllmner2.errors import OllamaConnectionError
-from bsllmner2.llm import _construct_messages, _construct_output, _extract_last_json, ner
+from bsllmner2.llm import (
+    _construct_messages,
+    _construct_output,
+    _extract_last_json,
+    _extract_last_json_str,
+    _normalize_null_strings,
+    ner,
+)
 from bsllmner2.models import Prompt
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
@@ -20,21 +27,15 @@ from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 class TestExtractLastJson:
     def test_simple_json_object(self) -> None:
         result = _extract_last_json('text {"key": "val"} text')
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == {"key": "val"}
+        assert result == {"key": "val"}
 
     def test_simple_json_array(self) -> None:
         result = _extract_last_json("prefix [1, 2, 3] suffix")
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == [1, 2, 3]
+        assert result == [1, 2, 3]
 
     def test_multiple_json_returns_last(self) -> None:
         result = _extract_last_json('{"a": 1} noise {"b": 2}')
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == {"b": 2}
+        assert result == {"b": 2}
 
     def test_no_json_returns_none(self) -> None:
         assert _extract_last_json("no json here") is None
@@ -47,37 +48,27 @@ class TestExtractLastJson:
 
     def test_json_with_newlines(self) -> None:
         result = _extract_last_json('{"k":\n"v"}')
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == {"k": "v"}
+        assert result == {"k": "v"}
 
     def test_nested_json_extracts_outer(self) -> None:
         """raw_decode correctly handles nested JSON objects."""
         result = _extract_last_json('{"a": {"b": 1}}')
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == {"a": {"b": 1}}
+        assert result == {"a": {"b": 1}}
 
     def test_unicode_preserved(self) -> None:
         result = _extract_last_json('{"name": "日本語"}')
         assert result is not None
-        assert "日本語" in result
+        assert result["name"] == "日本語"
 
     def test_mixed_valid_invalid(self) -> None:
         result = _extract_last_json('{bad} {"ok": true}')
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == {"ok": True}
+        assert result == {"ok": True}
 
     def test_empty_json_object(self) -> None:
-        result = _extract_last_json("{}")
-        assert result is not None
-        assert json.loads(result) == {}
+        assert _extract_last_json("{}") == {}
 
     def test_empty_json_array(self) -> None:
-        result = _extract_last_json("[]")
-        assert result is not None
-        assert json.loads(result) == []
+        assert _extract_last_json("[]") == []
 
     def test_only_opening_brace(self) -> None:
         assert _extract_last_json("{") is None
@@ -85,9 +76,64 @@ class TestExtractLastJson:
     def test_llm_thinking_then_json(self) -> None:
         text = '<think>reasoning goes here...</think>\n{"cell_line": "HeLa"}'
         result = _extract_last_json(text)
-        assert result is not None
-        obj = json.loads(result)
-        assert obj == {"cell_line": "HeLa"}
+        assert result == {"cell_line": "HeLa"}
+
+
+# === TestExtractLastJsonStr ===
+
+
+class TestExtractLastJsonStr:
+    """Tests for _extract_last_json_str (returns raw substring, no re-serialization)."""
+
+    def test_simple_object(self) -> None:
+        result = _extract_last_json_str('text {"key": "val"} text')
+        assert result == '{"key": "val"}'
+
+    def test_multiple_json_returns_last(self) -> None:
+        result = _extract_last_json_str('{"a": 1} noise {"b": 2}')
+        assert result == '{"b": 2}'
+
+    def test_no_json_returns_none(self) -> None:
+        assert _extract_last_json_str("no json here") is None
+
+    def test_empty_string_returns_none(self) -> None:
+        assert _extract_last_json_str("") is None
+
+    def test_preserves_original_formatting(self) -> None:
+        text = 'prefix {"k":  "v"} suffix'
+        result = _extract_last_json_str(text)
+        assert result == '{"k":  "v"}'
+
+
+# === TestNormalizeNullStrings ===
+
+
+class TestNormalizeNullStrings:
+    """Tests for _normalize_null_strings (recursive null normalization)."""
+
+    def test_top_level_dict(self) -> None:
+        result = _normalize_null_strings({"a": "null", "b": "None", "c": "ok"})
+        assert result == {"a": None, "b": None, "c": "ok"}
+
+    def test_nested_dict(self) -> None:
+        result = _normalize_null_strings({"outer": {"inner": "null"}})
+        assert result == {"outer": {"inner": None}}
+
+    def test_nested_list(self) -> None:
+        result = _normalize_null_strings(["null", "None", "ok"])
+        assert result == [None, None, "ok"]
+
+    def test_deeply_nested(self) -> None:
+        result = _normalize_null_strings({"a": [{"b": "null"}, "None"]})
+        assert result == {"a": [{"b": None}, None]}
+
+    def test_non_string_values_unchanged(self) -> None:
+        result = _normalize_null_strings({"a": 42, "b": True, "c": None})
+        assert result == {"a": 42, "b": True, "c": None}
+
+    def test_empty_containers(self) -> None:
+        assert _normalize_null_strings({}) == {}
+        assert _normalize_null_strings([]) == []
 
 
 # === TestConstructOutput ===
@@ -101,48 +147,35 @@ class TestConstructOutput:
     def test_valid_dict_json(self) -> None:
         resp = make_chat_response('{"cell_line": "HeLa"}')
         out = _construct_output(self._BS_ENTRY, resp)
-        assert out.output == {"cell_line": "HeLa"}
+        assert out.extracted == {"cell_line": "HeLa"}
         assert out.accession == "SAMN00000001"
 
     def test_null_string_replaced_with_none(self) -> None:
         resp = make_chat_response('{"cell_line": "null"}')
         out = _construct_output(self._BS_ENTRY, resp)
-        assert out.output == {"cell_line": None}
+        assert out.extracted == {"cell_line": None}
 
     def test_none_string_replaced_with_none(self) -> None:
         resp = make_chat_response('{"cell_line": "None"}')
         out = _construct_output(self._BS_ENTRY, resp)
-        assert out.output == {"cell_line": None}
+        assert out.extracted == {"cell_line": None}
+
+    def test_nested_null_strings_replaced(self) -> None:
+        resp = make_chat_response('{"outer": {"inner": "null"}, "list": ["None", "ok"]}')
+        out = _construct_output(self._BS_ENTRY, resp)
+        assert out.extracted == {"outer": {"inner": None}, "list": [None, "ok"]}
 
     def test_array_json_preserved(self) -> None:
         resp = make_chat_response('[{"cell_line": "HeLa"}]')
         out = _construct_output(self._BS_ENTRY, resp)
-        assert out.output == [{"cell_line": "HeLa"}]
-        assert out.output_full is not None
+        assert out.extracted == [{"cell_line": "HeLa"}]
+        assert out.raw_output is not None
 
     def test_no_json_in_response(self) -> None:
         resp = make_chat_response("no json here")
         out = _construct_output(self._BS_ENTRY, resp)
-        assert out.output is None
-        assert out.output_full is None
-
-    def test_ebi_format_adds_characteristics(self) -> None:
-        ebi_entry = {
-            "accession": "SAMEA00000001",
-            "characteristics": {"organism": [{"text": "Homo sapiens"}]},
-        }
-        resp = make_chat_response('{"cell_line": "HeLa"}')
-        out = _construct_output(ebi_entry, resp)
-        assert out.characteristics == {"cell_line": {"text": "HeLa"}}
-
-    def test_ebi_format_list_value(self) -> None:
-        ebi_entry = {
-            "accession": "SAMEA00000001",
-            "characteristics": {"organism": [{"text": "Homo sapiens"}]},
-        }
-        resp = make_chat_response('{"tags": ["A", "B"]}')
-        out = _construct_output(ebi_entry, resp)
-        assert out.characteristics == {"tags": [{"text": "A"}, {"text": "B"}]}
+        assert out.extracted is None
+        assert out.raw_output is None
 
 
 _SIMPLE_PROMPT = [Prompt(role="system", content="test"), Prompt(role="user", content="Extract:")]
@@ -175,7 +208,7 @@ class TestNerMessageMutation:
         prompt = [Prompt(role="system", content="test"), Prompt(role="user", content="")]
 
         backend = FakeLlmBackend(['{"cell_line": "HeLa"}'])
-        outputs = await ner(backend, entries, prompt, None, "test-model")
+        outputs, _ = await ner(backend, entries, prompt, None, "test-model")
         assert len(outputs) == 1
 
 
@@ -197,20 +230,20 @@ class TestNer:
                 '{"cell_line": "HEK293"}',
             ]
         )
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 2
         accessions = {o.accession for o in outputs}
         assert accessions == {"SAMN001", "SAMN002"}
 
     async def test_empty_entries(self) -> None:
         backend = FakeLlmBackend([])
-        outputs = await ner(backend, [], _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, [], _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_entry_without_accession(self) -> None:
         entries = [{"title": "No accession"}]
         backend = FakeLlmBackend([])
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_connection_error_first_entry(self) -> None:
@@ -231,14 +264,14 @@ class TestNer:
                 ConnectionError("connection lost"),
             ]
         )
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 1
         assert outputs[0].accession == "SAMN001"
 
     async def test_general_exception_not_connection_error(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([RuntimeError("unexpected")])
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_progress_file_tracking(self, tmp_path: Path) -> None:
@@ -269,10 +302,10 @@ class TestNer:
     async def test_array_json_output_preserved(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend(['[{"cell_line": "HeLa"}]'])
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 1
-        assert outputs[0].output == [{"cell_line": "HeLa"}]
-        assert outputs[0].output_full is not None
+        assert outputs[0].extracted == [{"cell_line": "HeLa"}]
+        assert outputs[0].raw_output is not None
 
     async def test_error_summary_logged_at_error_level(
         self,
@@ -294,7 +327,7 @@ class TestNer:
         try:
             logger.propagate = True
             with caplog.at_level(logging.ERROR, logger="bsllmner2"):
-                outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+                outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         finally:
             logger.propagate = original_propagate
 
@@ -325,7 +358,7 @@ class TestNerErrorPaths:
                 '{"cell_line": "K562"}',
             ]
         )
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         accessions = {o.accession for o in outputs}
         assert "SAMN001" in accessions
         assert "SAMN003" in accessions
@@ -346,7 +379,7 @@ class TestNerErrorPaths:
                 RuntimeError("fail 2"),
             ]
         )
-        outputs = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
 
@@ -358,45 +391,10 @@ class TestConstructOutputMutations:
 
     _NON_EBI_ENTRY: ClassVar[dict[str, Any]] = {"accession": "SAMN00000001", "title": "Test"}
 
-    def test_ebi_format_copies_taxid(self) -> None:
-        ebi_entry: dict[str, Any] = {
-            "accession": "SAMEA00000001",
-            "characteristics": {"organism": [{"text": "Homo sapiens"}]},
-            "taxId": 9606,
-        }
-        resp = make_chat_response('{"cell_line": "HeLa"}')
-        out = _construct_output(ebi_entry, resp)
-        assert out.taxId == 9606
-
-    def test_ebi_format_no_taxid_remains_none(self) -> None:
-        ebi_entry: dict[str, Any] = {
-            "accession": "SAMEA00000001",
-            "characteristics": {"organism": [{"text": "Homo sapiens"}]},
-        }
-        resp = make_chat_response('{"cell_line": "HeLa"}')
-        out = _construct_output(ebi_entry, resp)
-        assert out.taxId is None
-
-    def test_non_ebi_no_characteristics(self) -> None:
-        resp = make_chat_response('{"cell_line": "HeLa"}')
-        out = _construct_output(self._NON_EBI_ENTRY, resp)
-        assert out.characteristics is None
-
-    def test_ebi_null_value_in_characteristics(self) -> None:
-        ebi_entry: dict[str, Any] = {
-            "accession": "SAMEA00000001",
-            "characteristics": {"organism": [{"text": "Homo sapiens"}]},
-        }
-        resp = make_chat_response('{"cell_line": "null"}')
-        out = _construct_output(ebi_entry, resp)
-        assert out.characteristics == {"cell_line": {"text": None}}
-
-    def test_output_full_is_json_string(self) -> None:
+    def test_raw_output_is_original_substring(self) -> None:
         resp = make_chat_response('prefix {"cell_line": "HeLa"} suffix')
         out = _construct_output(self._NON_EBI_ENTRY, resp)
-        assert out.output_full is not None
-        parsed = json.loads(out.output_full)
-        assert parsed == {"cell_line": "HeLa"}
+        assert out.raw_output == '{"cell_line": "HeLa"}'
 
 
 # === Property-based tests ===
@@ -416,9 +414,7 @@ class TestExtractLastJsonPBT:
         json_str = json.dumps(d)
         text = prefix + json_str + suffix
         result = _extract_last_json(text)
-        assert result is not None
-        parsed = json.loads(result)
-        assert parsed == d
+        assert result == d
 
     @given(text=st.text(alphabet=st.characters(blacklist_characters="{}[]")))
     @settings(max_examples=200)
@@ -453,7 +449,7 @@ class TestConstructOutputPBT:
         bs_entry: dict[str, Any] = {"accession": "SAMN00000001", "title": "Test"}
         resp = make_chat_response(json.dumps(data))
         out = _construct_output(bs_entry, resp)
-        assert out.output is not None
-        assert isinstance(out.output, dict)
-        for v in out.output.values():
+        assert out.extracted is not None
+        assert isinstance(out.extracted, dict)
+        for v in out.extracted.values():
             assert v is None

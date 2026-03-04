@@ -132,10 +132,10 @@ def load_predicted_mapping(model: str, run_name_base: str) -> dict[str, str | No
     run_name = f"{run_name_base}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
     select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
-    select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
+    select_result = SelectResult.model_validate(select_results_raw)
     predicted_mapping: dict[str, str | None] = {}
-    for select_result in select_results:
-        predicted_mapping[select_result.accession] = extract_predicted_term_id(select_result, "cell_line")
+    for entry in select_result.entries:
+        predicted_mapping[entry.extract.accession] = extract_predicted_term_id(entry, "cell_line")
 
     return predicted_mapping
 
@@ -145,31 +145,26 @@ def count_results(model: str, run_name_base: str) -> dict[str, int]:
     run_name = f"{run_name_base}-{model_safe}"
     select_results_path = SELECT_RESULTS_DIR.joinpath(f"select_{run_name}.json")
     select_results_raw = json.loads(select_results_path.read_text(encoding="utf-8"))
-    select_results = [SelectResult.model_validate(sr) for sr in select_results_raw]
+    select_result = SelectResult.model_validate(select_results_raw)
     extract_count = 0
     select_count = 0
     final_count = 0
-    for select_result in select_results:
-        extract_output = select_result.extract_output
-        if isinstance(extract_output, dict):
-            for v in extract_output.values():
+    for entry in select_result.entries:
+        extracted = entry.extract.extracted
+        if isinstance(extracted, dict):
+            for v in extracted.values():
                 if isinstance(v, list):
                     if len(v) > 0:
                         extract_count += 1
                 elif v is not None:
                     extract_count += 1
 
-        llm_output = select_result.llm_chat_response or {}
-        for llm_map in llm_output.values():
-            if isinstance(llm_map, dict) and len(llm_map) > 0:
+        for field_timings in entry.select_timings.values():
+            if isinstance(field_timings, dict) and len(field_timings) > 0:
                 select_count += 1
 
-        final_output = select_result.results or {}
-        for final_map in final_output.values():
-            if isinstance(final_map, dict):
-                if len(final_map) > 0:
-                    final_count += 1
-            elif final_map is not None:
+        for resolved_values in entry.results.values():
+            if isinstance(resolved_values, list) and len(resolved_values) > 0:
                 final_count += 1
 
     return {

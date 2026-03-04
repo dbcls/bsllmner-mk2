@@ -127,5 +127,4 @@ See [Data Formats](data-formats.md) for the full result schema.
 
 | File | Description |
 |------|-------------|
-| `bsllmner2-results/extract/{run_name}.json` | Extract result |
-| `bsllmner2-results/select/select_{run_name}.json` | Select result |
+| `bsllmner2-results/select/select_{run_name}.json` | Select result (contains both extract and select entries) |

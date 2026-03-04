@@ -46,35 +46,24 @@ SAMN00000001 RNA-seq HeLa CVCL_0030 HeLa
 SAMN00000002 RNA-seq HEK293 CVCL_0045 HEK293
 ```
 
-## Extract Result JSON (Result)
+## Extract Result JSON (ExtractResult)
 
 Saved to `bsllmner2-results/extract/{run_name}.json`.
 
 ```json
 {
-  "input": {
-    "bs_entries": [...],
-    "prompt": [
-      { "role": "system", "content": "..." },
-      { "role": "user", "content": "..." }
-    ],
-    "model": "llama3.1:70b",
-    "thinking": null,
-    "format": { ... },
-    "config": {
-      "ollama_host": "http://localhost:11434",
-      "debug": false
-    },
-    "cli_args": null
-  },
-  "output": [
+  "entries": [
     {
       "accession": "SAMN00000001",
-      "output": { "cell_line": "HeLa" },
-      "output_full": "{\"cell_line\": \"HeLa\"}",
-      "characteristics": null,
-      "taxId": null,
-      "chat_response": { ... }
+      "extracted": { "cell_line": "HeLa" },
+      "raw_output": "{\"cell_line\": \"HeLa\"}",
+      "llm_timing": {
+        "total_duration": 1000000000,
+        "load_duration": 100000000,
+        "eval_count": 50,
+        "eval_duration": 500000000,
+        "prompt_eval_count": 100
+      }
     }
   ],
   "run_metadata": {
@@ -82,16 +71,13 @@ Saved to `bsllmner2-results/extract/{run_name}.json`.
     "model": "llama3.1:70b",
     "thinking": null,
     "username": null,
-    "start_time": "20250101_120000",
-    "end_time": "20250101_121000",
+    "start_time": "2025-01-01T12:00:00Z",
+    "end_time": "2025-01-01T12:10:00Z",
     "status": "completed",
-    "processing_time": 600.0,
-    "matched_entries": null,
-    "total_entries": 1,
-    "accuracy": null,
-    "completed_count": null
+    "processing_time_sec": 600.0,
+    "total_entries": 1
   },
-  "error_log": null
+  "errors": []
 }
 ```
 
@@ -99,75 +85,121 @@ Saved to `bsllmner2-results/extract/{run_name}.json`.
 
 | Path | Type | Description |
 |------|------|-------------|
-| `input.bs_entries` | `List[Dict]` | Input BioSample entries |
-| `input.prompt` | `List[Prompt]` | Prompt used |
-| `input.model` | `string` | Model name |
-| `input.thinking` | `bool \| null` | Thinking mode |
-| `input.format` | `JsonSchemaValue \| null` | Output schema |
-| `input.config` | `Config` | Runtime configuration |
-| `output[].accession` | `string` | BioSample accession |
-| `output[].output` | `any \| null` | Parsed extraction result |
-| `output[].output_full` | `string \| null` | Raw JSON string |
-| `output[].chat_response` | `ChatResponse` | Full Ollama response |
+| `entries[].accession` | `string` | BioSample accession |
+| `entries[].extracted` | `dict \| list \| null` | Parsed extraction result |
+| `entries[].raw_output` | `string \| null` | Raw JSON string from LLM |
+| `entries[].llm_timing` | `LlmTimingFields` | Lightweight timing data (nanoseconds) |
+| `run_metadata.run_name` | `string` | Run identifier |
+| `run_metadata.model` | `string` | Model name |
+| `run_metadata.start_time` | `datetime` | ISO 8601 UTC start time |
+| `run_metadata.end_time` | `datetime \| null` | ISO 8601 UTC end time |
 | `run_metadata.status` | `"running" \| "completed" \| "failed"` | Run status |
-| `run_metadata.accuracy` | `float \| null` | Accuracy (%) |
-| `error_log` | `ErrorLog \| null` | Error information |
+| `run_metadata.processing_time_sec` | `float \| null` | Processing time (seconds) |
+| `run_metadata.total_entries` | `int \| null` | Total processed entries |
+| `errors` | `list[ErrorLog]` | Error information |
+
+### LlmTimingFields
+
+Lightweight timing fields extracted from `ChatResponse` (nanoseconds). Replaces the full `ChatResponse` in persisted output.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `total_duration` | `int` | Total duration (ns) |
+| `load_duration` | `int` | Model load duration (ns) |
+| `eval_count` | `int` | Number of tokens generated |
+| `eval_duration` | `int` | Token generation duration (ns) |
+| `prompt_eval_count` | `int` | Number of prompt tokens |
 
 ## Select Result JSON (SelectResult)
 
 Saved to `bsllmner2-results/select/select_{run_name}.json`.
 
 ```json
-[
-  {
-    "accession": "SAMN00000001",
-    "extract_output": { "cell_line": "HeLa", "tissue": "cervix" },
-    "search_results": {
-      "cell_line": {
-        "HeLa": [
+{
+  "entries": [
+    {
+      "extract": {
+        "accession": "SAMN00000001",
+        "extracted": { "cell_line": "HeLa", "tissue": "cervix" },
+        "raw_output": "{\"cell_line\": \"HeLa\", \"tissue\": \"cervix\"}",
+        "llm_timing": { "total_duration": 0, "load_duration": 0, "eval_count": 0, "eval_duration": 0, "prompt_eval_count": 0 }
+      },
+      "search_results": {
+        "cell_line": {
+          "HeLa": [
+            {
+              "term_uri": "http://purl.obolibrary.org/obo/CVCL_0030",
+              "term_id": "CVCL:0030",
+              "prop_uri": "http://www.w3.org/2000/01/rdf-schema#label",
+              "value": "HeLa",
+              "label": "HeLa",
+              "exact_match": true,
+              "text2term_score": null,
+              "reasoning": null
+            }
+          ]
+        }
+      },
+      "text2term_results": {},
+      "select_timings": {
+        "cell_line": {
+          "HeLa": { "total_duration": 500000000, "load_duration": 0, "eval_count": 20, "eval_duration": 200000000, "prompt_eval_count": 50 }
+        }
+      },
+      "results": {
+        "cell_line": [
           {
-            "term_uri": "http://purl.obolibrary.org/obo/CVCL_0030",
-            "term_id": "CVCL:0030",
-            "prop_uri": "http://www.w3.org/2000/01/rdf-schema#label",
             "value": "HeLa",
+            "term_id": "CVCL:0030",
+            "term_uri": "http://purl.obolibrary.org/obo/CVCL_0030",
             "label": "HeLa",
             "exact_match": true,
-            "text2term_score": null,
-            "reasoning": null
+            "reasoning": "Exact match found for HeLa"
           }
         ]
       }
-    },
-    "text2term_results": { ... },
-    "llm_chat_response": { ... },
-    "results": {
-      "cell_line": {
-        "HeLa": {
-          "term_uri": "http://purl.obolibrary.org/obo/CVCL_0030",
-          "term_id": "CVCL:0030",
-          "prop_uri": "http://www.w3.org/2000/01/rdf-schema#label",
-          "value": "HeLa",
-          "label": "HeLa",
-          "exact_match": true,
-          "text2term_score": null,
-          "reasoning": "Exact match found for HeLa"
-        }
-      }
     }
-  }
-]
+  ],
+  "run_metadata": {
+    "run_name": "llama3.1:70b_20250101_120000",
+    "model": "llama3.1:70b",
+    "thinking": null,
+    "username": null,
+    "start_time": "2025-01-01T12:00:00Z",
+    "end_time": "2025-01-01T12:15:00Z",
+    "status": "completed",
+    "processing_time_sec": 900.0,
+    "total_entries": 1
+  },
+  "evaluation": null,
+  "errors": []
+}
 ```
 
 ### Key Fields
 
 | Path | Type | Description |
 |------|------|-------------|
-| `accession` | `string` | BioSample accession |
-| `extract_output` | `any \| null` | Stage 1 NER result |
-| `search_results` | `Dict[field, Dict[value, List[SearchResult]]]` | Stage 2a ontology search results |
-| `text2term_results` | `Dict[field, Dict[value, List[SearchResult]]]` | Stage 2b text2term results |
-| `llm_chat_response` | `Dict[field, Dict[value, ChatResponse \| null]]` | Stage 3 LLM responses |
-| `results` | `Dict[field, Dict[value, SearchResult \| null] \| any]` | Final mapping results |
+| `entries[].extract` | `ExtractEntry` | Embedded extract result for this entry |
+| `entries[].search_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2a ontology search results |
+| `entries[].text2term_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2b text2term results |
+| `entries[].select_timings` | `dict[field, dict[value, LlmTimingFields]]` | Per-field LLM timing |
+| `entries[].results` | `dict[field, list[ResolvedValue]]` | Final mapping results |
+| `evaluation` | `EvaluationMetrics \| null` | Evaluation metrics (independent from RunMetadata) |
+| `errors` | `list[ErrorLog]` | Error information |
+
+### ResolvedValue
+
+Unified result type for Select mode output.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `value` | `string` | Original extracted value |
+| `term_id` | `string \| null` | Matched ontology term ID |
+| `term_uri` | `string \| null` | Matched ontology term URI |
+| `label` | `string \| null` | Ontology term label |
+| `exact_match` | `bool \| null` | Whether it was an exact match |
+| `reasoning` | `string \| null` | LLM reasoning for selection |
 
 ## Select Config JSON
 
@@ -229,7 +261,7 @@ A JSON Schema that controls the LLM output format. Passed to the Ollama `format`
 }
 ```
 
-In Select mode, the schema is dynamically generated from the SelectConfig field definitions (`build_extract_schema_for_select`). For `value_type: "array"`, it is generated as `{"type": ["array", "null"], "items": {"type": "string"}}`.
+In Select mode, the schema is dynamically generated from the SelectConfig field definitions (`build_extract_schema_for_select`). For `value_type: "array"`, it is generated as `{"type": ["array", "null"], "items": {"type": "string"}}`. The generated schema always includes `"additionalProperties": false`.
 
 ## Benchmark Summary JSON
 

@@ -23,7 +23,7 @@ _INDEX_CACHE_TMPDIR = _INDEX_CACHE_TMPDIR_OBJ.name
 atexit.register(_INDEX_CACHE_TMPDIR_OBJ.cleanup)
 os.environ.setdefault("BSLLMNER2_INDEX_CACHE_DIR", _INDEX_CACHE_TMPDIR)
 
-from bsllmner2.models import LlmOutput  # noqa: E402  # must be after env var setup
+from bsllmner2.models import ExtractEntry  # noqa: E402  # must be after env var setup
 
 
 def make_chat_response(content: str) -> ChatResponse:
@@ -42,12 +42,11 @@ def make_chat_response(content: str) -> ChatResponse:
     )
 
 
-def make_llm_output(accession: str, output: object = None) -> LlmOutput:
-    """Create a LlmOutput with minimal boilerplate for testing."""
-    return LlmOutput(
+def make_extract_entry(accession: str, extracted: object = None) -> ExtractEntry:
+    """Create an ExtractEntry with minimal boilerplate for testing."""
+    return ExtractEntry(
         accession=accession,
-        output=output,
-        chat_response=make_chat_response('{"cell_line": "Test"}'),
+        extracted=extracted,
     )
 
 

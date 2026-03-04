@@ -1,41 +1,30 @@
 """Tests for Pydantic model validation in bsllmner2.models."""
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
-from ollama import ChatResponse, Message
 from pydantic import ValidationError
 
-from bsllmner2.config import Config
 from bsllmner2.models import (
     CliExtractArgs,
     CliSelectArgs,
     ErrorInfo,
     ErrorLog,
     EvaluationMetrics,
-    LlmOutput,
+    ExtractEntry,
     MappingValue,
     Prompt,
-    Result,
+    ResolvedValue,
     RunMetadata,
     SelectConfig,
     SelectConfigField,
-    SelectResult,
-    WfInput,
+    SelectEntry,
 )
 
 # === Helpers ===
-
-
-def _make_chat_response() -> ChatResponse:
-    return ChatResponse(
-        model="test",
-        created_at="2024-01-01T00:00:00Z",
-        message=Message(role="assistant", content=""),
-        done=True,
-    )
 
 
 def _make_minimal_extract_args(**overrides: object) -> CliExtractArgs:
@@ -64,23 +53,10 @@ def _make_minimal_run_metadata(**overrides: object) -> RunMetadata:
     defaults: dict[str, object] = {
         "run_name": "test-run",
         "model": "llama3.1:70b",
-        "start_time": "20240101_120000",
+        "start_time": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
     }
     defaults.update(overrides)
-
     return RunMetadata(**defaults)
-
-
-def _make_minimal_wf_input(**overrides: object) -> WfInput:
-    defaults: dict[str, object] = {
-        "bs_entries": [{"accession": "SAMN001"}],
-        "prompt": [Prompt(role="system", content="hello")],
-        "model": "llama3.1:70b",
-        "config": Config(),
-    }
-    defaults.update(overrides)
-
-    return WfInput(**defaults)
 
 
 # === TestPrompt ===
@@ -175,16 +151,13 @@ class TestRunMetadata:
     def test_all_optional_fields_accept_none(self) -> None:
         m = _make_minimal_run_metadata(
             end_time=None,
-            processing_time=None,
-            matched_entries=None,
+            processing_time_sec=None,
             total_entries=None,
-            accuracy=None,
-            completed_count=None,
             thinking=None,
             username=None,
         )
         assert m.end_time is None
-        assert m.processing_time is None
+        assert m.processing_time_sec is None
 
     @given(status=st.text().filter(lambda s: s not in {"running", "completed", "failed"}))
     @settings(max_examples=50)
@@ -341,101 +314,80 @@ class TestCliSelectArgs:
             _make_minimal_select_args(batch_size=batch_size)
 
 
-# === TestLlmOutput ===
+# === TestExtractEntry ===
 
 
-class TestLlmOutput:
+class TestExtractEntry:
     def test_minimal_construction(self) -> None:
-        o = LlmOutput(accession="SAMN001", chat_response=_make_chat_response())
-        assert o.accession == "SAMN001"
-        assert o.output is None
+        e = ExtractEntry(accession="SAMN001")
+        assert e.accession == "SAMN001"
+        assert e.extracted is None
+        assert e.raw_output is None
 
-    def test_chat_response_required(self) -> None:
-        with pytest.raises(ValidationError):
-            LlmOutput(accession="SAMN001")  # type: ignore[call-arg]
-
-    def test_output_default_is_none(self) -> None:
-        o = LlmOutput(accession="SAMN001", chat_response=_make_chat_response())
-        assert o.output is None
-
-    def test_output_accepts_dict_list_none(self) -> None:
-        cr = _make_chat_response()
-        assert LlmOutput(accession="a", output={"k": "v"}, chat_response=cr).output == {"k": "v"}
-        assert LlmOutput(accession="a", output=[1, 2], chat_response=cr).output == [1, 2]
-        assert LlmOutput(accession="a", output=None, chat_response=cr).output is None
-
-    def test_output_rejects_scalar(self) -> None:
-        cr = _make_chat_response()
-        with pytest.raises(ValidationError):
-            LlmOutput(accession="a", output="str", chat_response=cr)
-        with pytest.raises(ValidationError):
-            LlmOutput(accession="a", output=42, chat_response=cr)
+    def test_extracted_accepts_dict_list_none(self) -> None:
+        assert ExtractEntry(accession="a", extracted={"k": "v"}).extracted == {"k": "v"}
+        assert ExtractEntry(accession="a", extracted=[1, 2]).extracted == [1, 2]
+        assert ExtractEntry(accession="a", extracted=None).extracted is None
 
     def test_accession_required(self) -> None:
         with pytest.raises(ValidationError):
-            LlmOutput(chat_response=_make_chat_response())  # type: ignore[call-arg]
+            ExtractEntry()  # type: ignore[call-arg]
+
+    def test_llm_timing_defaults(self) -> None:
+        e = ExtractEntry(accession="SAMN001")
+        assert e.llm_timing.total_duration == 0
+        assert e.llm_timing.eval_count == 0
 
 
-# === TestSelectResult ===
+# === TestSelectEntry ===
 
 
-class TestSelectResult:
+class TestSelectEntry:
     def test_dict_fields_default_empty(self) -> None:
-        sr = SelectResult(accession="SAMN001")
-        assert sr.search_results == {}
-        assert sr.text2term_results == {}
-        assert sr.llm_chat_response == {}
-        assert sr.results == {}
+        extract = ExtractEntry(accession="SAMN001")
+        se = SelectEntry(extract=extract)
+        assert se.search_results == {}
+        assert se.text2term_results == {}
+        assert se.select_timings == {}
+        assert se.results == {}
 
     def test_two_instances_dicts_independent(self) -> None:
-        sr1 = SelectResult(accession="A")
-        sr2 = SelectResult(accession="B")
-        sr1.search_results["field"] = {}
-        assert sr2.search_results == {}
+        e1 = ExtractEntry(accession="A")
+        e2 = ExtractEntry(accession="B")
+        se1 = SelectEntry(extract=e1)
+        se2 = SelectEntry(extract=e2)
+        se1.search_results["field"] = {}
+        assert se2.search_results == {}
 
-    def test_accession_required(self) -> None:
+    def test_extract_required(self) -> None:
         with pytest.raises(ValidationError):
-            SelectResult()  # type: ignore[call-arg]
-
-    def test_extract_output_default_is_none(self) -> None:
-        sr = SelectResult(accession="SAMN001")
-        assert sr.extract_output is None
-
-    def test_extract_output_accepts_dict_list_none(self) -> None:
-        sr_dict = SelectResult(accession="SAMN001", extract_output={"cell_line": "HeLa"})
-        assert sr_dict.extract_output == {"cell_line": "HeLa"}
-        sr_list = SelectResult(accession="SAMN002", extract_output=["a", "b"])
-        assert sr_list.extract_output == ["a", "b"]
-        sr_none = SelectResult(accession="SAMN003", extract_output=None)
-        assert sr_none.extract_output is None
+            SelectEntry()  # type: ignore[call-arg]
 
 
-# === TestWfInput ===
+# === TestResolvedValue ===
 
 
-class TestWfInput:
+class TestResolvedValue:
     def test_minimal_construction(self) -> None:
-        wf = _make_minimal_wf_input()
-        assert wf.model == "llama3.1:70b"
-        assert len(wf.prompt) == 1
+        rv = ResolvedValue(value="HeLa")
+        assert rv.value == "HeLa"
+        assert rv.term_id is None
 
-    def test_empty_prompt_raises(self) -> None:
-        """B6: After fix, empty prompt list should raise ValidationError."""
+    def test_all_fields(self) -> None:
+        rv = ResolvedValue(
+            value="HeLa",
+            term_id="CVCL:0030",
+            term_uri="http://example.org/CVCL:0030",
+            label="HeLa",
+            exact_match=True,
+            reasoning="test",
+        )
+        assert rv.term_id == "CVCL:0030"
+        assert rv.exact_match is True
+
+    def test_value_required(self) -> None:
         with pytest.raises(ValidationError):
-            _make_minimal_wf_input(prompt=[])
-
-    def test_empty_model_raises(self) -> None:
-        """B7: After fix, empty model string should raise ValidationError."""
-        with pytest.raises(ValidationError):
-            _make_minimal_wf_input(model="")
-
-    def test_cli_args_none_accepted(self) -> None:
-        wf = _make_minimal_wf_input(cli_args=None)
-        assert wf.cli_args is None
-
-    def test_format_none_accepted(self) -> None:
-        wf = _make_minimal_wf_input(format=None)
-        assert wf.format is None
+            ResolvedValue()  # type: ignore[call-arg]
 
 
 # === TestSelectConfig ===
@@ -461,7 +413,7 @@ class TestSelectConfig:
         assert sc.fields["diseases"].value_type == "array"
 
 
-# === TestErrorInfo, TestErrorLog, TestResult ===
+# === TestErrorInfo, TestErrorLog ===
 
 
 class TestErrorInfo:
@@ -477,34 +429,16 @@ class TestErrorInfo:
 
 class TestErrorLog:
     def test_valid_construction(self) -> None:
+        ts = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
         el = ErrorLog(
-            timestamp="2024-01-01T00:00:00Z",
+            timestamp=ts,
             error=ErrorInfo(type="ValueError", message="bad value", traceback="tb"),
         )
-        assert el.timestamp == "2024-01-01T00:00:00Z"
+        assert el.timestamp == ts
 
     def test_required_fields(self) -> None:
         with pytest.raises(ValidationError):
             ErrorLog()  # type: ignore[call-arg]
-
-
-class TestResult:
-    def test_output_default_empty_list(self) -> None:
-        r = Result(
-            input=_make_minimal_wf_input(),
-            run_metadata=_make_minimal_run_metadata(),
-        )
-        assert r.output == []
-
-    def test_two_instances_lists_independent(self) -> None:
-        r1 = Result(input=_make_minimal_wf_input(), run_metadata=_make_minimal_run_metadata())
-        r2 = Result(input=_make_minimal_wf_input(), run_metadata=_make_minimal_run_metadata())
-        r1.output.append(LlmOutput(accession="A", chat_response=_make_chat_response()))
-        assert r2.output == []
-
-    def test_error_log_default_is_none(self) -> None:
-        r = Result(input=_make_minimal_wf_input(), run_metadata=_make_minimal_run_metadata())
-        assert r.error_log is None
 
 
 # === TestEvaluationMetrics ===

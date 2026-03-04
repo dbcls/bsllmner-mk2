@@ -4,6 +4,8 @@ import sys
 import time
 from pathlib import Path
 
+from ollama import ChatResponse
+
 from bsllmner2.benchmark import (
     BenchmarkSummary,
     StageTimings,
@@ -41,8 +43,8 @@ from bsllmner2.io import (
     validate_extract_resume_file,
 )
 from bsllmner2.llm import OllamaBackend, ner
-from bsllmner2.models import CliExtractArgs, LlmOutput
-from bsllmner2.pipeline import populate_run_metadata, to_result
+from bsllmner2.models import CliExtractArgs, ExtractEntry
+from bsllmner2.pipeline import build_extract_result, populate_run_metadata
 
 
 def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
@@ -115,9 +117,10 @@ async def run_cli_extract_async() -> None:
 
     run_name, start_time = generate_run_name(args.model, args.run_name)
     bs_entries = load_and_trim_entries(args.bs_entries, args.max_entries)
-    all_bs_entries = bs_entries
+    total_entries = len(bs_entries)
 
-    extract_outputs: list[LlmOutput] = []
+    extract_outputs: list[ExtractEntry] = []
+    all_chat_responses: list[ChatResponse] = []
     stage_timings_list: list[StageTimings] = []
 
     if args.resume:
@@ -132,9 +135,13 @@ async def run_cli_extract_async() -> None:
 
     async with run_with_lifecycle() as run_state:
 
-        async def process_extract_batch(batch_info: BatchInfo) -> list[LlmOutput]:
+        async def process_extract_batch(
+            batch_info: BatchInfo,
+        ) -> tuple[list[ExtractEntry], list[ChatResponse], float]:
             with stage_timer("ner") as t_ner:
-                batch_outputs = await ner(backend, batch_info.entries, prompt, format_, args.model, args.thinking)
+                batch_outputs, batch_chat_responses = await ner(
+                    backend, batch_info.entries, prompt, format_, args.model, args.thinking
+                )
             if len(batch_outputs) < len(batch_info.entries):
                 LOGGER.error(
                     "Batch returned %d outputs for %d entries (%d lost)",
@@ -142,19 +149,23 @@ async def run_cli_extract_async() -> None:
                     len(batch_info.entries),
                     len(batch_info.entries) - len(batch_outputs),
                 )
-            batch_info._ner_sec = t_ner.elapsed_sec  # type: ignore[attr-defined]  # noqa: SLF001
 
-            return batch_outputs
+            return batch_outputs, batch_chat_responses, t_ner.elapsed_sec
 
-        def on_extract_batch_complete(batch_idx: int, batch_outputs: list[LlmOutput]) -> None:
+        def on_extract_batch_complete(
+            batch_idx: int,
+            batch_result: tuple[list[ExtractEntry], list[ChatResponse], float],
+        ) -> None:
+            batch_outputs, batch_chat_responses, ner_sec = batch_result
             with stage_timer("resume_write") as t_resume:
                 extract_outputs.extend(batch_outputs)
+                all_chat_responses.extend(batch_chat_responses)
                 dump_extract_resume_file(extract_outputs, run_name)
             stage_timings_list.append(
                 StageTimings(
                     batch_idx=batch_idx,
                     batch_size=len(batch_outputs),
-                    ner_sec=getattr(batch_outputs, "_ner_sec", None),
+                    ner_sec=ner_sec,
                     resume_write_sec=t_resume.elapsed_sec,
                 ),
             )
@@ -173,25 +184,18 @@ async def run_cli_extract_async() -> None:
 
     run_metadata = build_run_metadata(run_name, args.model, args.thinking, start_time, end_time, status)
     run_metadata = populate_run_metadata(run_metadata, extract_outputs)
-    result = to_result(
-        bs_entries=all_bs_entries,
-        prompt=prompt,
-        model=args.model,
-        output=extract_outputs,
-        config=config,
+    result = build_extract_result(
+        entries=extract_outputs,
         run_metadata=run_metadata,
-        format_=format_,
-        thinking=args.thinking,
-        args=args,
     )
 
     # Build benchmark summary
-    ner_timing = aggregate_llm_timings([o.chat_response for o in extract_outputs])
+    ner_timing = aggregate_llm_timings(all_chat_responses)
     benchmark = BenchmarkSummary(
         run_name=run_name,
         model=args.model,
         thinking=args.thinking,
-        total_entries=len(all_bs_entries),
+        total_entries=total_entries,
         completed_count=len(extract_outputs),
         total_wall_sec=total_wall_sec,
         stage_timings=stage_timings_list,

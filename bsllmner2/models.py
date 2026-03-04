@@ -1,11 +1,11 @@
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Literal
 
 from ollama import ChatResponse
 from pydantic import BaseModel, Field
-from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import Config
+RunStatus = Literal["running", "completed", "failed"]
 
 # === Ontology search models (moved from ontology_search.py) ===
 
@@ -141,41 +141,6 @@ class MappingValue(BaseModel):
 Mapping = dict[str, MappingValue]  # key: bs_entry accession
 
 
-class WfInput(BaseModel):
-    bs_entries: BsEntries
-    prompt: list[Prompt] = Field(..., min_length=1)
-    model: str = Field(..., min_length=1)
-    thinking: bool | None = None
-    format: JsonSchemaValue | None = None
-    config: Config
-    cli_args: CliExtractArgs | CliSelectArgs | None = None
-
-
-LlmOutputValue = dict[str, Any] | list[Any] | None
-
-
-class LlmOutput(BaseModel):
-    accession: str
-    output: LlmOutputValue = None
-    output_full: str | None = None
-    characteristics: dict[str, Any] | None = None
-    taxId: int | str | None = None
-    chat_response: ChatResponse
-
-
-SelectFieldResults = dict[str, SearchResult | None]
-
-
-class SelectResult(BaseModel):
-    accession: str
-    extract_output: LlmOutputValue = None
-    # field -> value -> List[SearchResult]
-    search_results: dict[str, dict[str, list[SearchResult]]] = Field(default_factory=dict)
-    text2term_results: dict[str, dict[str, list[SearchResult]]] = Field(default_factory=dict)
-    llm_chat_response: dict[str, dict[str, ChatResponse | None]] = Field(default_factory=dict)
-    results: dict[str, SelectFieldResults | str | list[str] | None] = Field(default_factory=dict)
-
-
 class EvaluationMetrics(BaseModel):
     tp: int = 0
     fp: int = 0
@@ -189,21 +154,6 @@ class EvaluationMetrics(BaseModel):
     f1: float | None = None
 
 
-class RunMetadata(BaseModel):
-    run_name: str
-    model: str
-    thinking: bool | None = None
-    username: str | None = None
-    start_time: str
-    end_time: str | None = None
-    status: Literal["running", "completed", "failed"] = "running"
-    processing_time: float | None = None
-    matched_entries: int | None = None
-    total_entries: int | None = None
-    accuracy: float | None = None
-    completed_count: int | None = None
-
-
 class ErrorInfo(BaseModel):
     type: str
     message: str
@@ -211,12 +161,75 @@ class ErrorInfo(BaseModel):
 
 
 class ErrorLog(BaseModel):
-    timestamp: str
+    timestamp: datetime
     error: ErrorInfo
 
 
-class Result(BaseModel):
-    input: WfInput
-    output: list[LlmOutput] = []
+class LlmTimingFields(BaseModel):
+    total_duration: int = 0
+    load_duration: int = 0
+    eval_count: int = 0
+    eval_duration: int = 0
+    prompt_eval_count: int = 0
+
+
+def llm_timing_from_chat_response(resp: ChatResponse) -> LlmTimingFields:
+    return LlmTimingFields(
+        total_duration=getattr(resp, "total_duration", 0) or 0,
+        load_duration=getattr(resp, "load_duration", 0) or 0,
+        eval_count=getattr(resp, "eval_count", 0) or 0,
+        eval_duration=getattr(resp, "eval_duration", 0) or 0,
+        prompt_eval_count=getattr(resp, "prompt_eval_count", 0) or 0,
+    )
+
+
+class ExtractEntry(BaseModel):
+    accession: str
+    extracted: dict[str, Any] | list[Any] | None = None
+    raw_output: str | None = None
+    llm_timing: LlmTimingFields = Field(default_factory=LlmTimingFields)
+
+
+class ResolvedValue(BaseModel):
+    value: str
+    term_id: str | None = None
+    term_uri: str | None = None
+    label: str | None = None
+    exact_match: bool | None = Field(None, description="Whether the value was an exact match in the ontology")
+    reasoning: str | None = None
+
+
+FieldCandidates = dict[str, list[SearchResult]]
+
+
+class SelectEntry(BaseModel):
+    extract: ExtractEntry
+    search_results: dict[str, FieldCandidates] = Field(default_factory=dict)
+    text2term_results: dict[str, FieldCandidates] = Field(default_factory=dict)
+    select_timings: dict[str, dict[str, LlmTimingFields]] = Field(default_factory=dict)
+    results: dict[str, list[ResolvedValue]] = Field(default_factory=dict)
+
+
+class RunMetadata(BaseModel):
+    run_name: str
+    model: str
+    thinking: bool | None = None
+    username: str | None = None
+    start_time: datetime
+    end_time: datetime | None = None
+    status: RunStatus = "running"
+    processing_time_sec: float | None = None
+    total_entries: int | None = None
+
+
+class ExtractResult(BaseModel):
+    entries: list[ExtractEntry]
     run_metadata: RunMetadata
-    error_log: ErrorLog | None = None
+    errors: list[ErrorLog] = []
+
+
+class SelectResult(BaseModel):
+    entries: list[SelectEntry]
+    run_metadata: RunMetadata
+    evaluation: EvaluationMetrics | None = None
+    errors: list[ErrorLog] = []

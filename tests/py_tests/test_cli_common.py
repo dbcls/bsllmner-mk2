@@ -2,7 +2,7 @@
 
 import argparse
 import json
-import re
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -372,15 +372,9 @@ class TestGenerateRunName:
         assert "llama3.1:70b" in resolved
 
     def test_returns_start_time(self) -> None:
-        """start_time is a non-empty timestamp string."""
+        """start_time is a datetime instance."""
         _, start_time = generate_run_name("llama3.1:70b", None)
-        assert isinstance(start_time, str)
-        assert len(start_time) > 0
-
-    def test_start_time_format(self) -> None:
-        """start_time matches YYYYMMDD_HHMMSS format."""
-        _, start_time = generate_run_name("llama3.1:70b", None)
-        assert re.fullmatch(r"\d{8}_\d{6}", start_time), f"Unexpected format: {start_time}"
+        assert isinstance(start_time, datetime)
 
 
 class TestLoadAndTrimEntries:
@@ -428,19 +422,21 @@ class TestBuildRunMetadata:
 
     def test_all_fields_set(self) -> None:
         """All fields are set correctly."""
+        start = datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc)
+        end = datetime(2026, 3, 2, 13, 0, 0, tzinfo=timezone.utc)
         meta = build_run_metadata(
             run_name="test-run",
             model="llama3.1:70b",
             thinking=True,
-            start_time="20260302_120000",
-            end_time="20260302_130000",
+            start_time=start,
+            end_time=end,
             status="completed",
         )
         assert meta.run_name == "test-run"
         assert meta.model == "llama3.1:70b"
         assert meta.thinking is True
-        assert meta.start_time == "20260302_120000"
-        assert meta.end_time == "20260302_130000"
+        assert meta.start_time == start
+        assert meta.end_time == end
         assert meta.status == "completed"
         assert meta.username is None
 
@@ -450,7 +446,7 @@ class TestBuildRunMetadata:
             run_name="run",
             model="model",
             thinking=None,
-            start_time="20260302_120000",
+            start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc),
             end_time=None,
             status="running",
         )
@@ -463,7 +459,7 @@ class TestBuildRunMetadata:
             run_name="run",
             model="model",
             thinking=False,
-            start_time="20260302_120000",
+            start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc),
             end_time=None,
             status=status,
         )

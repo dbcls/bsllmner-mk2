@@ -8,10 +8,10 @@ import ollama
 from ollama import ChatResponse, Message, Options
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.biosample import construct_llm_input_json, is_ebi_format
+from bsllmner2.biosample import construct_llm_input_json
 from bsllmner2.config import LOGGER
 from bsllmner2.errors import OllamaConnectionError
-from bsllmner2.models import BsEntries, LlmOutput, Prompt
+from bsllmner2.models import BsEntries, ExtractEntry, Prompt, llm_timing_from_chat_response
 
 OLLAMA_OPTIONS = Options(
     seed=0,
@@ -118,9 +118,10 @@ def _construct_messages(prompts: list[Prompt]) -> list[Message]:
     return [Message(role=prompt.role, content=prompt.content) for prompt in prompts]
 
 
-def _extract_last_json(text: str) -> str | None:
+def _extract_last_json(text: str) -> dict[str, Any] | list[Any] | None:
+    """Extract and return the last valid JSON object/array from *text*."""
     decoder = json.JSONDecoder()
-    last_obj = None
+    last_obj: dict[str, Any] | list[Any] | None = None
     i = 0
     while i < len(text):
         if text[i] in ("{", "["):
@@ -133,58 +134,69 @@ def _extract_last_json(text: str) -> str | None:
         else:
             i += 1
 
-    if last_obj is not None:
-        return json.dumps(last_obj, ensure_ascii=False)
+    return last_obj
+
+
+def _extract_last_json_str(text: str) -> str | None:
+    """Extract the last valid JSON substring from *text* without re-serializing."""
+    decoder = json.JSONDecoder()
+    last_start: int | None = None
+    last_end: int | None = None
+    i = 0
+    while i < len(text):
+        if text[i] in ("{", "["):
+            try:
+                _obj, end = decoder.raw_decode(text, i)
+                last_start = i
+                last_end = end
+                i = end
+            except json.JSONDecodeError:
+                i += 1
+        else:
+            i += 1
+
+    if last_start is not None and last_end is not None:
+        return text[last_start:last_end]
 
     return None
+
+
+def _normalize_null_strings(obj: Any) -> Any:
+    """Recursively replace string ``"null"`` and ``"None"`` with ``None``."""
+    if isinstance(obj, dict):
+        return {k: _normalize_null_strings(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_normalize_null_strings(v) for v in obj]
+    if isinstance(obj, str) and obj in ("null", "None"):
+        return None
+    return obj
 
 
 def parse_response_json(chat_response: ChatResponse) -> dict[str, Any] | list[Any] | None:
     """Parse JSON from a ChatResponse, normalizing string 'null'/'None' values to None."""
     try:
         res_text = chat_response.message.content
-        res_text_json = _extract_last_json(res_text) if res_text is not None else None
+        output_obj = _extract_last_json(res_text) if res_text is not None else None
     except (AttributeError, TypeError) as e:
         LOGGER.error("Error extracting JSON from response text: %s", e)
-        res_text_json = None
-    if res_text_json is not None:
-        try:
-            output_obj = json.loads(res_text_json) if res_text_json else None
-            if isinstance(output_obj, dict):
-                for k, v in output_obj.items():
-                    if isinstance(v, str) and v in ("null", "None"):
-                        output_obj[k] = None
-        except (json.JSONDecodeError, TypeError, ValueError) as e:
-            LOGGER.error("Error parsing JSON response: %s", e)
-
-            return None
-        else:
-            return output_obj
+        output_obj = None
+    if output_obj is not None:
+        normalized: dict[str, Any] | list[Any] = _normalize_null_strings(output_obj)
+        return normalized
 
     return None
 
 
-def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> LlmOutput:
+def _construct_output(bs_entry: dict[str, Any], chat_response: ChatResponse) -> ExtractEntry:
     output_obj = parse_response_json(chat_response)
-    res_text_json = _extract_last_json(chat_response.message.content or "") if chat_response.message.content else None
+    raw_output = _extract_last_json_str(chat_response.message.content or "") if chat_response.message.content else None
 
-    output_ins = LlmOutput(
+    return ExtractEntry(
         accession=bs_entry["accession"],
-        output=output_obj,
-        output_full=res_text_json,
-        chat_response=chat_response,
+        extracted=output_obj,
+        raw_output=raw_output,
+        llm_timing=llm_timing_from_chat_response(chat_response),
     )
-
-    # add "characteristics" and "taxId"
-    if isinstance(output_ins.output, dict) and is_ebi_format(bs_entry):
-        output_ins.characteristics = {
-            key: ({"text": value} if not isinstance(value, list) else [{"text": v} for v in value])
-            for key, value in output_ins.output.items()
-        }
-        if "taxId" in bs_entry:
-            output_ins.taxId = bs_entry["taxId"]
-
-    return output_ins
 
 
 # === NER function ===
@@ -198,12 +210,13 @@ async def ner(
     model: str,
     thinking: bool | None = None,
     progress_file_path: Path | None = None,
-) -> list[LlmOutput]:
+) -> tuple[list[ExtractEntry], list[ChatResponse]]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
 
     messages = _construct_messages(prompt)
-    outputs: list[LlmOutput] = []
+    outputs: list[ExtractEntry] = []
+    chat_responses: list[ChatResponse] = []
     error_count = 0
     connection_tested = False
 
@@ -212,7 +225,7 @@ async def ner(
             stack.enter_context(progress_file_path.open("w", encoding="utf-8")) if progress_file_path else None
         )
 
-        async def _process_entry(entry: dict[str, Any]) -> LlmOutput | None:
+        async def _process_entry(entry: dict[str, Any]) -> tuple[ExtractEntry, ChatResponse] | None:
             nonlocal error_count, connection_tested
             accession = entry.get("accession")
             if accession is None:
@@ -256,7 +269,7 @@ async def ner(
                 progress_file.write(f"{accession}\n")
                 progress_file.flush()
 
-            return output
+            return output, response
 
         # Process the first entry serially to verify the connection
         if bs_entries:
@@ -274,7 +287,10 @@ async def ner(
             rest_results = []
 
         all_results = [first_result, *rest_results]
-        outputs.extend([res for res in all_results if res is not None])
+        for res in all_results:
+            if res is not None:
+                outputs.append(res[0])
+                chat_responses.append(res[1])
 
     if error_count > 0 and len(bs_entries) > 0:
         LOGGER.error(
@@ -284,4 +300,4 @@ async def ner(
             (len(bs_entries) - error_count) / len(bs_entries) * 100,
         )
 
-    return outputs
+    return outputs, chat_responses

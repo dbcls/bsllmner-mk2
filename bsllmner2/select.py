@@ -17,11 +17,13 @@ from bsllmner2.config import LOGGER
 from bsllmner2.llm import OLLAMA_OPTIONS, LlmBackend, parse_response_json
 from bsllmner2.models import (
     BsEntries,
-    LlmOutput,
+    ExtractEntry,
     OntologyIndex,
+    ResolvedValue,
     SearchResult,
     SelectConfig,
-    SelectResult,
+    SelectEntry,
+    llm_timing_from_chat_response,
 )
 from bsllmner2.ontology_search import (
     build_index_from_file,
@@ -114,28 +116,29 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
 
 
 def _collect_queries(
-    select_results: list[SelectResult],
+    select_entries: list[SelectEntry],
     field_name: str,
 ) -> set[str]:
-    """Collect unique query strings from select results for a given field.
+    """Collect unique query strings from select entries for a given field.
 
     Skips entries that already have final results for the field.
     """
     queries: set[str] = set()
-    for res in select_results:
-        if not isinstance(res.extract_output, dict):
-            if res.extract_output is not None:
+    for entry in select_entries:
+        extracted = entry.extract.extracted
+        if not isinstance(extracted, dict):
+            if extracted is not None:
                 LOGGER.warning(
-                    "Skipping non-dict extract_output for accession %s in _collect_queries: got %s",
-                    res.accession,
-                    type(res.extract_output).__name__,
+                    "Skipping non-dict extracted for accession %s in _collect_queries: got %s",
+                    entry.extract.accession,
+                    type(extracted).__name__,
                 )
             continue
-        if field_name not in res.extract_output:
+        if field_name not in extracted:
             continue
-        if res.results.get(field_name):
+        if entry.results.get(field_name):
             continue
-        query_value = res.extract_output[field_name]
+        query_value = extracted[field_name]
         if isinstance(query_value, str):
             queries.add(query_value)
         elif isinstance(query_value, list):
@@ -145,32 +148,33 @@ def _collect_queries(
 
 
 def _distribute_results(
-    select_results: list[SelectResult],
+    select_entries: list[SelectEntry],
     field_name: str,
     all_results: dict[str, list[SearchResult]],
     result_attr: str,
 ) -> None:
-    """Distribute search results back into SelectResult objects.
+    """Distribute search results back into SelectEntry objects.
 
-    For each SelectResult, stores per-query candidates into the attribute
+    For each SelectEntry, stores per-query candidates into the attribute
     specified by *result_attr* (``"search_results"`` or ``"text2term_results"``)
-    and sets exact-match results into ``results``.
+    and sets exact-match results into ``results`` as ``list[ResolvedValue]``.
     """
-    for res in select_results:
-        if not isinstance(res.extract_output, dict):
-            if res.extract_output is not None:
+    for entry in select_entries:
+        extracted = entry.extract.extracted
+        if not isinstance(extracted, dict):
+            if extracted is not None:
                 LOGGER.warning(
-                    "Skipping non-dict extract_output for accession %s in _distribute_results: got %s",
-                    res.accession,
-                    type(res.extract_output).__name__,
+                    "Skipping non-dict extracted for accession %s in _distribute_results: got %s",
+                    entry.extract.accession,
+                    type(extracted).__name__,
                 )
             continue
-        if field_name not in res.extract_output:
+        if field_name not in extracted:
             continue
-        if res.results.get(field_name):
+        if entry.results.get(field_name):
             continue
 
-        query_value = res.extract_output[field_name]
+        query_value = extracted[field_name]
         if isinstance(query_value, str):
             values = [query_value]
         elif isinstance(query_value, list):
@@ -178,16 +182,10 @@ def _distribute_results(
         else:
             continue
 
-        per_query_store: dict[str, Any] = getattr(res, result_attr)
-        field_specific = per_query_store.get(field_name)
-        if not isinstance(field_specific, dict):
-            field_specific = {}
-            per_query_store[field_name] = field_specific
+        per_query_store: dict[str, Any] = getattr(entry, result_attr)
+        field_specific = per_query_store.setdefault(field_name, {})
 
-        field_results = res.results.get(field_name)
-        if not isinstance(field_results, dict):
-            field_results = {}
-            res.results[field_name] = field_results
+        existing_resolved = entry.results.get(field_name, [])
 
         for value in values:
             candidates = all_results.get(value, [])
@@ -195,14 +193,24 @@ def _distribute_results(
 
             exact_match_result = _pick_exact_match_search_result(candidates)
             if exact_match_result is not None:
-                field_results[value] = exact_match_result
+                existing_resolved.append(ResolvedValue(
+                    value=value,
+                    term_id=exact_match_result.term_id,
+                    term_uri=exact_match_result.term_uri,
+                    label=exact_match_result.label,
+                    exact_match=exact_match_result.exact_match,
+                    reasoning=exact_match_result.reasoning,
+                ))
+
+        if existing_resolved:
+            entry.results[field_name] = existing_resolved
 
 
 def _ontology_search_wrapper(
-    select_results: list[SelectResult],
+    select_entries: list[SelectEntry],
     select_config: SelectConfig,
     index_map: dict[Path, OntologyIndex] | None = None,
-) -> list[SelectResult]:
+) -> list[SelectEntry]:
     """Perform ontology search for each field in the select configuration."""
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
@@ -218,21 +226,21 @@ def _ontology_search_wrapper(
 
         LOGGER.info("Searching ontology for field: %s", field_name)
 
-        queries = _collect_queries(select_results, field_name)
+        queries = _collect_queries(select_entries, field_name)
         if not queries:
             continue
 
         results = search_terms(index, queries)
-        _distribute_results(select_results, field_name, results, "search_results")
+        _distribute_results(select_entries, field_name, results, "search_results")
 
-    return select_results
+    return select_entries
 
 
 def _text2term_wrapper(
-    select_results: list[SelectResult],
+    select_entries: list[SelectEntry],
     select_config: SelectConfig,
     index_map: dict[Path, OntologyIndex] | None = None,
-) -> list[SelectResult]:
+) -> list[SelectEntry]:
     """Perform text2term search for each field in the select configuration."""
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
@@ -248,7 +256,7 @@ def _text2term_wrapper(
 
         LOGGER.info("text2term for field: %s", field_name)
 
-        queries = _collect_queries(select_results, field_name)
+        queries = _collect_queries(select_entries, field_name)
         if not queries:
             continue
 
@@ -263,9 +271,9 @@ def _text2term_wrapper(
             )
             results = {}
 
-        _distribute_results(select_results, field_name, results, "text2term_results")
+        _distribute_results(select_entries, field_name, results, "text2term_results")
 
-    return select_results
+    return select_entries
 
 
 def _build_select_schema(
@@ -310,11 +318,11 @@ def _serialize_candidates_for_llm(candidates: list[SearchResult]) -> list[dict[s
 def _collect_candidates_for_field(
     field_name: str,
     value: str,
-    select_result: SelectResult,
+    select_entry: SelectEntry,
 ) -> list[SearchResult]:
     merged: list[SearchResult] = []
-    merged.extend(select_result.search_results.get(field_name, {}).get(value, []))
-    merged.extend(select_result.text2term_results.get(field_name, {}).get(value, []))
+    merged.extend(select_entry.search_results.get(field_name, {}).get(value, []))
+    merged.extend(select_entry.text2term_results.get(field_name, {}).get(value, []))
 
     # Remove duplicates based on term_id.
     by_term_id: dict[str, SearchResult] = {}
@@ -327,12 +335,12 @@ def _collect_candidates_for_field(
 
 
 def _pick_search_result_by_id(
-    select_result: SelectResult,
+    select_entry: SelectEntry,
     field_name: str,
     value: str,
     term_id: str,
 ) -> SearchResult | None:
-    candidates = _collect_candidates_for_field(field_name, value, select_result)
+    candidates = _collect_candidates_for_field(field_name, value, select_entry)
     for candidate in candidates:
         if candidate.term_id == term_id and is_label_prop(candidate.prop_uri):
             return candidate
@@ -366,20 +374,22 @@ def _build_select_system_message(reasoning: bool) -> Message:
 
 def _build_select_prompt_and_schema(
     bs_entry: dict[str, Any],
-    select_result: SelectResult,
+    select_entry: SelectEntry,
     select_config: SelectConfig,
     reasoning: bool,
 ) -> dict[tuple[str, str], tuple[list[Message], JsonSchemaValue]]:
     """Build per-field (messages, schema) for LLM selection (choose term_id).
 
-    Only includes fields that still need a selection (i.e., results[field] is None).
+    Only includes fields that still need a selection.
     """
     results: dict[tuple[str, str], tuple[list[Message], JsonSchemaValue]] = {}
     bs_ctx_json = json.dumps(bs_entry, ensure_ascii=False)
     system_msg = _build_select_system_message(reasoning)
 
+    extracted = select_entry.extract.extracted
+
     for field_name, field_config in select_config.fields.items():
-        raw = select_result.extract_output.get(field_name) if isinstance(select_result.extract_output, dict) else None
+        raw = extracted.get(field_name) if isinstance(extracted, dict) else None
 
         if isinstance(raw, str):
             values = [raw]
@@ -389,11 +399,11 @@ def _build_select_prompt_and_schema(
             continue
 
         for value in values:
-            existing = select_result.results.get(field_name)
-            if isinstance(existing, dict) and value in existing:
+            existing = select_entry.results.get(field_name)
+            if isinstance(existing, list) and any(rv.value == value for rv in existing):
                 continue
 
-            candidates = _collect_candidates_for_field(field_name, value, select_result)
+            candidates = _collect_candidates_for_field(field_name, value, select_entry)
             if not candidates:
                 continue
 
@@ -451,48 +461,67 @@ async def select(
     backend: LlmBackend,
     bs_entries: BsEntries,
     model: str,
-    extract_outputs: list[LlmOutput],
+    extract_outputs: list[ExtractEntry],
     select_config: SelectConfig,
     thinking: bool | None = None,
     include_reasoning: bool = True,
     index_map: dict[Path, OntologyIndex] | None = None,
-) -> tuple[list[SelectResult], SelectStageTimings]:
+) -> tuple[list[SelectEntry], list[ChatResponse], SelectStageTimings]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
 
     fields = select_config.fields.keys()
     no_select_fields = [f for f in fields if select_config.fields[f].ontology_file is None]
 
-    intermediate_results: list[SelectResult] = []
+    intermediate_entries: list[SelectEntry] = []
     for obj in extract_outputs:
-        sr = SelectResult(
-            accession=obj.accession,
-            extract_output=obj.output,
+        se = SelectEntry(
+            extract=obj,
             search_results={field: {} for field in fields},
             text2term_results={field: {} for field in fields},
-            llm_chat_response={field: {} for field in fields},
+            select_timings={field: {} for field in fields},
             results={},
         )
+
+        # Step 6: Boundary validation — non-dict, non-None extracted gets warning + None
+        extract = obj
+        if extract.extracted is not None and not isinstance(extract.extracted, dict):
+            LOGGER.warning(
+                "Non-dict extracted for accession %s: got %s, treating as None",
+                extract.accession,
+                type(extract.extracted).__name__,
+            )
+            extract = extract.model_copy(update={"extracted": None})
+            se = se.model_copy(update={"extract": extract})
+
         for field in no_select_fields:
-            if isinstance(obj.output, dict):
-                sr.results[field] = obj.output.get(field, None)
-            elif obj.output is not None:
-                LOGGER.warning(
-                    "Non-dict extract output for accession %s: got %s",
-                    obj.accession,
-                    type(obj.output).__name__,
-                )
-        intermediate_results.append(sr)
+            if isinstance(extract.extracted, dict):
+                raw_val = extract.extracted.get(field)
+                if raw_val is not None:
+                    if isinstance(raw_val, str):
+                        se.results[field] = [ResolvedValue(value=raw_val)]
+                    elif isinstance(raw_val, list):
+                        se.results[field] = [ResolvedValue(value=v) for v in raw_val if isinstance(v, str)]
+
+        # Step 7: Explicitly set empty list for fields with None value in extracted
+        if isinstance(extract.extracted, dict):
+            for field in fields:
+                if field not in se.results and extract.extracted.get(field) is None and field in extract.extracted:
+                    se.results[field] = []
+
+        intermediate_entries.append(se)
 
     # 1. Perform ontology search for each field specified in the select configuration.
     with stage_timer("ontology_search") as t_ontology:
-        _ontology_search_wrapper(intermediate_results, select_config, index_map=index_map)
+        _ontology_search_wrapper(intermediate_entries, select_config, index_map=index_map)
 
     # 2. Perform text2term search for each field specified in the select configuration.
     with stage_timer("text2term") as t_text2term:
-        _text2term_wrapper(intermediate_results, select_config, index_map=index_map)
+        _text2term_wrapper(intermediate_entries, select_config, index_map=index_map)
 
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
+
+    all_select_chat_responses: list[ChatResponse] = []
 
     async def _process_field_selection(
         accession: str,
@@ -518,14 +547,14 @@ async def select(
 
     coros = []
     bs_entry_map = {e.get("accession"): e for e in bs_entries if e.get("accession") is not None}
-    for select_result in intermediate_results:
-        accession = select_result.accession
+    for select_entry in intermediate_entries:
+        accession = select_entry.extract.accession
         bs_entry = bs_entry_map.get(accession)
         if bs_entry is None:
             continue
         field_prompts_and_schemas = _build_select_prompt_and_schema(
             bs_entry,
-            select_result,
+            select_entry,
             select_config,
             include_reasoning,
         )
@@ -537,17 +566,18 @@ async def select(
             LOGGER.info(
                 "Performing LLM selection for %d fields across %d entries...",
                 len(coros),
-                len(intermediate_results),
+                len(intermediate_entries),
             )
-            acc_to_result_map = {result.accession: result for result in intermediate_results}
+            acc_to_entry_map = {e.extract.accession: e for e in intermediate_entries}
             llm_results = await asyncio.gather(*coros)
 
             for accession, field_name, value, chat_response in llm_results:
-                select_result = acc_to_result_map[accession]
-                if select_result is None or chat_response is None:
+                select_entry = acc_to_entry_map[accession]
+                if select_entry is None or chat_response is None:
                     continue
 
-                select_result.llm_chat_response.setdefault(field_name, {})[value] = chat_response
+                all_select_chat_responses.append(chat_response)
+                select_entry.select_timings.setdefault(field_name, {})[value] = llm_timing_from_chat_response(chat_response)
 
                 output_obj = _parse_output_object(chat_response)
                 chosen_id = output_obj.get("id", None) if output_obj else None
@@ -556,19 +586,21 @@ async def select(
                 if not isinstance(chosen_id, str):
                     continue
 
-                picked_result = _pick_search_result_by_id(select_result, field_name, value, chosen_id.strip())
+                picked_result = _pick_search_result_by_id(select_entry, field_name, value, chosen_id.strip())
                 if picked_result is None:
                     continue
 
-                picked_copy = picked_result.model_copy(deep=True)
-                if isinstance(reasoning, str):
-                    picked_copy.reasoning = reasoning
+                resolved = ResolvedValue(
+                    value=value,
+                    term_id=picked_result.term_id,
+                    term_uri=picked_result.term_uri,
+                    label=picked_result.label,
+                    exact_match=picked_result.exact_match,
+                    reasoning=reasoning if isinstance(reasoning, str) else None,
+                )
 
-                field_dict = select_result.results.get(field_name)
-                if not isinstance(field_dict, dict):
-                    field_dict = {}
-                    select_result.results[field_name] = field_dict
-                field_dict[value] = picked_copy
+                existing_list = select_entry.results.setdefault(field_name, [])
+                existing_list.append(resolved)
 
     timings = SelectStageTimings(
         ontology_search_sec=t_ontology.elapsed_sec,
@@ -576,4 +608,4 @@ async def select(
         llm_select_sec=t_llm_select.elapsed_sec,
     )
 
-    return intermediate_results, timings
+    return intermediate_entries, all_select_chat_responses, timings

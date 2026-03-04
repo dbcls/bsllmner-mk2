@@ -10,7 +10,7 @@ import pytest
 from bsllmner2.benchmark import DiskIoTimings
 from bsllmner2.cli_select import parse_args, run_cli_select_async
 from bsllmner2.config import RESUME_BATCH_SIZE
-from bsllmner2.models import LlmOutput, SelectResult
+from bsllmner2.models import ExtractEntry, SelectEntry
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 _EMPTY_INDEX_MAP_RESULT: tuple[dict[str, object], DiskIoTimings] = ({}, DiskIoTimings())
@@ -266,7 +266,6 @@ class TestRunCliSelectAsync:
                 ),
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
-            patch("bsllmner2.cli_select.dump_extract_result", return_value=tmp_path / "extract.json"),
             patch("bsllmner2.cli_select.dump_select_result", return_value=tmp_path / "select.json"),
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
@@ -293,14 +292,15 @@ class TestRunCliSelectAsync:
             "test-run",
         ]
 
-        already_done_extract = LlmOutput(
+        already_done_extract = ExtractEntry(
             accession="SAMN00000001",
-            output={"cell_line": "HeLa"},
-            chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+            extracted={"cell_line": "HeLa"},
         )
-        already_done_select = SelectResult(
-            accession="SAMN00000001",
-            extract_output={"cell_line": "HeLa"},
+        already_done_select = SelectEntry(
+            extract=ExtractEntry(
+                accession="SAMN00000001",
+                extracted={"cell_line": "HeLa"},
+            ),
         )
 
         with (
@@ -323,10 +323,6 @@ class TestRunCliSelectAsync:
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch(
-                "bsllmner2.cli_select.dump_extract_result",
-                return_value=tmp_path / "extract.json",
-            ),
-            patch(
                 "bsllmner2.cli_select.dump_select_result",
                 return_value=tmp_path / "select.json",
             ),
@@ -337,24 +333,17 @@ class TestRunCliSelectAsync:
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
-                return_value=[
-                    LlmOutput(
-                        accession="SAMN00000002",
-                        output={"cell_line": "HEK293"},
-                        chat_response=make_chat_response('{"cell_line": "HEK293"}'),
-                    ),
-                ],
+                return_value=(
+                    [ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"})],
+                    [make_chat_response('{"cell_line": "HEK293"}')],
+                ),
             ) as mock_ner,
             patch(
                 "bsllmner2.cli_select.select",
                 new_callable=AsyncMock,
                 return_value=(
-                    [
-                        SelectResult(
-                            accession="SAMN00000002",
-                            extract_output={"cell_line": "HEK293"},
-                        ),
-                    ],
+                    [SelectEntry(extract=ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"}))],
+                    [],
                     _EMPTY_SELECT_TIMINGS,
                 ),
             ),
@@ -387,21 +376,21 @@ class TestRunCliSelectAsync:
         ]
 
         # SAMN00000001 is done (both extract & select)
-        done_extract = LlmOutput(
+        done_extract = ExtractEntry(
             accession="SAMN00000001",
-            output={"cell_line": "HeLa"},
-            chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+            extracted={"cell_line": "HeLa"},
         )
-        done_select = SelectResult(
-            accession="SAMN00000001",
-            extract_output={"cell_line": "HeLa"},
+        done_select = SelectEntry(
+            extract=ExtractEntry(
+                accession="SAMN00000001",
+                extracted={"cell_line": "HeLa"},
+            ),
         )
 
         # SAMN00000002 is orphan (extract done, select not done)
-        orphan_extract = LlmOutput(
+        orphan_extract = ExtractEntry(
             accession="SAMN00000002",
-            output={"cell_line": "HEK293"},
-            chat_response=make_chat_response('{"cell_line": "HEK293"}'),
+            extracted={"cell_line": "HEK293"},
         )
 
         with (
@@ -424,10 +413,6 @@ class TestRunCliSelectAsync:
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch(
-                "bsllmner2.cli_select.dump_extract_result",
-                return_value=tmp_path / "extract.json",
-            ),
-            patch(
                 "bsllmner2.cli_select.dump_select_result",
                 return_value=tmp_path / "select.json",
             ),
@@ -438,18 +423,14 @@ class TestRunCliSelectAsync:
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
-                return_value=[],
+                return_value=([], []),
             ) as mock_ner,
             patch(
                 "bsllmner2.cli_select.select",
                 new_callable=AsyncMock,
                 return_value=(
-                    [
-                        SelectResult(
-                            accession="SAMN00000002",
-                            extract_output={"cell_line": "HEK293"},
-                        ),
-                    ],
+                    [SelectEntry(extract=ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"}))],
+                    [],
                     _EMPTY_SELECT_TIMINGS,
                 ),
             ) as mock_select,
@@ -501,13 +482,9 @@ class TestRunCliSelectAsync:
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch(
-                "bsllmner2.cli_select.dump_extract_result",
-                return_value=tmp_path / "extract.json",
-            ) as mock_dump_extract,
-            patch(
                 "bsllmner2.cli_select.dump_select_result",
                 return_value=tmp_path / "select.json",
-            ),
+            ) as mock_dump_select,
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),
             patch("bsllmner2.cli_select.remove_resume_files") as mock_remove,
@@ -516,9 +493,9 @@ class TestRunCliSelectAsync:
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
 
-            # dump_extract_result should have been called with status "failed"
-            assert mock_dump_extract.call_count == 1
-            result_arg = mock_dump_extract.call_args[0][0]
+            # dump_select_result should have been called with status "failed"
+            assert mock_dump_select.call_count == 1
+            result_arg = mock_dump_select.call_args[0][0]
             assert result_arg.run_metadata.status == "failed"
 
             # resume files should NOT be removed on failure
@@ -539,7 +516,6 @@ class TestCliSelectIntegration:
         tmp_path: Path,
     ) -> None:
         """End-to-end: real files are written, output structure is valid, status is 'completed'."""
-        extract_dir = tmp_path / "results" / "extract"
         select_dir = tmp_path / "results" / "select"
         progress_dir = tmp_path / "progress"
 
@@ -562,7 +538,6 @@ class TestCliSelectIntegration:
                 ),
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
-            patch("bsllmner2.io.EXTRACT_RESULT_DIR", extract_dir),
             patch("bsllmner2.io.SELECT_RESULT_DIR", select_dir),
             patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
             patch("bsllmner2.benchmark.BENCHMARK_DIR", tmp_path / "benchmarks"),
@@ -571,23 +546,15 @@ class TestCliSelectIntegration:
             mock_sys.argv = ["bsllmner2-select", *cli_args]
             await run_cli_select_async()
 
-        # Verify extract result files exist
-        extract_files = [f for f in extract_dir.glob("*.json") if "_resume" not in f.name]
-        assert len(extract_files) >= 1
-
-        # Verify extract result structure
-        extract_data = json.loads(extract_files[0].read_text())
-        assert "run_metadata" in extract_data
-        assert extract_data["run_metadata"]["status"] == "completed"
-
         # Verify select result files exist
         select_files = [f for f in select_dir.glob("*.json") if "_resume" not in f.name]
         assert len(select_files) >= 1
 
-        # Verify select result is valid JSON array
+        # Verify select result is valid JSON with expected structure
         select_data = json.loads(select_files[0].read_text())
-        assert isinstance(select_data, list)
-        assert len(select_data) == 2
+        assert isinstance(select_data, dict)
+        assert "entries" in select_data
+        assert len(select_data["entries"]) == 2
 
     async def test_batch_loss_logged_at_error(
         self,
@@ -616,7 +583,6 @@ class TestCliSelectIntegration:
                 ),
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
-            patch("bsllmner2.cli_select.dump_extract_result", return_value=tmp_path / "extract.json"),
             patch("bsllmner2.cli_select.dump_select_result", return_value=tmp_path / "select.json"),
             patch("bsllmner2.cli_select.dump_extract_resume_file"),
             patch("bsllmner2.cli_select.dump_select_resume_file"),

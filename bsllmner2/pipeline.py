@@ -4,37 +4,32 @@ from datetime import datetime, timezone
 
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import Config
 from bsllmner2.models import (
-    BsEntries,
-    CliExtractArgs,
-    CliSelectArgs,
     ErrorInfo,
     ErrorLog,
     EvaluationMetrics,
-    LlmOutput,
+    ExtractEntry,
+    ExtractResult,
     Mapping,
     Prompt,
-    Result,
     RunMetadata,
     SelectConfig,
-    SelectResult,
-    WfInput,
+    SelectEntry,
 )
 
 
-def extract_predicted_term_id(select_result: SelectResult, field_name: str) -> str | None:
-    """Extract term_id from SelectResult.results[field_name].
+def extract_predicted_term_id(select_entry: SelectEntry, field_name: str) -> str | None:
+    """Extract term_id from SelectEntry.results[field_name].
 
-    Returns the term_id of the first SearchResult found, or None.
+    Returns the term_id of the first ResolvedValue found, or None.
     """
-    field_info = select_result.results.get(field_name)
-    if not isinstance(field_info, dict):
+    field_info = select_entry.results.get(field_name)
+    if field_info is None:
         return None
-    first_result = next(iter(field_info.values()), None)
-    if first_result is None:
-        return None
-    return first_result.term_id
+    for rv in field_info:
+        if rv.term_id is not None:
+            return rv.term_id
+    return None
 
 
 def compute_classification_metrics(
@@ -96,16 +91,16 @@ def compute_classification_metrics(
 
 
 def evaluate_select_output(
-    select_results: list[SelectResult],
+    select_entries: list[SelectEntry],
     mapping: Mapping,
     field_name: str = "cell_line",
 ) -> EvaluationMetrics:
     """Evaluate Select results by comparing term_id against mapping_answer_id."""
     predicted: dict[str, str | None] = {}
     expected: dict[str, str | None] = {}
-    for sr in select_results:
-        accession = sr.accession
-        predicted[accession] = extract_predicted_term_id(sr, field_name)
+    for se in select_entries:
+        accession = se.extract.accession
+        predicted[accession] = extract_predicted_term_id(se, field_name)
         if accession in mapping:
             expected[accession] = mapping[accession].mapping_answer_id
         else:
@@ -113,43 +108,25 @@ def evaluate_select_output(
     return compute_classification_metrics(predicted, expected)
 
 
-def to_result(
-    bs_entries: BsEntries,
-    prompt: list[Prompt],
-    model: str,
-    output: list[LlmOutput],
-    config: Config,
+def build_extract_result(
+    entries: list[ExtractEntry],
     run_metadata: RunMetadata,
-    format_: JsonSchemaValue | None = None,
-    thinking: bool | None = None,
-    args: CliExtractArgs | CliSelectArgs | None = None,
-) -> Result:
-    return Result(
-        input=WfInput(
-            bs_entries=bs_entries,
-            prompt=prompt,
-            model=model,
-            thinking=thinking,
-            format=format_,
-            config=config,
-            cli_args=args,
-        ),
-        output=output,
+    errors: list[ErrorLog] | None = None,
+) -> ExtractResult:
+    return ExtractResult(
+        entries=entries,
         run_metadata=run_metadata,
+        errors=errors or [],
     )
 
 
-def get_now_str() -> str:
-    """Return current UTC time as string in YYYYMMDD_HHMMSS format."""
-    return datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
+def get_now() -> datetime:
+    """Return current UTC time as a timezone-aware datetime."""
+    return datetime.now(timezone.utc)
 
 
-def compute_processing_time(start_time: str, end_time: str) -> float:
-    dt_format = "%Y%m%d_%H%M%S"
-    start_dt = datetime.strptime(start_time, dt_format)
-    end_dt = datetime.strptime(end_time, dt_format)
-
-    seconds = (end_dt - start_dt).total_seconds()
+def compute_processing_time(start_time: datetime, end_time: datetime) -> float:
+    seconds = (end_time - start_time).total_seconds()
     if seconds < 0:
         raise ValueError(f"end_time ({end_time}) is before start_time ({start_time})")
     return seconds
@@ -157,24 +134,19 @@ def compute_processing_time(start_time: str, end_time: str) -> float:
 
 def populate_run_metadata(
     run_metadata: RunMetadata,
-    output: list[LlmOutput],
-    select_metrics: EvaluationMetrics | None = None,
+    entries: list[ExtractEntry],
 ) -> RunMetadata:
     """Compute and fill unused RunMetadata fields. Returns a new instance."""
     updates: dict[str, object] = {
-        "total_entries": len(output),
+        "total_entries": len(entries),
     }
 
     if run_metadata.end_time is not None:
         with contextlib.suppress(ValueError):
-            updates["processing_time"] = compute_processing_time(
+            updates["processing_time_sec"] = compute_processing_time(
                 run_metadata.start_time,
                 run_metadata.end_time,
             )
-
-    if select_metrics is not None:
-        updates["matched_entries"] = select_metrics.correct
-        updates["accuracy"] = (select_metrics.accuracy * 100) if select_metrics.accuracy is not None else None
 
     return run_metadata.model_copy(update=updates)
 
@@ -183,7 +155,7 @@ def build_error_log(
     exc: Exception,
 ) -> ErrorLog:
     return ErrorLog(
-        timestamp=get_now_str(),
+        timestamp=get_now(),
         error=ErrorInfo(
             type=type(exc).__name__,
             message=str(exc),

@@ -7,7 +7,6 @@ services:
     volumes:
       - ${PWD}:/app
       - venv:/app/.venv:rw
-      - /var/run/docker.sock:/var/run/docker.sock # For docker inspect
     environment:
       - OLLAMA_HOST=http://bsllmner-mk2-ollama:11434
     working_dir: /app

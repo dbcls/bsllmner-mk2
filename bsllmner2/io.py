@@ -9,20 +9,21 @@ from typing import Any, cast
 
 import ijson
 import yaml
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR, SELECT_RESULT_DIR
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.models import (
     BsEntries,
-    LlmOutput,
+    ExtractEntry,
+    ExtractResult,
     Mapping,
     MappingValue,
     Prompt,
-    Result,
     RunMetadata,
     SelectConfig,
+    SelectEntry,
     SelectResult,
 )
 
@@ -183,7 +184,7 @@ def load_select_config(path: Path) -> SelectConfig:
     return SelectConfig.model_validate(data)
 
 
-def dump_extract_result(result: Result, run_name: str) -> Path:
+def dump_extract_result(result: ExtractResult, run_name: str) -> Path:
     EXTRACT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = EXTRACT_RESULT_DIR.joinpath(f"{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
@@ -193,26 +194,34 @@ def dump_extract_result(result: Result, run_name: str) -> Path:
     return result_file
 
 
-def dump_select_result(result: list[SelectResult], run_name: str) -> Path:
+def dump_select_result(result: SelectResult, run_name: str) -> Path:
     SELECT_RESULT_DIR.mkdir(parents=True, exist_ok=True)
     result_file = SELECT_RESULT_DIR.joinpath(f"select_{run_name}.json")
     with result_file.open("w", encoding="utf-8") as f:
-        json_str = json.dumps([res.model_dump() for res in result], ensure_ascii=False, indent=2)
+        json_str = json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2)
         f.write(_replace_surrogates(json_str))
 
     return result_file
 
 
-def load_extract_result(path: Path) -> Result:
+def load_extract_result(path: Path) -> ExtractResult:
     if not path.exists():
         raise FileNotFoundError(f"Result file {path} does not exist.")
 
     with path.open("r", encoding="utf-8") as f:
         content = f.read()
-    result = Result.model_validate_json(content)
-    result.run_metadata.completed_count = load_progress_count(result.run_metadata.run_name)
 
-    return result
+    return ExtractResult.model_validate_json(content)
+
+
+def load_select_result(path: Path) -> SelectResult:
+    if not path.exists():
+        raise FileNotFoundError(f"Result file {path} does not exist.")
+
+    with path.open("r", encoding="utf-8") as f:
+        content = f.read()
+
+    return SelectResult.model_validate_json(content)
 
 
 def load_run_metadata(path: Path) -> RunMetadata:
@@ -236,9 +245,7 @@ def list_run_metadata() -> list[RunMetadata]:
     run_metadata_list = []
     for file in EXTRACT_RESULT_DIR.glob("*.json"):
         try:
-            run_name = file.name.removesuffix(".json")
             run_metadata = load_run_metadata(file)
-            run_metadata.completed_count = load_progress_count(run_name)
             run_metadata_list.append(run_metadata)
         except (FileNotFoundError, ValueError) as e:
             LOGGER.warning("Skipping file %s: %s", file, e)
@@ -276,7 +283,10 @@ def load_progress_count(run_name: str) -> int | None:
         return sum(1 for _ in f)
 
 
-def load_extract_resume_file(run_name: str) -> list[LlmOutput]:
+_EXTRACT_ENTRY_LIST_ADAPTER = TypeAdapter(list[ExtractEntry])
+
+
+def load_extract_resume_file(run_name: str) -> list[ExtractEntry]:
     extract_resume_file_path = EXTRACT_RESULT_DIR.joinpath(f"{run_name}_resume.json")
     if not extract_resume_file_path.exists():
         return []
@@ -285,19 +295,12 @@ def load_extract_resume_file(run_name: str) -> list[LlmOutput]:
         content = f.read()
     if not content.strip():
         return []
-    data = json.loads(content)
-    if not isinstance(data, list):
-        raise ValueError(f"Resume file {extract_resume_file_path} must contain a list of LLM outputs.")
-    outputs: list[LlmOutput] = []
-    for item in data:
-        output = LlmOutput.model_validate(item)
-        outputs.append(output)
 
-    return outputs
+    return _EXTRACT_ENTRY_LIST_ADAPTER.validate_json(content)
 
 
 def validate_extract_resume_file(
-    extract_outputs: list[LlmOutput],
+    extract_entries: list[ExtractEntry],
     run_name: str,
 ) -> set[str]:
     """Validate extract resume data and return done IDs.
@@ -311,10 +314,10 @@ def validate_extract_resume_file(
     seen_ids: set[str] = set()
     duplicates: list[str] = []
 
-    for output in extract_outputs:
-        if output.accession in seen_ids:
-            duplicates.append(output.accession)
-        seen_ids.add(output.accession)
+    for entry in extract_entries:
+        if entry.accession in seen_ids:
+            duplicates.append(entry.accession)
+        seen_ids.add(entry.accession)
 
     if duplicates:
         LOGGER.warning(
@@ -341,7 +344,7 @@ def _atomic_dump_json(
     fd, tmp_path = tempfile.mkstemp(dir=result_dir, prefix=prefix, suffix=".tmp")
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
-            json_str = json.dumps([item.model_dump() for item in data], ensure_ascii=False, indent=2)
+            json_str = json.dumps([item.model_dump(mode="json") for item in data], ensure_ascii=False, indent=2)
             f.write(_replace_surrogates(json_str))
         shutil.move(tmp_path, resume_file)
     except Exception:
@@ -352,11 +355,14 @@ def _atomic_dump_json(
     return resume_file
 
 
-def dump_extract_resume_file(outputs: list[LlmOutput], run_name: str) -> Path:
+def dump_extract_resume_file(outputs: list[ExtractEntry], run_name: str) -> Path:
     return _atomic_dump_json(outputs, EXTRACT_RESULT_DIR, f"{run_name}_resume.json", f"{run_name}_resume_")
 
 
-def load_select_resume_file(run_name: str) -> list[SelectResult]:
+_SELECT_ENTRY_LIST_ADAPTER = TypeAdapter(list[SelectEntry])
+
+
+def load_select_resume_file(run_name: str) -> list[SelectEntry]:
     select_resume_file_path = SELECT_RESULT_DIR.joinpath(f"select_{run_name}_resume.json")
     if not select_resume_file_path.exists():
         return []
@@ -364,18 +370,11 @@ def load_select_resume_file(run_name: str) -> list[SelectResult]:
         content = f.read()
     if not content.strip():
         return []
-    data = json.loads(content)
-    if not isinstance(data, list):
-        raise ValueError(f"Resume file {select_resume_file_path} must contain a list of SelectResult objects.")
-    results: list[SelectResult] = []
-    for item in data:
-        result = SelectResult.model_validate(item)
-        results.append(result)
 
-    return results
+    return _SELECT_ENTRY_LIST_ADAPTER.validate_json(content)
 
 
-def dump_select_resume_file(results: list[SelectResult], run_name: str) -> Path:
+def dump_select_resume_file(results: list[SelectEntry], run_name: str) -> Path:
     return _atomic_dump_json(results, SELECT_RESULT_DIR, f"select_{run_name}_resume.json", f"select_{run_name}_resume_")
 
 
@@ -390,8 +389,8 @@ def remove_resume_files(run_name: str) -> None:
 
 
 def validate_resume_consistency(
-    extract_outputs: list[LlmOutput],
-    select_results: list[SelectResult],
+    extract_entries: list[ExtractEntry],
+    select_entries: list[SelectEntry],
     run_name: str,
 ) -> tuple[set[str], set[str]]:
     """Validate consistency between extract and select resume data.
@@ -408,8 +407,8 @@ def validate_resume_consistency(
         ResumeDataError: If select has entries that extract doesn't have
 
     """
-    extract_ids = {output.accession for output in extract_outputs}
-    select_ids = {result.accession for result in select_results}
+    extract_ids = {entry.accession for entry in extract_entries}
+    select_ids = {entry.extract.accession for entry in select_entries}
 
     # IDs in select but not in extract = data corruption
     invalid_ids = select_ids - extract_ids

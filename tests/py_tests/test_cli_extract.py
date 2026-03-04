@@ -9,7 +9,7 @@ import pytest
 
 from bsllmner2.cli_extract import parse_args, run_cli_extract_async
 from bsllmner2.config import RESUME_BATCH_SIZE
-from bsllmner2.models import LlmOutput
+from bsllmner2.models import ExtractEntry
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 
@@ -236,10 +236,9 @@ class TestRunCliExtractAsync:
             "test-run",
         ]
 
-        already_done = LlmOutput(
+        already_done = ExtractEntry(
             accession="SAMN00000001",
-            output={"cell_line": "HeLa"},
-            chat_response=make_chat_response('{"cell_line": "HeLa"}'),
+            extracted={"cell_line": "HeLa"},
         )
 
         with (
@@ -268,13 +267,10 @@ class TestRunCliExtractAsync:
             patch(
                 "bsllmner2.cli_extract.ner",
                 new_callable=AsyncMock,
-                return_value=[
-                    LlmOutput(
-                        accession="SAMN00000002",
-                        output={"cell_line": "HEK293"},
-                        chat_response=make_chat_response('{"cell_line": "HEK293"}'),
-                    ),
-                ],
+                return_value=(
+                    [ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"})],
+                    [make_chat_response('{"cell_line": "HEK293"}')],
+                ),
             ) as mock_ner,
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]
@@ -383,8 +379,8 @@ class TestCliExtractIntegration:
         result_data = json.loads(result_files[0].read_text())
         assert "run_metadata" in result_data
         assert result_data["run_metadata"]["status"] == "completed"
-        assert "output" in result_data
-        assert len(result_data["output"]) == 2
+        assert "entries" in result_data
+        assert len(result_data["entries"]) == 2
 
     async def test_batch_loss_logged_at_error(
         self,

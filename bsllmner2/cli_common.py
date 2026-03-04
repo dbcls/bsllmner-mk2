@@ -5,14 +5,15 @@ import contextlib
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
 from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
 from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import load_bs_entries
-from bsllmner2.models import BsEntries, RunMetadata
-from bsllmner2.pipeline import get_now_str
+from bsllmner2.models import BsEntries, RunMetadata, RunStatus
+from bsllmner2.pipeline import get_now
 
 T = TypeVar("T")
 
@@ -103,17 +104,18 @@ def build_config(parsed_args: argparse.Namespace) -> Config:
     return config
 
 
-def generate_run_name(model: str, run_name: str | None) -> tuple[str, str]:
+def generate_run_name(model: str, run_name: str | None) -> tuple[str, datetime]:
     """Generate a run name and start timestamp.
 
     Returns:
         Tuple of (resolved_run_name, start_time).
 
     """
-    start_time = get_now_str()
+    start_time = get_now()
+    time_str = start_time.strftime("%Y%m%d_%H%M%S")
     if run_name:
         return run_name, start_time
-    return f"{model}_{start_time}", start_time
+    return f"{model}_{time_str}", start_time
 
 
 def load_and_trim_entries(bs_entries_path: Path, max_entries: int | None) -> BsEntries:
@@ -128,9 +130,9 @@ def build_run_metadata(
     run_name: str,
     model: str,
     thinking: bool | None,
-    start_time: str,
-    end_time: str | None,
-    status: str,
+    start_time: datetime,
+    end_time: datetime | None,
+    status: RunStatus,
 ) -> RunMetadata:
     """Build RunMetadata from common parameters."""
     return RunMetadata(
@@ -218,8 +220,8 @@ async def process_batches(
 class _RunState:
     """Mutable state shared with the caller through ``run_with_lifecycle``."""
 
-    end_time: str | None = None
-    status: str = "running"
+    end_time: datetime | None = None
+    status: RunStatus = "running"
 
 
 @contextlib.asynccontextmanager
@@ -228,13 +230,13 @@ async def run_with_lifecycle() -> AsyncIterator[_RunState]:
     state = _RunState()
     try:
         yield state
-        state.end_time = get_now_str()
+        state.end_time = get_now()
         state.status = "completed"
     except Bsllmner2Error as e:
         LOGGER.error("Processing failed: %s", e)
         state.status = "failed"
-        state.end_time = get_now_str()
+        state.end_time = get_now()
     except Exception as e:
         LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
         state.status = "failed"
-        state.end_time = get_now_str()
+        state.end_time = get_now()
