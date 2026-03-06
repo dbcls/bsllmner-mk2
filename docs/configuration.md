@@ -29,7 +29,7 @@ Can also be enabled with the `--debug` CLI option.
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `BSLLMNER2_INDEX_CACHE_DIR` | `/app/ontology/index_cache` | Ontology index cache directory |
+| `BSLLMNER2_INDEX_CACHE_DIR` | `ontology/index_cache` | Ontology index cache directory |
 
 ## Metrics
 

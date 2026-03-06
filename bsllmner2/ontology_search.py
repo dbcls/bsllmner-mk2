@@ -238,7 +238,7 @@ def build_index_from_owl(
     additional_conditions: dict[str, str] | None = None,
 ) -> OntologyIndex:
     world = World()
-    ontology = world.get_ontology(owl_file.as_uri()).load()
+    ontology = world.get_ontology(owl_file.resolve().as_uri()).load()
     return build_index(ontology, additional_conditions=additional_conditions)
 
 
@@ -546,7 +546,7 @@ def search_terms_with_text2term(
 
 if __name__ == "__main__":
     TEST_QUERIES = {"NEAT1", "SOX11", "DNMT3b", "SERPINE2", "PAF1"}
-    OWL_FILE_PATH = Path("/app/ontology/ncbi_gene_human.owl").resolve()
+    OWL_FILE_PATH = Path("ontology/ncbi_gene_human.owl").resolve()
     index = build_index_from_owl(OWL_FILE_PATH)
     results = search_terms(index, TEST_QUERIES)
     serializable = {q: [r.model_dump() for r in rs] for q, rs in results.items()}

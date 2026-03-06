@@ -39,7 +39,7 @@ class SelectStageTimings(TypedDict):
     llm_select_sec: float
 
 
-INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "/app/ontology/index_cache"))
+INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "ontology/index_cache"))
 
 
 def _resolved_from_search_result(
