@@ -18,7 +18,7 @@ services:
       - bsllmner-mk2-network
 
   ollama:
-    image: ollama/ollama:0.13.0
+    image: ollama/ollama:0.17.7
     container_name: bsllmner-mk2-ollama
     volumes:
       - ollama-data:/root/.ollama
