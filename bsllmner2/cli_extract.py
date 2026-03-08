@@ -94,6 +94,7 @@ def parse_args(args: list[str]) -> tuple[Config, CliExtractArgs]:
         thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
         run_name=parsed_args.run_name,
+        num_ctx=parsed_args.num_ctx,
         resume=parsed_args.resume,
         batch_size=parsed_args.batch_size,
     )
@@ -137,7 +138,8 @@ async def run_cli_extract_async() -> None:
         ) -> tuple[list[ExtractEntry], list[ChatResponse], float]:
             with stage_timer("ner") as t_ner:
                 batch_outputs, batch_chat_responses = await ner(
-                    backend, batch_info.entries, prompt, format_, args.model, args.thinking
+                    backend, batch_info.entries, prompt, format_, args.model, args.thinking,
+                    num_ctx=args.num_ctx,
                 )
             if len(batch_outputs) < len(batch_info.entries):
                 LOGGER.error(

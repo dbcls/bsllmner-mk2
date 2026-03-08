@@ -96,6 +96,7 @@ def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
         thinking=parsed_args.thinking,
         max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
         run_name=parsed_args.run_name,
+        num_ctx=parsed_args.num_ctx,
         resume=parsed_args.resume,
         batch_size=parsed_args.batch_size,
         select_config=parsed_args.select_config.resolve(),
@@ -175,6 +176,7 @@ async def run_cli_select_async() -> None:
                 args.thinking,
                 include_reasoning=args.include_reasoning,
                 index_map=select_index_map,
+                num_ctx=args.num_ctx,
             )
             select_results.extend(orphan_select)
             all_select_chat_responses.extend(orphan_select_responses)
@@ -189,7 +191,8 @@ async def run_cli_select_async() -> None:
             LOGGER.info("Extracting entities...")
             with stage_timer("ner") as t_ner:
                 batch_extract_outputs, batch_ner_responses = await ner(
-                    backend, batch_info.entries, prompt, format_, args.model, args.thinking
+                    backend, batch_info.entries, prompt, format_, args.model, args.thinking,
+                    num_ctx=args.num_ctx,
                 )
             if len(batch_extract_outputs) < len(batch_info.entries):
                 LOGGER.error(
@@ -208,6 +211,7 @@ async def run_cli_select_async() -> None:
                 args.thinking,
                 include_reasoning=args.include_reasoning,
                 index_map=select_index_map,
+                num_ctx=args.num_ctx,
             )
 
             return (

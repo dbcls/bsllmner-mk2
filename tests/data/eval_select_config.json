@@ -1,0 +1,40 @@
+{
+  "fields": {
+    "cell_line": {
+      "ontology_file": "ontology/cellosaurus.owl",
+      "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc.",
+      "ontology_filter": {
+        "hasDbXref": "NCBI_TaxID:9606"
+      }
+    },
+    "cell_type": {
+      "ontology_file": "ontology/cell_ontology.owl",
+      "prompt_description": "Cell type is a classification of cells based on their structure and function, representing normal cells. e.g., neuron, hepatocyte, etc."
+    },
+    "tissue": {
+      "ontology_file": "ontology/uberon.owl",
+      "prompt_description": "Tissue is a group of cells that work together to perform a specific function in an organism. e.g., lung, liver, heart, etc."
+    },
+    "disease": {
+      "ontology_file": "ontology/mondo.owl",
+      "prompt_description": "Disease is an abnormal state of the body or its parts that impairs normal function. e.g., lung cancer, down syndrome, etc.",
+      "ontology_filter": {
+        "hasDbXref": "NCBITaxon:9606"
+      }
+    },
+    "drug": {
+      "ontology_file": "ontology/chebi.owl",
+      "prompt_description": "Drug is a chemical or biological substance used to prevent, diagnose, treat, or alleviate disease or symptoms, or to modify physiological functions. e.g., aspirin, metformin, trastuzumab, etc.",
+      "value_type": "array"
+    },
+    "gene": {
+      "ontology_file": "ontology/ncbi_gene_human.owl",
+      "prompt_description": "Gene is a unit of heredity that encodes a functional product, such as a protein or RNA, and plays a specific role in biological processes. e.g., BRCA1, TP53, EGFR, etc.",
+      "value_type": "array"
+    },
+    "gene_perturbation": {
+      "prompt_description": "Experimental or biological perturbation applied to the target gene or its product. If the perturbation clearly corresponds to a gene-level effect, normalize to one of the following fixed terms when applicable: 'knockout', 'knockdown', or 'overexpression'. Otherwise, extract the perturbation term as it appears in the text.",
+      "value_type": "array"
+    }
+  }
+}

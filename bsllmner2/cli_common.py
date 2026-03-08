@@ -87,6 +87,12 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
         default=RESUME_BATCH_SIZE,
         help=f"Number of entries to process in each batch (default: {RESUME_BATCH_SIZE}).",
     )
+    parser.add_argument(
+        "--num-ctx",
+        type=int,
+        default=None,
+        help="Context length for Ollama (default: Ollama auto-determines).",
+    )
 
 
 def validate_common_args(parser: argparse.ArgumentParser, parsed_args: argparse.Namespace) -> None:

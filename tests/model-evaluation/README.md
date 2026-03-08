@@ -1,22 +1,176 @@
 # Model Evaluation
 
-This document describes the evaluation workflow for ontology mapping performance using various LLM models running on Ollama.  
-The evaluation measures both **runtime performance** (extract/select stages) and **ontology mapping accuracy** (cell line ontology predictions).
+Benchmarking environment for evaluating LLM model speed and accuracy on Ollama.
+
+## Overview
+
+Evaluation is performed on two axes:
+
+| Axis | Metrics | Scope |
+|------|---------|-------|
+| **Speed** | tokens/sec, total throughput, wall-clock time | Extract + Select |
+| **Accuracy** | Precision, Recall, F1, Accuracy | Select only (vs human-curated gold standard) |
 
 ## Dataset
 
-Two datasets are used:
+- **Input**: `tests/data/eval_biosample.json` (600 BioSample entries)
+- **Gold standard**: `tests/data/eval_gold_standard.tsv` (human-curated ontology mappings for `cell_line` field)
 
-- Input BioSample dataset (600 entries)
-  - [`../data/eval_biosample.json`](../data/eval_biosample.json)
-  - This file contains 600 BioSample entries used as input for extraction and selection.
-- Human-curated ontology mapping
-  - [`../data/eval_gold_standard.tsv`](../data/eval_gold_standard.tsv)
-  - This file contains the correct ontology IDs for the `cell_line` field and is used to compute evaluation metrics.
+## Quick start
 
-## Models Evaluated
+```bash
+# 1. Determine appropriate num_ctx for a model
+python tests/model-evaluation/analyze_token_usage.py \
+    --model qwen3:8b \
+    --bs-entries tests/data/eval_biosample.json \
+    --select-config tests/data/eval_select_config.json
 
-The following models are evaluated:
+# 2. Find optimal OLLAMA_NUM_PARALLEL via ternary search
+python tests/model-evaluation/speed_exploration.py \
+    --model qwen3:8b \
+    --num-ctx 4096
+
+# 3. Compare multiple models (after running step 2 for each model)
+python tests/model-evaluation/model_comparison.py \
+    --results-dir tests/model-evaluation/results
+```
+
+## Scripts
+
+### `analyze_token_usage.py`
+
+Measures actual token usage for a given model and dataset, and recommends an appropriate `num_ctx` value.
+
+```bash
+python tests/model-evaluation/analyze_token_usage.py \
+    --model qwen3:8b \
+    --bs-entries tests/data/eval_biosample.json \
+    --select-config tests/data/eval_select_config.json
+```
+
+Example output:
+
+```
+Stage       calls      max      p99      p95     mean
+-----------------------------------------------------
+extract       600     1326     1290     1100      562
+select       1800     2704     2600     1608     1372
+
+Recommended num_ctx: 4096  (next power of 2 above max)
+```
+
+### `speed_exploration.py`
+
+Finds the optimal `OLLAMA_NUM_PARALLEL` that maximizes total throughput for a given model, using ternary search.
+
+#### Background
+
+Ollama's `OLLAMA_NUM_PARALLEL` controls the maximum number of concurrent requests per model. This value significantly affects throughput, but the optimal value depends on model size and available VRAM.
+
+- `NUM_PARALLEL` too low: GPU is underutilized, low throughput
+- `NUM_PARALLEL` too high: increased KV cache VRAM consumption, context length limits, contention reduces throughput
+
+Throughput (`NUM_PARALLEL * per-request tokens/sec`) follows a unimodal curve against NUM_PARALLEL, making ternary search an efficient way to find the peak.
+
+`num_ctx` (context length) also shares VRAM with `NUM_PARALLEL`, so different `num_ctx` values may yield different optimal `NUM_PARALLEL` values.
+
+#### How to determine `num_ctx`
+
+Use `analyze_token_usage.py` to measure actual token usage for a given model and dataset, and obtain the recommended value.
+
+Since `num_ctx` and `NUM_PARALLEL` share VRAM, increasing `num_ctx` may lower the upper bound for `NUM_PARALLEL`. Keeping `num_ctx` no larger than necessary is key to maximizing throughput.
+
+#### Search algorithm
+
+Ternary search finds the optimal NUM_PARALLEL in O(log N) evaluations:
+
+```
+lo=1, hi=64
+while hi - lo >= 3:
+    m1 = lo + (hi-lo)//3
+    m2 = hi - (hi-lo)//3
+    if evaluate(m1) < evaluate(m2):
+        lo = m1+1
+    else:
+        hi = m2-1
+best = max(range(lo, hi+1), key=evaluate)
+```
+
+Each evaluation takes the median of 3 runs to reduce hardware noise.
+
+#### Usage
+
+```bash
+# Run on the host machine (where docker compose is available)
+
+# Single model, single num_ctx
+python tests/model-evaluation/speed_exploration.py \
+    --model qwen3:32b \
+    --num-ctx 8192
+
+# Compare multiple num_ctx values
+python tests/model-evaluation/speed_exploration.py \
+    --model qwen3:32b \
+    --num-ctx 4096 8192
+```
+
+#### Execution flow
+
+1. Ternary search: `lo=1, hi=64`
+2. Compute `m1`, `m2`
+3. For each candidate `NUM_PARALLEL`:
+   a. Restart Ollama container via `docker compose` (`OLLAMA_NUM_PARALLEL=$N`)
+   b. Wait for health check
+   c. Send warm-up request
+   d. Run `docker exec bsllmner-mk2-app bsllmner2_select` on 50-entry subset, 3 times
+   e. Extract `mean_tokens_per_sec` from result JSON, compute median
+4. Narrow search range and repeat
+5. Verify optimal value with neighbors +/-1
+6. Full validation: 600 entries, 3 runs
+
+#### Output
+
+Exploration result (per model x num_ctx):
+
+| Field | Description |
+|-------|-------------|
+| model | Model name |
+| num_ctx | Context length |
+| best_num_parallel | Optimal OLLAMA_NUM_PARALLEL |
+| best_total_throughput | NUM_PARALLEL * mean_tokens_per_sec |
+| search_history | All (num_parallel, throughput) pairs evaluated |
+
+Validation result (per model, full 600 entries, 3 runs):
+
+| Field | Description |
+|-------|-------------|
+| model | Model name |
+| num_parallel | Optimal NUM_PARALLEL |
+| num_ctx | Optimal context length |
+| median_tokens_per_sec | Median per-request tokens/sec |
+| iqr_tokens_per_sec | IQR of tokens/sec |
+| median_wall_sec | Median wall-clock time |
+| f1 | F1-score |
+| precision | Precision |
+| recall | Recall |
+
+### `model_comparison.py`
+
+Aggregates validation results from multiple models and generates a unified summary table and Pareto analysis plot.
+
+```bash
+python tests/model-evaluation/model_comparison.py \
+    --results-dir tests/model-evaluation/results
+```
+
+Output:
+
+- `validation_summary.tsv` -- side-by-side comparison of all models (speed + accuracy)
+- `pareto_plot.png` -- scatter plot of total throughput vs F1 with Pareto frontier
+
+Use `--no-plot` to generate TSV only (no matplotlib dependency required).
+
+## Target models
 
 ```plain
 deepseek-r1:8b
@@ -32,154 +186,18 @@ qwen3:8b
 qwen3:32b
 ```
 
-All models are automatically downloaded on first use via the Ollama API. To pre-download models, see [Getting Started - Pre-pull LLM Model](../../docs/getting-started.md#3-optional-pre-pull-llm-model).
+## Fixed Ollama parameters
 
-## Extraction and Selection Configuration
+| Parameter | Value | Rationale |
+|-----------|-------|-----------|
+| `temperature` | 0.0 | Structured JSON extraction requires deterministic output |
+| `seed` | 0 | Reproducibility |
+| `OLLAMA_KV_CACHE_TYPE` | q8_0 | ~1/2 VRAM of f16, negligible quality impact |
+| `OLLAMA_FLASH_ATTENTION` | 1 | Required for KV cache quantization |
+| `OLLAMA_SCHED_SPREAD` | 1 | Multi-GPU load distribution |
 
-The extraction/selection workflow is performed using [`../../scripts/select-config.json`](../../scripts/select-config.json):
+## Related docs
 
-The following fields are processed:
-
-- `cell_line`
-- `cell_type`
-- `tissue`
-- `disease`
-- `drug`
-
-These fields are extracted and then ontology candidates are selected.
-
-## Running the Batch Evaluation
-
-The batch script:
-
-```bash
-bash run-model-evaluation-batch.sh --batch-name <something-batch-name>
-```
-
-Executes, for each model:
-
-```bash
-bsllmner2_select \
-    --bs-entries "$BS_ENTRIES" \
-    --select-config "$SELECT_CONFIG" \
-    --run-name "$run_name" \
-    --resume \
-    --thinking false \
-    --no-reasoning \
-    --model "$model"
-```
-
-### Notes
-
-- Both **thinking mode** and **reasoning mode** are disabled.
-- Ollama is configured to run with `OLLAMA_NUM_PARALLEL=16` allowing **16 parallel requests per model**.
-- Logs are written under `./model-evaluation-batch-logs/`
-- Extraction/selection JSON results are stored under `<repository_root>/bsllmner2-results/`
-
-## Running the Aggregated Evaluation
-
-Once all models complete, run:
-
-```bash
-python tests/model-evaluation/evaluation_results.py --batch-name <something-batch-name>
-```
-
-This script:
-
-- Parses logs to measure extraction/selection runtime.
-- Loads predicted ontology mappings.
-- Loads human-curated ontology mappings.
-- Computes evaluation metrics:
-  - Precision
-  - Recall
-  - F1-score
-  - Accuracy
-- Retrieves model metadata from Ollama:
-  - parameter size
-  - context length
-  - embedding length
-- Produces a consolidated table in TSV format `evaluation_results.tsv` under the current directory.
-
-## Saving Extract/Select JSON Outputs
-
-Extraction/selection JSON files are copied for archival:
-
-```bash
-export BATCH_NAME="your-batch-name"
-mkdir -p ./model-evaluation-results/${BATCH_NAME}/extract
-mkdir -p ./model-evaluation-results/${BATCH_NAME}/select
-
-cp -r /app/bsllmner2-results/extract/model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/extract/
-cp -r /app/bsllmner2-results/select/select_model-eval-${BATCH_NAME}-* ./model-evaluation-results/${BATCH_NAME}/select/
-```
-
-Directory structure:
-
-```bash
-model-evaluation-results/
-└── your-batch-name
-    ├── extract
-    │   ├── model-eval-251127-1-deepseek-r1_32b.json
-    │   ├── model-eval-251127-1-deepseek-r1_8b.json
-    │   ├── model-eval-251127-1-gemma3_12b.json
-    │   ├── model-eval-251127-1-gemma3_27b.json
-    │   ├── model-eval-251127-1-gemma3_4b.json
-    │   ├── model-eval-251127-1-gpt-oss_20b.json
-    │   ├── model-eval-251127-1-llama3.1_8b.json
-    │   ├── model-eval-251127-1-phi4_14b.json
-    │   ├── model-eval-251127-1-qwen3_32b.json
-    │   ├── model-eval-251127-1-qwen3_4b.json
-    │   └── model-eval-251127-1-qwen3_8b.json
-    └── select
-        ├── select_model-eval-251127-1-deepseek-r1_32b.json
-        ├── select_model-eval-251127-1-deepseek-r1_8b.json
-        ├── select_model-eval-251127-1-gemma3_12b.json
-        ├── select_model-eval-251127-1-gemma3_27b.json
-        ├── select_model-eval-251127-1-gemma3_4b.json
-        ├── select_model-eval-251127-1-gpt-oss_20b.json
-        ├── select_model-eval-251127-1-llama3.1_8b.json
-        ├── select_model-eval-251127-1-phi4_14b.json
-        ├── select_model-eval-251127-1-qwen3_32b.json
-        ├── select_model-eval-251127-1-qwen3_4b.json
-        └── select_model-eval-251127-1-qwen3_8b.json
-```
-
-These files can be used for debugging or manual analysis.
-
-## Evaluation Criteria
-
-### Runtime Metrics
-
-Measured from logs:
-
-- Extract stage time (sec)
-- Selection stage time (sec)
-- Total LLM compute time = extract + selection
-
-### Ontology Accuracy Metrics
-
-Evaluated for the `cell_line` field (600 samples):
-
-- **Precision (%)**
-  Correct predicted ontology strings / all predicted ontology strings
-- **Recall (%)**
-  Correct predictions / all human-curated ontology strings
-- **F1-score**
-  Harmonic mean of precision and recall
-- **Accuracy (%)**
-  Exact matches (including None)
-
-## Final Output
-
-The final summary file [`evaluation_results.tsv`](evaluation_results.tsv) contains a table like the following:
-
-includes, for each model:
-
-- Parameter size
-- Context length
-- Embedding length
-- Accuracy / Precision / Recall / F1-score
-- Extraction & selection time
-- Extracted / selected / final field counts
-
-This table enables a clear comparison of both **LLM runtime characteristics** and **ontology mapping accuracy** across all evaluated models.
+- [docs/benchmarking.md](../../docs/benchmarking.md) -- Benchmarking methodology, metrics, PerformanceSummary reference
+- [docs/select-mode.md](../../docs/select-mode.md) -- Select pipeline (3-stage: NER -> ontology search -> LLM selection)
+- [docs/configuration.md](../../docs/configuration.md) -- Ollama environment variables reference

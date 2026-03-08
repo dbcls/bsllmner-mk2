@@ -13,10 +13,11 @@ from bsllmner2.config import LOGGER
 from bsllmner2.errors import OllamaConnectionError
 from bsllmner2.models import BsEntries, ExtractEntry, Prompt, llm_timing_from_chat_response
 
-OLLAMA_OPTIONS = Options(
-    seed=0,
-    temperature=0.0,
-)
+def build_ollama_options(num_ctx: int | None = None) -> Options:
+    opts = Options(seed=0, temperature=0.0)
+    if num_ctx is not None:
+        opts["num_ctx"] = num_ctx
+    return opts
 
 
 # === LLM Backend Protocol ===
@@ -210,10 +211,12 @@ async def ner(
     model: str,
     thinking: bool | None = None,
     progress_file_path: Path | None = None,
+    num_ctx: int | None = None,
 ) -> tuple[list[ExtractEntry], list[ChatResponse]]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
 
+    ollama_options = build_ollama_options(num_ctx)
     messages = _construct_messages(prompt)
     outputs: list[ExtractEntry] = []
     chat_responses: list[ChatResponse] = []
@@ -244,7 +247,7 @@ async def ner(
                 response: ChatResponse = await backend.chat(
                     model=model,
                     messages=messages_copy,
-                    options=OLLAMA_OPTIONS,
+                    options=ollama_options,
                     think=thinking,
                     format_=format_,
                 )

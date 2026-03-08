@@ -14,7 +14,7 @@ from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.benchmark import stage_timer
 from bsllmner2.config import LOGGER
-from bsllmner2.llm import OLLAMA_OPTIONS, LlmBackend, parse_response_json
+from bsllmner2.llm import LlmBackend, build_ollama_options, parse_response_json
 from bsllmner2.models import (
     BsEntries,
     DiskIoTimings,
@@ -472,6 +472,7 @@ async def select(
     thinking: bool | None = None,
     include_reasoning: bool = True,
     index_map: dict[Path, OntologyIndex] | None = None,
+    num_ctx: int | None = None,
 ) -> tuple[list[SelectEntry], list[ChatResponse], SelectStageTimings]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
@@ -528,6 +529,7 @@ async def select(
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
 
     all_select_chat_responses: list[ChatResponse] = []
+    ollama_options = build_ollama_options(num_ctx)
 
     async def _process_field_selection(
         accession: str,
@@ -541,7 +543,7 @@ async def select(
             response: ChatResponse | None = await backend.chat(
                 model=model,
                 messages=messages,
-                options=OLLAMA_OPTIONS,
+                options=ollama_options,
                 think=thinking,
                 format_=schema,
             )
