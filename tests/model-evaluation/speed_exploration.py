@@ -173,7 +173,7 @@ def run_select(
     # Find and read the result file
     find_result = _run(
         ["docker", "exec", APP_CONTAINER, "bash", "-c",
-         f"ls -t results/select_{run_name}*.json 2>/dev/null | head -1"],
+         f"ls -t bsllmner2-results/select/select_{run_name}*.json 2>/dev/null | head -1"],
         timeout=10,
         check=False,
     )

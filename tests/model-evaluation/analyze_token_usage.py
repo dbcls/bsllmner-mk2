@@ -34,7 +34,6 @@ logging.basicConfig(
 LOG = logging.getLogger(__name__)
 
 APP_CONTAINER = "bsllmner-mk2-app"
-CALIBRATION_NUM_CTX = 32768
 HEALTH_CHECK_INTERVAL_SEC = 2
 HEALTH_CHECK_TIMEOUT_SEC = 120
 
@@ -90,7 +89,7 @@ def _run_select(
     select_config: str,
     max_entries: int | None,
 ) -> dict[str, Any] | None:
-    """Run bsllmner2_select with a large num_ctx and return the result JSON."""
+    """Run bsllmner2_select and return the result JSON."""
     run_name = f"token_analysis_{_sanitize_model_name(model)}"
     cmd = [
         "docker", "exec", APP_CONTAINER,
@@ -98,7 +97,6 @@ def _run_select(
         "--bs-entries", bs_entries,
         "--model", model,
         "--select-config", select_config,
-        "--num-ctx", str(CALIBRATION_NUM_CTX),
         "--no-reasoning",
         "--run-name", run_name,
         "--batch-size", "9999",
@@ -106,8 +104,8 @@ def _run_select(
     if max_entries is not None:
         cmd.extend(["--max-entries", str(max_entries)])
 
-    LOG.info("Running bsllmner2_select (num_ctx=%d) ...", CALIBRATION_NUM_CTX)
-    result = _run(cmd, timeout=1800, check=False)
+    LOG.info("Running bsllmner2_select ...")
+    result = _run(cmd, timeout=14400, check=False)
 
     if result.returncode != 0:
         LOG.error("bsllmner2_select failed (rc=%d): %s", result.returncode, result.stderr[:500])
@@ -115,7 +113,7 @@ def _run_select(
 
     find_result = _run(
         ["docker", "exec", APP_CONTAINER, "bash", "-c",
-         f"ls -t results/select_{run_name}*.json 2>/dev/null | head -1"],
+         f"ls -t bsllmner2-results/select/select_{run_name}*.json 2>/dev/null | head -1"],
         timeout=10,
         check=False,
     )
