@@ -8,7 +8,6 @@ import pickle
 from pathlib import Path
 from typing import Any, TypedDict
 
-import ollama
 from ollama import ChatResponse, Message
 from pydantic.json_schema import JsonSchemaValue
 
@@ -547,7 +546,7 @@ async def select(
                 think=thinking,
                 format_=schema,
             )
-        except (ollama.ResponseError, OSError) as e:
+        except Exception as e:
             LOGGER.error("Error during select step: %s", e)
             response = None
 

@@ -47,6 +47,7 @@ class OllamaBackend:
     def __init__(self, host: str, semaphore_limit: int = 256) -> None:
         self._host = host
         self._semaphore = asyncio.Semaphore(semaphore_limit)
+        self._async_client = ollama.AsyncClient(host=host)
 
     @property
     def host(self) -> str:
@@ -62,9 +63,7 @@ class OllamaBackend:
         format_: JsonSchemaValue | None = None,
     ) -> ChatResponse:
         async with self._semaphore:
-            client = ollama.AsyncClient(host=self._host)
-
-            return await client.chat(
+            return await self._async_client.chat(
                 model=model,
                 messages=messages,
                 options=options,
@@ -77,10 +76,8 @@ class OllamaBackend:
 
         If not available, pull it automatically.
         """
-        client = ollama.AsyncClient(host=self._host)
-
         # Check if model exists
-        models_response = await client.list()
+        models_response = await self._async_client.list()
         available_models = [m.model for m in models_response.models]
 
         if model in available_models:
@@ -91,7 +88,7 @@ class OllamaBackend:
         # Model not found, pull it
         LOGGER.info("Model %s not found locally, pulling...", model)
         try:
-            async for progress in await client.pull(model, stream=True):
+            async for progress in await self._async_client.pull(model, stream=True):
                 if progress.status:
                     if progress.completed and progress.total:
                         pct = (progress.completed / progress.total) * 100
@@ -260,7 +257,7 @@ async def ner(
                 error_count += 1
 
                 return None
-            except (ollama.ResponseError, RuntimeError) as e:
+            except Exception as e:
                 LOGGER.error("Error processing entry %s: %s", accession, e)
                 error_count += 1
 
