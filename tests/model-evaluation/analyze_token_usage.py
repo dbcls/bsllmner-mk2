@@ -1,8 +1,8 @@
 """Analyze token usage to determine appropriate num_ctx.
 
-Runs ``bsllmner2_select`` once with a large ``num_ctx`` and analyzes the
-actual token counts from the result JSON to recommend a ``num_ctx`` value
-(next power of 2 above the observed maximum).
+Runs ``bsllmner2_select`` once and analyzes the actual token counts from
+the result JSON to recommend a ``num_ctx`` value (next power of 2 above
+the observed maximum).
 
 Run on the host machine (same as ``speed_exploration.py``).
 
@@ -34,6 +34,7 @@ logging.basicConfig(
 LOG = logging.getLogger(__name__)
 
 APP_CONTAINER = "bsllmner-mk2-app"
+DEFAULT_NUM_CTX = 4096
 HEALTH_CHECK_INTERVAL_SEC = 2
 HEALTH_CHECK_TIMEOUT_SEC = 120
 
@@ -88,6 +89,7 @@ def _run_select(
     bs_entries: str,
     select_config: str,
     max_entries: int | None,
+    num_ctx: int,
 ) -> dict[str, Any] | None:
     """Run bsllmner2_select and return the result JSON."""
     run_name = f"token_analysis_{_sanitize_model_name(model)}"
@@ -97,6 +99,7 @@ def _run_select(
         "--bs-entries", bs_entries,
         "--model", model,
         "--select-config", select_config,
+        "--num-ctx", str(num_ctx),
         "--no-reasoning",
         "--run-name", run_name,
         "--batch-size", "9999",
@@ -104,7 +107,7 @@ def _run_select(
     if max_entries is not None:
         cmd.extend(["--max-entries", str(max_entries)])
 
-    LOG.info("Running bsllmner2_select ...")
+    LOG.info("Running bsllmner2_select (num_ctx=%d) ...", num_ctx)
     result = _run(cmd, timeout=14400, check=False)
 
     if result.returncode != 0:
@@ -264,6 +267,10 @@ def main() -> None:
         help="Path to select config JSON (container path).",
     )
     parser.add_argument(
+        "--num-ctx", type=int, default=DEFAULT_NUM_CTX,
+        help=f"Context length for Ollama (default: {DEFAULT_NUM_CTX}).",
+    )
+    parser.add_argument(
         "--max-entries", type=int, default=None,
         help="Limit number of entries to process (default: all).",
     )
@@ -280,6 +287,7 @@ def main() -> None:
         bs_entries=args.bs_entries,
         select_config=args.select_config,
         max_entries=args.max_entries,
+        num_ctx=args.num_ctx,
     )
     if result_json is None:
         LOG.error("Failed to run bsllmner2_select. Cannot analyze token usage.")

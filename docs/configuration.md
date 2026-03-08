@@ -51,10 +51,26 @@ Configured in the ollama service of `compose.yml` / `compose.front.yml`.
 | `CUDA_VISIBLE_DEVICES` | `0,1` | GPU devices to use |
 | `OLLAMA_SCHED_SPREAD` | `1` | Spread inference load across GPUs |
 
+### `num_ctx` and Ollama >= 0.15.5
+
+Ollama 0.15.5 introduced tiered default context lengths based on available VRAM:
+
+| VRAM | Default `num_ctx` |
+|------|-------------------|
+| < 24 GB | 4,096 |
+| 24-48 GB | 32,768 |
+| >= 48 GB | 262,144 |
+
+When `num_ctx` is not explicitly specified, Ollama auto-selects a value from the table above. On high-VRAM GPUs (e.g., RTX 6000 Ada with 48 GB), this results in a very large context length. Combined with `OLLAMA_NUM_PARALLEL`, the KV cache allocation (`num_ctx * NUM_PARALLEL`) can exhaust VRAM and severely degrade throughput.
+
+**Always specify `--num-ctx` explicitly** to avoid this issue. A value of 4096 is sufficient for typical BioSample NER workloads.
+
 References:
 
 - [Ollama FAQ: KV cache](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-set-the-quantization-type-for-the-kv-cache)
 - [Ollama FAQ: Flash Attention](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-enable-flash-attention)
+- [Tiered context length can exhaust VRAM (GitHub #14116)](https://github.com/ollama/ollama/issues/14116)
+- [New default context lengths will break (GitHub #14073)](https://github.com/ollama/ollama/issues/14073)
 
 ## Slurm Configuration
 
