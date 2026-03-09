@@ -50,8 +50,9 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--thinking",
         type=str_to_bool,
+        default=False,
         metavar="BOOL",
-        help="Enable or disable thinking mode for the LLM. Use 'true' to enable, 'false' to disable.",
+        help="Enable or disable thinking mode for the LLM (default: false). Use 'true' to enable, 'false' to disable.",
     )
     parser.add_argument(
         "--max-entries",
@@ -135,7 +136,7 @@ def load_and_trim_entries(bs_entries_path: Path, max_entries: int | None) -> BsE
 def build_run_metadata(
     run_name: str,
     model: str,
-    thinking: bool | None,
+    thinking: bool,
     start_time: datetime,
     end_time: datetime | None,
     status: RunStatus,

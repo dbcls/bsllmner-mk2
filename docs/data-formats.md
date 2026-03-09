@@ -69,7 +69,7 @@ Saved to `bsllmner2-results/extract/{run_name}.json`.
   "run_metadata": {
     "run_name": "llama3.1:70b_20250101_120000",
     "model": "llama3.1:70b",
-    "thinking": null,
+    "thinking": false,
     "start_time": "2025-01-01T12:00:00Z",
     "end_time": "2025-01-01T12:10:00Z",
     "status": "completed",
@@ -163,7 +163,7 @@ Saved to `bsllmner2-results/select/select_{run_name}.json`.
   "run_metadata": {
     "run_name": "llama3.1:70b_20250101_120000",
     "model": "llama3.1:70b",
-    "thinking": null,
+    "thinking": false,
     "start_time": "2025-01-01T12:00:00Z",
     "end_time": "2025-01-01T12:15:00Z",
     "status": "completed",

@@ -44,7 +44,7 @@ class CliCommonArgs(BaseModel):
         examples=["data/bs_entries.json", "data/bs_entries.jsonl"],
     )
     model: str = "llama3.1:70b"
-    thinking: bool | None = None
+    thinking: bool = False
     max_entries: int | None = None
     run_name: str | None = None
     num_ctx: int | None = None
@@ -214,7 +214,7 @@ class SelectEntry(BaseModel):
 class RunMetadata(BaseModel):
     run_name: str
     model: str
-    thinking: bool | None = None
+    thinking: bool = False
     start_time: datetime
     end_time: datetime | None = None
     status: RunStatus = "running"

@@ -468,7 +468,7 @@ async def select(
     model: str,
     extract_outputs: list[ExtractEntry],
     select_config: SelectConfig,
-    thinking: bool | None = None,
+    thinking: bool = False,
     include_reasoning: bool = True,
     index_map: dict[Path, OntologyIndex] | None = None,
     num_ctx: int | None = None,

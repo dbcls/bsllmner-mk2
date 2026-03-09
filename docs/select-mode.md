@@ -40,13 +40,14 @@ SelectResult
 |--------|-------------|---------|
 | `--bs-entries` | Path to the input JSON or JSONL file containing BioSample entries (required) | -- |
 | `--model` | LLM model to use for NER | `llama3.1:70b` |
-| `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `None` |
+| `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `false` |
 | `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
 | `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
 | `--debug` | Enable debug mode for more verbose logging | `false` |
 | `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
 | `--resume` | Resume from the last incomplete run | `false` |
 | `--batch-size` | Number of entries to process in each batch | `1024` |
+| `--num-ctx` | Context length for Ollama | auto |
 
 ### Select-Specific Options
 

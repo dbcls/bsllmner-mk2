@@ -17,6 +17,7 @@ def build_ollama_options(num_ctx: int | None = None) -> Options:
     opts = Options(seed=0, temperature=0.0)
     if num_ctx is not None:
         opts["num_ctx"] = num_ctx
+        opts["num_predict"] = num_ctx
     return opts
 
 
@@ -31,7 +32,7 @@ class LlmBackend(Protocol):
         messages: list[Message],
         *,
         options: Options | None = None,
-        think: bool | None = None,
+        think: bool = False,
         format_: JsonSchemaValue | None = None,
     ) -> ChatResponse: ...
 
@@ -59,7 +60,7 @@ class OllamaBackend:
         messages: list[Message],
         *,
         options: Options | None = None,
-        think: bool | None = None,
+        think: bool = False,
         format_: JsonSchemaValue | None = None,
     ) -> ChatResponse:
         async with self._semaphore:
@@ -206,7 +207,7 @@ async def ner(
     prompt: list[Prompt],
     format_: JsonSchemaValue | None,
     model: str,
-    thinking: bool | None = None,
+    thinking: bool = False,
     progress_file_path: Path | None = None,
     num_ctx: int | None = None,
 ) -> tuple[list[ExtractEntry], list[ChatResponse]]:

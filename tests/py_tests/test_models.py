@@ -153,10 +153,14 @@ class TestRunMetadata:
             end_time=None,
             processing_time_sec=None,
             total_entries=None,
-            thinking=None,
         )
         assert m.end_time is None
         assert m.processing_time_sec is None
+
+    def test_thinking_none_rejected(self) -> None:
+        """thinking=None should raise ValidationError (bool, not Optional[bool])."""
+        with pytest.raises(ValidationError):
+            _make_minimal_run_metadata(thinking=None)
 
     @given(status=st.text().filter(lambda s: s not in {"running", "completed", "failed"}))
     @settings(max_examples=50)
@@ -266,7 +270,7 @@ class TestCliExtractArgs:
         args = _make_minimal_extract_args()
         assert args.model == "llama3.1:70b"
         assert args.resume is False
-        assert args.thinking is None
+        assert args.thinking is False
         assert args.max_entries is None
         assert args.run_name is None
 

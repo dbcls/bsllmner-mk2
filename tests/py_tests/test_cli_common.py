@@ -440,17 +440,17 @@ class TestBuildRunMetadata:
         assert meta.end_time == end
         assert meta.status == "completed"
 
-    def test_thinking_none(self) -> None:
-        """thinking=None is preserved in metadata."""
+    def test_thinking_default_false(self) -> None:
+        """thinking defaults to False in metadata."""
         meta = build_run_metadata(
             run_name="run",
             model="model",
-            thinking=None,
+            thinking=False,
             start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc),
             end_time=None,
             status="running",
         )
-        assert meta.thinking is None
+        assert meta.thinking is False
 
     @pytest.mark.parametrize("status", ["running", "completed", "failed"])
     def test_status_values(self, status: RunStatus) -> None:

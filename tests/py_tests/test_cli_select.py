@@ -37,7 +37,7 @@ class TestParseArgsSelect:
         assert cli_args.select_config == select_config_file.resolve()
         assert cli_args.mapping is None
         assert cli_args.model == "llama3.1:70b"
-        assert cli_args.thinking is None
+        assert cli_args.thinking is False
         assert cli_args.max_entries is None
         assert cli_args.run_name is None
         assert cli_args.resume is False
