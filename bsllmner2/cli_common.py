@@ -9,7 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
 
-from bsllmner2.config import LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
+from bsllmner2.config import DEFAULT_NUM_CTX, LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
 from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import load_bs_entries
 from bsllmner2.models import BsEntries, RunMetadata, RunStatus
@@ -91,8 +91,8 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument(
         "--num-ctx",
         type=int,
-        default=None,
-        help="Context length for Ollama (default: Ollama auto-determines).",
+        default=DEFAULT_NUM_CTX,
+        help=f"Context length for Ollama (default: {DEFAULT_NUM_CTX}).",
     )
 
 

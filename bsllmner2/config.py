@@ -20,6 +20,7 @@ TMP_DIR = Path(
 PROGRESS_DIR = TMP_DIR.joinpath("progress")
 
 RESUME_BATCH_SIZE = 1024
+DEFAULT_NUM_CTX = 4096
 
 
 class Config(BaseModel):

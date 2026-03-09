@@ -47,7 +47,7 @@ class CliCommonArgs(BaseModel):
     thinking: bool = False
     max_entries: int | None = None
     run_name: str | None = None
-    num_ctx: int | None = None
+    num_ctx: int = 4096
     resume: bool = False
     batch_size: int = Field(..., gt=0)
 

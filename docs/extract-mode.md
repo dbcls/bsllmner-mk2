@@ -52,7 +52,7 @@ BioSample JSON
 | `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
 | `--resume` | Resume from the last incomplete run | `false` |
 | `--batch-size` | Number of entries to process in each batch | `1024` |
-| `--num-ctx` | Context length for Ollama | auto |
+| `--num-ctx` | Context length for Ollama | `4096` |
 
 ### Extract-Specific Options
 
