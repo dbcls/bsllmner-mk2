@@ -30,7 +30,7 @@ MAPPING_PATH = "tests/data/eval_gold_standard.tsv"
 RESULTS_DIR_IN_CONTAINER = "results/speed_exploration"
 HEALTH_CHECK_INTERVAL_SEC = 2
 HEALTH_CHECK_TIMEOUT_SEC = 120
-WARMUP_TIMEOUT_SEC = 300
+WARMUP_TIMEOUT_SEC = 600
 
 
 # ---------------------------------------------------------------------------
@@ -52,7 +52,7 @@ def _sanitize_model_name(model: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def restart_ollama(num_parallel: int, project_dir: str) -> None:
+def restart_ollama(num_parallel: int, project_dir: str, model: str) -> None:
     """Restart the Ollama container with a new OLLAMA_NUM_PARALLEL value."""
     LOG.info("Restarting Ollama with OLLAMA_NUM_PARALLEL=%d ...", num_parallel)
     env_override = f"OLLAMA_NUM_PARALLEL={num_parallel}"
@@ -69,7 +69,7 @@ def restart_ollama(num_parallel: int, project_dir: str) -> None:
         timeout=60,
     )
     _wait_for_health(project_dir)
-    _warmup(project_dir)
+    _warmup(project_dir, model)
 
 
 def _wait_for_health(project_dir: str) -> None:
@@ -91,16 +91,16 @@ def _wait_for_health(project_dir: str) -> None:
     raise TimeoutError("Ollama did not become healthy within timeout")
 
 
-def _warmup(project_dir: str) -> None:
-    """Send a dummy request to warm up the Ollama server."""
-    LOG.info("Sending warm-up request ...")
+def _warmup(project_dir: str, model: str) -> None:
+    """Send a dummy request to warm up the Ollama server with the target model."""
+    LOG.info("Sending warm-up request for model %s ...", model)
     result = _run(
         [
             "docker", "exec", APP_CONTAINER,
             "curl", "-sf",
             "-X", "POST",
             "http://bsllmner-mk2-ollama:11434/api/generate",
-            "-d", json.dumps({"model": "qwen3:8b", "prompt": "hello", "stream": False}),
+            "-d", json.dumps({"model": model, "prompt": "hello", "stream": False}),
         ],
         timeout=WARMUP_TIMEOUT_SEC,
         check=False,
@@ -164,7 +164,7 @@ def run_select(
         "--run-name", run_name,
         "--batch-size", "9999",
     ]
-    result = _run(cmd, timeout=600, check=False)
+    result = _run(cmd, timeout=4 * 3600, check=False)
 
     if result.returncode != 0:
         LOG.error("bsllmner2_select failed (rc=%d): %s", result.returncode, result.stderr[:500])
@@ -224,7 +224,7 @@ def measure(
 ) -> dict[str, Any]:
     """Restart Ollama (if needed), run N times, return median throughput info."""
     if not current_num_parallel or current_num_parallel[0] != num_parallel:
-        restart_ollama(num_parallel, project_dir)
+        restart_ollama(num_parallel, project_dir, model)
         current_num_parallel.clear()
         current_num_parallel.append(num_parallel)
 
@@ -353,7 +353,7 @@ def run_validation(
 
     current_num_parallel: list[int] = []
     if not current_num_parallel or current_num_parallel[0] != num_parallel:
-        restart_ollama(num_parallel, project_dir)
+        restart_ollama(num_parallel, project_dir, model)
         current_num_parallel.clear()
         current_num_parallel.append(num_parallel)
 
@@ -474,16 +474,16 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", type=str, required=True, help="Model to explore.")
 
     parser.add_argument(
-        "--num-ctx", type=int, nargs="+", default=[4096, 8192],
-        help="Context length(s) to explore (default: 4096 8192).",
+        "--num-ctx", type=int, nargs="+", default=[4096],
+        help="Context length(s) to explore (default: 4096).",
     )
     parser.add_argument(
         "--project-dir", type=str, default=".",
         help="Project directory (default: current directory).",
     )
     parser.add_argument(
-        "--subset-size", type=int, default=50,
-        help="Number of entries for exploration subset (default: 50).",
+        "--subset-size", type=int, default=200,
+        help="Number of entries for exploration subset (default: 200).",
     )
     parser.add_argument(
         "--seed", type=int, default=42,
@@ -494,8 +494,8 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
         help="Number of runs per measurement point (default: 3).",
     )
     parser.add_argument(
-        "--search-lo", type=int, default=1,
-        help="Lower bound for NUM_PARALLEL search (default: 1).",
+        "--search-lo", type=int, default=4,
+        help="Lower bound for NUM_PARALLEL search (default: 4).",
     )
     parser.add_argument(
         "--search-hi", type=int, default=64,
