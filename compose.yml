@@ -30,6 +30,7 @@ services:
       - OLLAMA_MAX_QUEUE=1024
       - CUDA_VISIBLE_DEVICES=0,1
       - OLLAMA_SCHED_SPREAD=1
+      - OLLAMA_LOAD_TIMEOUT=30m
     entrypoint: [ "/bin/ollama" ]
     command: [ "serve" ]
     restart: unless-stopped

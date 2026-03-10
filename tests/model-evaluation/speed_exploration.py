@@ -92,24 +92,66 @@ def _wait_for_health(project_dir: str) -> None:
 
 
 def _warmup(project_dir: str, model: str) -> None:
-    """Send a dummy request to warm up the Ollama server with the target model."""
-    LOG.info("Sending warm-up request for model %s ...", model)
+    """Pre-load the model into VRAM and run a dummy generation to warm up.
+
+    Uses the Ollama-recommended empty-prompt preload with ``keep_alive: -1``
+    (hold in VRAM indefinitely), then retries until success or deadline.
+    """
+    deadline = time.monotonic() + WARMUP_TIMEOUT_SEC
+    ollama_url = "http://bsllmner-mk2-ollama:11434/api/generate"
+
+    # Step 1: preload model into VRAM (empty prompt — no generation)
+    LOG.info("Pre-loading model %s into VRAM ...", model)
+    preload_payload = json.dumps({"model": model, "keep_alive": -1})
+    loaded = False
+    while time.monotonic() < deadline:
+        try:
+            result = _run(
+                [
+                    "docker", "exec", APP_CONTAINER,
+                    "curl", "-sf", "-X", "POST", ollama_url,
+                    "-d", preload_payload,
+                ],
+                timeout=max(int(deadline - time.monotonic()), 30),
+                check=False,
+            )
+            if result.returncode == 0:
+                loaded = True
+                LOG.info("Model pre-loaded successfully")
+                break
+        except subprocess.TimeoutExpired:
+            pass
+        LOG.info("Model still loading, retrying in 10s ...")
+        time.sleep(10)
+
+    if not loaded:
+        LOG.warning("Model pre-load did not succeed within %ds", WARMUP_TIMEOUT_SEC)
+        return
+
+    # Step 2: dummy generation to warm up GPU (thermal + first-inference overhead)
+    LOG.info("Running dummy generation for thermal warm-up ...")
+    dummy_payload = json.dumps({
+        "model": model,
+        "prompt": "hello",
+        "stream": False,
+        "keep_alive": -1,
+    })
     try:
         result = _run(
             [
                 "docker", "exec", APP_CONTAINER,
-                "curl", "-sf",
-                "-X", "POST",
-                "http://bsllmner-mk2-ollama:11434/api/generate",
-                "-d", json.dumps({"model": model, "prompt": "hello", "stream": False}),
+                "curl", "-sf", "-X", "POST", ollama_url,
+                "-d", dummy_payload,
             ],
-            timeout=WARMUP_TIMEOUT_SEC,
+            timeout=max(int(deadline - time.monotonic()), 60),
             check=False,
         )
-        if result.returncode != 0:
-            LOG.warning("Warm-up request failed (non-fatal): %s", result.stderr[:200])
+        if result.returncode == 0:
+            LOG.info("Dummy generation completed")
+        else:
+            LOG.warning("Dummy generation failed (non-fatal): %s", result.stderr[:200])
     except subprocess.TimeoutExpired:
-        LOG.warning("Warm-up timed out after %ds (non-fatal)", WARMUP_TIMEOUT_SEC)
+        LOG.warning("Dummy generation timed out (non-fatal)")
 
 
 # ---------------------------------------------------------------------------
