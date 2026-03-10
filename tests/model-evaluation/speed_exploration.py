@@ -30,7 +30,7 @@ MAPPING_PATH = "tests/data/eval_gold_standard.tsv"
 RESULTS_DIR_IN_CONTAINER = "results/speed_exploration"
 HEALTH_CHECK_INTERVAL_SEC = 2
 HEALTH_CHECK_TIMEOUT_SEC = 120
-WARMUP_TIMEOUT_SEC = 600
+WARMUP_TIMEOUT_SEC = 1800
 
 
 # ---------------------------------------------------------------------------
@@ -94,19 +94,22 @@ def _wait_for_health(project_dir: str) -> None:
 def _warmup(project_dir: str, model: str) -> None:
     """Send a dummy request to warm up the Ollama server with the target model."""
     LOG.info("Sending warm-up request for model %s ...", model)
-    result = _run(
-        [
-            "docker", "exec", APP_CONTAINER,
-            "curl", "-sf",
-            "-X", "POST",
-            "http://bsllmner-mk2-ollama:11434/api/generate",
-            "-d", json.dumps({"model": model, "prompt": "hello", "stream": False}),
-        ],
-        timeout=WARMUP_TIMEOUT_SEC,
-        check=False,
-    )
-    if result.returncode != 0:
-        LOG.warning("Warm-up request failed (non-fatal): %s", result.stderr[:200])
+    try:
+        result = _run(
+            [
+                "docker", "exec", APP_CONTAINER,
+                "curl", "-sf",
+                "-X", "POST",
+                "http://bsllmner-mk2-ollama:11434/api/generate",
+                "-d", json.dumps({"model": model, "prompt": "hello", "stream": False}),
+            ],
+            timeout=WARMUP_TIMEOUT_SEC,
+            check=False,
+        )
+        if result.returncode != 0:
+            LOG.warning("Warm-up request failed (non-fatal): %s", result.stderr[:200])
+    except subprocess.TimeoutExpired:
+        LOG.warning("Warm-up timed out after %ds (non-fatal)", WARMUP_TIMEOUT_SEC)
 
 
 # ---------------------------------------------------------------------------
@@ -164,7 +167,11 @@ def run_select(
         "--run-name", run_name,
         "--batch-size", "9999",
     ]
-    result = _run(cmd, timeout=4 * 3600, check=False)
+    try:
+        result = _run(cmd, timeout=4 * 3600, check=False)
+    except subprocess.TimeoutExpired:
+        LOG.error("bsllmner2_select timed out after 4h")
+        return None
 
     if result.returncode != 0:
         LOG.error("bsllmner2_select failed (rc=%d): %s", result.returncode, result.stderr[:500])
