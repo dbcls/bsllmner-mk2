@@ -191,7 +191,12 @@ async def run_cli_select_async() -> None:
             LOGGER.info("Extracting entities...")
             with stage_timer("ner") as t_ner:
                 batch_extract_outputs, batch_ner_responses = await ner(
-                    backend, batch_info.entries, prompt, format_, args.model, args.thinking,
+                    backend,
+                    batch_info.entries,
+                    prompt,
+                    format_,
+                    args.model,
+                    args.thinking,
                     num_ctx=args.num_ctx,
                 )
             if len(batch_extract_outputs) < len(batch_info.entries):

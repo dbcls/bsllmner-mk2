@@ -78,8 +78,12 @@ def _wait_for_health(project_dir: str) -> None:
     while time.monotonic() < deadline:
         result = _run(
             [
-                "docker", "exec", APP_CONTAINER,
-                "curl", "-sf", "http://bsllmner-mk2-ollama:11434/",
+                "docker",
+                "exec",
+                APP_CONTAINER,
+                "curl",
+                "-sf",
+                "http://bsllmner-mk2-ollama:11434/",
             ],
             timeout=10,
             check=False,
@@ -108,9 +112,16 @@ def _warmup(project_dir: str, model: str) -> None:
         try:
             result = _run(
                 [
-                    "docker", "exec", APP_CONTAINER,
-                    "curl", "-sf", "-X", "POST", ollama_url,
-                    "-d", preload_payload,
+                    "docker",
+                    "exec",
+                    APP_CONTAINER,
+                    "curl",
+                    "-sf",
+                    "-X",
+                    "POST",
+                    ollama_url,
+                    "-d",
+                    preload_payload,
                 ],
                 timeout=max(int(deadline - time.monotonic()), 30),
                 check=False,
@@ -130,18 +141,27 @@ def _warmup(project_dir: str, model: str) -> None:
 
     # Step 2: dummy generation to warm up GPU (thermal + first-inference overhead)
     LOG.info("Running dummy generation for thermal warm-up ...")
-    dummy_payload = json.dumps({
-        "model": model,
-        "prompt": "hello",
-        "stream": False,
-        "keep_alive": -1,
-    })
+    dummy_payload = json.dumps(
+        {
+            "model": model,
+            "prompt": "hello",
+            "stream": False,
+            "keep_alive": -1,
+        }
+    )
     try:
         result = _run(
             [
-                "docker", "exec", APP_CONTAINER,
-                "curl", "-sf", "-X", "POST", ollama_url,
-                "-d", dummy_payload,
+                "docker",
+                "exec",
+                APP_CONTAINER,
+                "curl",
+                "-sf",
+                "-X",
+                "POST",
+                ollama_url,
+                "-d",
+                dummy_payload,
             ],
             timeout=max(int(deadline - time.monotonic()), 60),
             check=False,
@@ -167,7 +187,13 @@ def create_subset_file(
     """Create a subset of eval_biosample.json inside the container. Returns container path."""
     # Read the full file via docker exec
     result = _run(
-        ["docker", "exec", APP_CONTAINER, "python", "-c", f"""
+        [
+            "docker",
+            "exec",
+            APP_CONTAINER,
+            "python",
+            "-c",
+            f"""
 import json, random, pathlib
 data = json.loads(pathlib.Path("{BS_ENTRIES_PATH}").read_text())
 random.seed({seed})
@@ -176,7 +202,8 @@ out = pathlib.Path("{RESULTS_DIR_IN_CONTAINER}/subset_{subset_size}.json")
 out.parent.mkdir(parents=True, exist_ok=True)
 out.write_text(json.dumps(subset, ensure_ascii=False))
 print(str(out))
-"""],
+""",
+        ],
         timeout=30,
     )
     path = result.stdout.strip()
@@ -198,21 +225,32 @@ def run_select(
 ) -> dict[str, Any] | None:
     """Run bsllmner2_select inside the app container and return the result JSON."""
     cmd = [
-        "docker", "exec", APP_CONTAINER,
-        "uv", "run", "bsllmner2_select",
-        "--bs-entries", subset_file,
-        "--model", model,
-        "--select-config", SELECT_CONFIG_PATH,
-        "--mapping", MAPPING_PATH,
-        "--num-ctx", str(num_ctx),
+        "docker",
+        "exec",
+        APP_CONTAINER,
+        "uv",
+        "run",
+        "bsllmner2_select",
+        "--bs-entries",
+        subset_file,
+        "--model",
+        model,
+        "--select-config",
+        SELECT_CONFIG_PATH,
+        "--mapping",
+        MAPPING_PATH,
+        "--num-ctx",
+        str(num_ctx),
         "--no-reasoning",
-        "--run-name", run_name,
-        "--batch-size", "9999",
+        "--run-name",
+        run_name,
+        "--batch-size",
+        "9999",
     ]
     try:
         result = _run(cmd, timeout=4 * 3600, check=False)
     except subprocess.TimeoutExpired:
-        LOG.error("bsllmner2_select timed out after 4h")
+        LOG.exception("bsllmner2_select timed out after 4h")
         return None
 
     if result.returncode != 0:
@@ -221,8 +259,14 @@ def run_select(
 
     # Find and read the result file
     find_result = _run(
-        ["docker", "exec", APP_CONTAINER, "bash", "-c",
-         f"ls -t bsllmner2-results/select/select_{run_name}*.json 2>/dev/null | head -1"],
+        [
+            "docker",
+            "exec",
+            APP_CONTAINER,
+            "bash",
+            "-c",
+            f"ls -t bsllmner2-results/select/select_{run_name}*.json 2>/dev/null | head -1",
+        ],
         timeout=10,
         check=False,
     )
@@ -236,10 +280,12 @@ def run_select(
         timeout=30,
     )
     try:
-        return json.loads(cat_result.stdout)
+        parsed: dict[str, Any] = json.loads(cat_result.stdout)
     except json.JSONDecodeError:
-        LOG.error("Failed to parse result JSON from %s", result_path)
+        LOG.exception("Failed to parse result JSON from %s", result_path)
         return None
+    else:
+        return parsed
 
 
 def extract_throughput(result_json: dict[str, Any]) -> tuple[float | None, float | None]:
@@ -284,7 +330,11 @@ def measure(
         run_name = f"speed_{_sanitize_model_name(model)}_{num_ctx}_{num_parallel}_r{run_idx}"
         LOG.info(
             "  Run %d/%d: model=%s num_parallel=%d num_ctx=%d",
-            run_idx + 1, runs, model, num_parallel, num_ctx,
+            run_idx + 1,
+            runs,
+            model,
+            num_parallel,
+            num_ctx,
         )
         result_json = run_select(model, num_ctx, subset_file, project_dir, run_name)
         if result_json is None:
@@ -307,7 +357,9 @@ def measure(
 
     LOG.info(
         "  Result: num_parallel=%d, median_select_tps=%.1f, total_throughput=%.1f",
-        num_parallel, median_select_tps, total_throughput,
+        num_parallel,
+        median_select_tps,
+        total_throughput,
     )
 
     return {
@@ -500,12 +552,15 @@ def write_summary_tsv(exploration_results: list[dict[str, Any]], output_dir: Pat
     output_dir.mkdir(parents=True, exist_ok=True)
     path = output_dir / "summary.tsv"
     header = [
-        "model", "num_ctx", "best_num_parallel",
-        "best_total_throughput", "best_median_select_tps", "best_median_ner_tps",
+        "model",
+        "num_ctx",
+        "best_num_parallel",
+        "best_total_throughput",
+        "best_median_select_tps",
+        "best_median_ner_tps",
     ]
     lines = ["\t".join(header)]
-    for r in exploration_results:
-        lines.append("\t".join(str(r.get(h, "")) for h in header))
+    lines.extend("\t".join(str(r.get(h, "")) for h in header) for r in exploration_results)
     path.write_text("\n".join(lines) + "\n")
     LOG.info("Wrote summary: %s", path)
     return path
@@ -523,39 +578,57 @@ def parse_cli_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--model", type=str, required=True, help="Model to explore.")
 
     parser.add_argument(
-        "--num-ctx", type=int, nargs="+", default=[4096],
+        "--num-ctx",
+        type=int,
+        nargs="+",
+        default=[4096],
         help="Context length(s) to explore (default: 4096).",
     )
     parser.add_argument(
-        "--project-dir", type=str, default=".",
+        "--project-dir",
+        type=str,
+        default=".",
         help="Project directory (default: current directory).",
     )
     parser.add_argument(
-        "--subset-size", type=int, default=200,
+        "--subset-size",
+        type=int,
+        default=200,
         help="Number of entries for exploration subset (default: 200).",
     )
     parser.add_argument(
-        "--seed", type=int, default=42,
+        "--seed",
+        type=int,
+        default=42,
         help="Random seed for subset sampling (default: 42).",
     )
     parser.add_argument(
-        "--runs-per-point", type=int, default=3,
+        "--runs-per-point",
+        type=int,
+        default=3,
         help="Number of runs per measurement point (default: 3).",
     )
     parser.add_argument(
-        "--search-lo", type=int, default=4,
+        "--search-lo",
+        type=int,
+        default=4,
         help="Lower bound for NUM_PARALLEL search (default: 4).",
     )
     parser.add_argument(
-        "--search-hi", type=int, default=64,
+        "--search-hi",
+        type=int,
+        default=64,
         help="Upper bound for NUM_PARALLEL search (default: 64).",
     )
     parser.add_argument(
-        "--skip-validation", action="store_true",
+        "--skip-validation",
+        action="store_true",
         help="Skip the validation phase (full 600 entries).",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("tests/model-evaluation/results"),
+        "--output-dir",
+        type=Path,
+        default=Path("tests/model-evaluation/results"),
         help="Output directory for results (default: tests/model-evaluation/results).",
     )
 

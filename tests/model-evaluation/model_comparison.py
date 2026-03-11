@@ -62,9 +62,17 @@ def load_validation_results(results_dir: Path) -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 SUMMARY_HEADER = [
-    "model", "num_parallel", "num_ctx", "total_throughput",
-    "median_select_tps", "median_ner_tps", "median_wall_sec",
-    "f1", "precision", "recall", "accuracy",
+    "model",
+    "num_parallel",
+    "num_ctx",
+    "total_throughput",
+    "median_select_tps",
+    "median_ner_tps",
+    "median_wall_sec",
+    "f1",
+    "precision",
+    "recall",
+    "accuracy",
 ]
 
 
@@ -123,7 +131,7 @@ def generate_pareto_plot(
     try:
         import matplotlib.pyplot as plt
     except ImportError:
-        LOG.error("matplotlib is required for plotting. Install with: uv pip install matplotlib")
+        LOG.exception("matplotlib is required for plotting. Install with: uv pip install matplotlib")
         return
 
     points: list[tuple[float, float, str]] = []
@@ -161,8 +169,14 @@ def generate_pareto_plot(
         fy = [p[1] for p in frontier]
         ax.plot(fx, fy, "--", color="#dc2626", linewidth=1.5, alpha=0.7, label="Pareto frontier")
         ax.scatter(
-            fx, fy, s=120, facecolors="none", edgecolors="#dc2626",
-            linewidth=1.5, zorder=6, label="Pareto optimal",
+            fx,
+            fy,
+            s=120,
+            facecolors="none",
+            edgecolors="#dc2626",
+            linewidth=1.5,
+            zorder=6,
+            label="Pareto optimal",
         )
 
     ax.set_xlabel("Total Throughput (NUM_PARALLEL x tokens/sec)", fontsize=11)
@@ -188,16 +202,20 @@ def main() -> None:
         description="Cross-model comparison: generate summary table and Pareto plot from validation results.",
     )
     parser.add_argument(
-        "--results-dir", type=Path,
+        "--results-dir",
+        type=Path,
         default=Path("tests/model-evaluation/results"),
         help="Directory containing validation_*.json files (default: tests/model-evaluation/results).",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=None,
+        "--output-dir",
+        type=Path,
+        default=None,
         help="Output directory (default: same as --results-dir).",
     )
     parser.add_argument(
-        "--no-plot", action="store_true",
+        "--no-plot",
+        action="store_true",
         help="Skip Pareto plot generation (no matplotlib dependency).",
     )
     args = parser.parse_args()

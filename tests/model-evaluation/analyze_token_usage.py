@@ -66,8 +66,12 @@ def _wait_for_health() -> None:
     while time.monotonic() < deadline:
         result = _run(
             [
-                "docker", "exec", APP_CONTAINER,
-                "curl", "-sf", "http://bsllmner-mk2-ollama:11434/",
+                "docker",
+                "exec",
+                APP_CONTAINER,
+                "curl",
+                "-sf",
+                "http://bsllmner-mk2-ollama:11434/",
             ],
             timeout=10,
             check=False,
@@ -94,15 +98,25 @@ def _run_select(
     """Run bsllmner2_select and return the result JSON."""
     run_name = f"token_analysis_{_sanitize_model_name(model)}"
     cmd = [
-        "docker", "exec", APP_CONTAINER,
-        "uv", "run", "bsllmner2_select",
-        "--bs-entries", bs_entries,
-        "--model", model,
-        "--select-config", select_config,
-        "--num-ctx", str(num_ctx),
+        "docker",
+        "exec",
+        APP_CONTAINER,
+        "uv",
+        "run",
+        "bsllmner2_select",
+        "--bs-entries",
+        bs_entries,
+        "--model",
+        model,
+        "--select-config",
+        select_config,
+        "--num-ctx",
+        str(num_ctx),
         "--no-reasoning",
-        "--run-name", run_name,
-        "--batch-size", "9999",
+        "--run-name",
+        run_name,
+        "--batch-size",
+        "9999",
     ]
     if max_entries is not None:
         cmd.extend(["--max-entries", str(max_entries)])
@@ -115,8 +129,14 @@ def _run_select(
         return None
 
     find_result = _run(
-        ["docker", "exec", APP_CONTAINER, "bash", "-c",
-         f"ls -t bsllmner2-results/select/select_{run_name}*.json 2>/dev/null | head -1"],
+        [
+            "docker",
+            "exec",
+            APP_CONTAINER,
+            "bash",
+            "-c",
+            f"ls -t bsllmner2-results/select/select_{run_name}*.json 2>/dev/null | head -1",
+        ],
         timeout=10,
         check=False,
     )
@@ -130,10 +150,12 @@ def _run_select(
         timeout=60,
     )
     try:
-        return json.loads(cat_result.stdout)
+        parsed: dict[str, Any] = json.loads(cat_result.stdout)
     except json.JSONDecodeError:
-        LOG.error("Failed to parse result JSON from %s", result_path)
+        LOG.exception("Failed to parse result JSON from %s", result_path)
         return None
+    else:
+        return parsed
 
 
 # ---------------------------------------------------------------------------
@@ -212,8 +234,7 @@ def _format_table(
     lines.append("-" * 50)
     for stage, stats in [("extract", extract_stats), ("select", select_stats)]:
         lines.append(
-            f"{stage:<10} {stats['calls']:>6} {stats['max']:>8} "
-            f"{stats['p99']:>8} {stats['p95']:>8} {stats['mean']:>8}"
+            f"{stage:<10} {stats['calls']:>6} {stats['max']:>8} {stats['p99']:>8} {stats['p95']:>8} {stats['mean']:>8}"
         )
 
     overall_max = max(extract_stats["max"], select_stats["max"])
@@ -259,23 +280,33 @@ def main() -> None:
     )
     parser.add_argument("--model", type=str, required=True, help="Model to analyze.")
     parser.add_argument(
-        "--bs-entries", type=str, required=True,
+        "--bs-entries",
+        type=str,
+        required=True,
         help="Path to BioSample entries JSON (container path).",
     )
     parser.add_argument(
-        "--select-config", type=str, required=True,
+        "--select-config",
+        type=str,
+        required=True,
         help="Path to select config JSON (container path).",
     )
     parser.add_argument(
-        "--num-ctx", type=int, default=DEFAULT_NUM_CTX,
+        "--num-ctx",
+        type=int,
+        default=DEFAULT_NUM_CTX,
         help=f"Context length for Ollama (default: {DEFAULT_NUM_CTX}).",
     )
     parser.add_argument(
-        "--max-entries", type=int, default=None,
+        "--max-entries",
+        type=int,
+        default=None,
         help="Limit number of entries to process (default: all).",
     )
     parser.add_argument(
-        "--output-dir", type=Path, default=Path("tests/model-evaluation/results"),
+        "--output-dir",
+        type=Path,
+        default=Path("tests/model-evaluation/results"),
         help="Output directory for results (default: tests/model-evaluation/results).",
     )
     args = parser.parse_args()

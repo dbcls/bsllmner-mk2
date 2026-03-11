@@ -32,6 +32,7 @@ from bsllmner2.ontology_search import (
     search_terms_with_text2term,
 )
 
+
 class SelectStageTimings(TypedDict):
     ontology_search_sec: float
     text2term_sec: float

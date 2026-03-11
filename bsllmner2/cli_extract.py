@@ -138,7 +138,12 @@ async def run_cli_extract_async() -> None:
         ) -> tuple[list[ExtractEntry], list[ChatResponse], float]:
             with stage_timer("ner") as t_ner:
                 batch_outputs, batch_chat_responses = await ner(
-                    backend, batch_info.entries, prompt, format_, args.model, args.thinking,
+                    backend,
+                    batch_info.entries,
+                    prompt,
+                    format_,
+                    args.model,
+                    args.thinking,
                     num_ctx=args.num_ctx,
                 )
             if len(batch_outputs) < len(batch_info.entries):

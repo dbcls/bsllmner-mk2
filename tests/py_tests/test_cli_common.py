@@ -441,7 +441,7 @@ class TestBuildRunMetadata:
         assert meta.status == "completed"
 
     def test_thinking_default_false(self) -> None:
-        """thinking defaults to False in metadata."""
+        """Thinking defaults to False in metadata."""
         meta = build_run_metadata(
             run_name="run",
             model="model",

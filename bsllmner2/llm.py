@@ -13,6 +13,7 @@ from bsllmner2.config import LOGGER
 from bsllmner2.errors import OllamaConnectionError
 from bsllmner2.models import BsEntries, ExtractEntry, Prompt, llm_timing_from_chat_response
 
+
 def build_ollama_options(num_ctx: int | None = None) -> Options:
     opts = Options(seed=0, temperature=0.0)
     if num_ctx is not None:
