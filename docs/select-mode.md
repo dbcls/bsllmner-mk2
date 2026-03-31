@@ -80,6 +80,7 @@ Searches the ontology index for extracted values.
 
 - Indexes are built from OWL files (via owlready2) or TSV/CSV files (term_id, prop_uri, value)
 - Searches against `rdfs:label`, `skos:prefLabel`, and various synonym properties (`oboInOwl:hasExactSynonym`, etc.)
+- `rdfs:comment` is also extracted from OWL files as term-level metadata (not used for search/matching, but included in candidate info for Stage 3 LLM context)
 - `ontology_filter` can restrict entries (e.g., `{"hasDbXref": "NCBI_TaxID:9606"}` for human only)
 - Exact match with a single term_id is finalized immediately; ambiguous or missing matches proceed to Stage 3
 - For OWL files, `text2term.map_terms()` is used as a similarity-based fallback

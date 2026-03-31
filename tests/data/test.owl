@@ -20,6 +20,7 @@
     <owl:Class rdf:about="http://example.org/test-ontology#TEST_0001">
         <rdfs:label>Alpha Cell</rdfs:label>
         <oboInOwl:hasExactSynonym>alpha</oboInOwl:hasExactSynonym>
+        <rdfs:comment>Disease: Alpha disease</rdfs:comment>
     </owl:Class>
 
     <owl:Class rdf:about="http://example.org/test-ontology#TEST_0002">
@@ -31,5 +32,7 @@
         <rdfs:label>Gamma Cell</rdfs:label>
         <oboInOwl:hasExactSynonym>gamma</oboInOwl:hasExactSynonym>
         <oboInOwl:hasDbXref>XREF:001</oboInOwl:hasDbXref>
+        <rdfs:comment>Disease: Gamma disease</rdfs:comment>
+        <rdfs:comment>derived_from: Delta Cell</rdfs:comment>
     </owl:Class>
 </rdf:RDF>

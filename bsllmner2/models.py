@@ -23,6 +23,7 @@ class TermAnnotation(BaseModel):
 class OntologyIndex(BaseModel):
     term_id_to_labels: dict[str, list[str]] = Field(default_factory=dict)
     value_to_annotations: dict[str, list[TermAnnotation]] = Field(default_factory=dict)  # key is _normalize_key(value)
+    term_id_to_comments: dict[str, list[str]] = Field(default_factory=dict)
 
 
 class SearchResult(TermAnnotation):
@@ -30,6 +31,7 @@ class SearchResult(TermAnnotation):
     exact_match: bool
     text2term_score: float | None = None
     reasoning: str | None = None
+    comments: list[str] | None = None
 
 
 # === CLI args models ===

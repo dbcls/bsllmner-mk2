@@ -208,6 +208,28 @@ def _human_readable_prop(prop_uri: str | None) -> str:
     return _PROP_URI_SHORT_NAMES.get(prop_uri, prop_uri)
 
 
+def _collect_term_comments(
+    ontology: Ontology,
+    additional_conditions: dict[str, str] | None = None,
+) -> dict[str, list[str]]:
+    """Collect rdfs:comment values per term_id.
+
+    Comments are stored as term-level metadata for LLM context,
+    not used for search/matching.
+    """
+    term_id_to_comments: dict[str, list[str]] = {}
+    for cls_ in ontology.classes():
+        if additional_conditions and not _match_additional_conditions(cls_, additional_conditions):
+            continue
+        term_id = _normalize_term_id(_term_id_of(cls_))
+        for comment_val in _iter_prop_values(cls_, "comment"):
+            comments = term_id_to_comments.setdefault(term_id, [])
+            if comment_val not in comments:
+                comments.append(comment_val)
+
+    return term_id_to_comments
+
+
 def build_index(
     ontology: Ontology,
     additional_conditions: dict[str, str] | None = None,
@@ -227,9 +249,12 @@ def build_index(
 
         value_to_annotations.setdefault(key, []).append(ann)
 
+    term_id_to_comments = _collect_term_comments(ontology, additional_conditions)
+
     return OntologyIndex(
         term_id_to_labels=term_id_to_labels,
         value_to_annotations=value_to_annotations,
+        term_id_to_comments=term_id_to_comments,
     )
 
 
@@ -456,6 +481,7 @@ def search_terms(
 
                 is_exact = _normalize_key(query) == _normalize_key(ann.value)
                 reasoning = f"Exact match on {_human_readable_prop(ann.prop_uri)}" if is_exact else None
+                comments = index.term_id_to_comments.get(ann.term_id) or None
                 result = SearchResult(
                     term_uri=ann.term_uri,
                     term_id=ann.term_id,
@@ -464,6 +490,7 @@ def search_terms(
                     label=label,
                     exact_match=is_exact,
                     reasoning=reasoning,
+                    comments=comments,
                 )
                 results.setdefault(query, []).append(result)
 
@@ -529,6 +556,7 @@ def search_terms_with_text2term(
             if prop_uri is None or label is None:
                 continue
 
+            comments = index.term_id_to_comments.get(term_id) or None
             result = SearchResult(
                 term_uri=term_uri,
                 term_id=term_id,
@@ -538,6 +566,7 @@ def search_terms_with_text2term(
                 exact_match=_normalize_key(query) == value_key,
                 text2term_score=text2term_score,
                 reasoning=f"text2term score: {text2term_score:.2f}",
+                comments=comments,
             )
             results[query].append(result)
 

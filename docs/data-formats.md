@@ -135,7 +135,8 @@ Saved to `bsllmner2-results/select/select_{run_name}.json`.
               "label": "HeLa",
               "exact_match": true,
               "text2term_score": null,
-              "reasoning": null
+              "reasoning": null,
+              "comments": ["Disease: Cervical adenocarcinoma"]
             }
           ]
         }

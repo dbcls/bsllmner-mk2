@@ -947,6 +947,50 @@ class TestBuildIndexFromOwl:
         assert "Alpha Cell" in results
         assert results["Alpha Cell"][0].term_id == "TEST:0001"
 
+    def test_comments_collected_in_term_id_to_comments(self) -> None:
+        """rdfs:comment values are stored in term_id_to_comments."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "TEST:0001" in index.term_id_to_comments
+        assert index.term_id_to_comments["TEST:0001"] == ["Disease: Alpha disease"]
+
+    def test_multiple_comments_collected(self) -> None:
+        """Multiple rdfs:comment values on a single term are all collected."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        comments = index.term_id_to_comments["TEST:0003"]
+        assert "Disease: Gamma disease" in comments
+        assert "derived_from: Delta Cell" in comments
+        assert len(comments) == 2
+
+    def test_no_comment_term_absent_from_comments(self) -> None:
+        """Terms without rdfs:comment are absent from term_id_to_comments."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "TEST:0002" not in index.term_id_to_comments
+
+    def test_comments_not_in_value_to_annotations(self) -> None:
+        """rdfs:comment values are NOT indexed in value_to_annotations."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "disease: alpha disease" not in index.value_to_annotations
+        assert "disease: gamma disease" not in index.value_to_annotations
+        assert "derived_from: delta cell" not in index.value_to_annotations
+
+    def test_comments_filtered_by_additional_conditions(self) -> None:
+        """additional_conditions also filters term_id_to_comments."""
+        index = build_index_from_owl(TEST_OWL_FILE, additional_conditions={"hasDbXref": "XREF:001"})
+        assert "TEST:0003" in index.term_id_to_comments
+        assert "TEST:0001" not in index.term_id_to_comments
+
+    def test_search_results_include_comments(self) -> None:
+        """SearchResult.comments is populated from term_id_to_comments."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms(index, ["Alpha Cell"])
+        assert results["Alpha Cell"][0].comments == ["Disease: Alpha disease"]
+
+    def test_search_results_no_comments_is_none(self) -> None:
+        """SearchResult.comments is None when term has no comments."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms(index, ["Beta Cell"])
+        assert results["Beta Cell"][0].comments is None
+
 
 # === build_index_from_file ===
 

@@ -318,7 +318,9 @@ def _build_select_schema(
 
 
 def _serialize_candidates_for_llm(candidates: list[SearchResult]) -> list[dict[str, Any]]:
-    return [c.model_dump(exclude={"exact_match", "text2term_score", "reasoning"}) for c in candidates]
+    return [
+        c.model_dump(exclude={"exact_match", "text2term_score", "reasoning"}, exclude_none=True) for c in candidates
+    ]
 
 
 def _collect_candidates_for_field(

@@ -601,6 +601,17 @@ class TestSerializeCandidatesForLlm:
     def test_empty_list(self) -> None:
         assert _serialize_candidates_for_llm([]) == []
 
+    def test_includes_comments_when_present(self) -> None:
+        sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
+        sr.comments = ["Disease: Cervical adenocarcinoma"]
+        serialized = _serialize_candidates_for_llm([sr])
+        assert serialized[0]["comments"] == ["Disease: Cervical adenocarcinoma"]
+
+    def test_excludes_comments_when_none(self) -> None:
+        sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
+        serialized = _serialize_candidates_for_llm([sr])
+        assert "comments" not in serialized[0]
+
 
 # === TestSelect ===
 
