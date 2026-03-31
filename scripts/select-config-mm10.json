@@ -23,6 +23,21 @@
       "ontology_file": "ontology/chebi.owl",
       "prompt_description": "Drug is a chemical or biological substance used to prevent, diagnose, treat, or alleviate disease or symptoms, or to modify physiological functions. e.g., aspirin, metformin, trastuzumab, etc.",
       "value_type": "array"
+    },
+    "knockout_gene": {
+      "ontology_file": "ontology/ncbi_gene_mouse.owl",
+      "prompt_description": "Knockout gene refers to a gene that has been rendered completely non-functional or deleted from an organism's genome, often achieved by genome editing technologies like CRISPR/Cas9.",
+      "value_type": "array"
+    },
+    "knockdown_gene": {
+      "ontology_file": "ontology/ncbi_gene_mouse.owl",
+      "prompt_description": "Knockdown gene refers to a gene whose expression has been significantly reduced, but not entirely eliminated, typically realized by the introduction of siRNA or shRNA.",
+      "value_type": "array"
+    },
+    "overexpressed_gene": {
+      "ontology_file": "ontology/ncbi_gene_mouse.owl",
+      "prompt_description": "Overexpressed gene refers to a gene that is expressed at abnormally high levels compared to its normal physiological state, often achieved through plasmid transfection or viral transduction.",
+      "value_type": "array"
     }
   }
 }
