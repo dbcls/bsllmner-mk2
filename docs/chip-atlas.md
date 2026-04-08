@@ -227,6 +227,8 @@ docker compose exec app bsllmner2_select \
 
 **Symptom:** Network errors during `prepare_bs_entries.py`
 
+The script uses the DDBJ Search Bulk API to fetch BioSample entries in batches of 1000. If a batch fails, it retries up to 3 times with exponential backoff. Successfully cached entries are skipped on re-run.
+
 **Solution:**
 
 ```bash
