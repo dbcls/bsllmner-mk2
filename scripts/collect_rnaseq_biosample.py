@@ -191,8 +191,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path("/tmp/rnaseq-biosample"),
-        help="Output directory (default: /tmp/rnaseq-biosample).",
+        default=Path(__file__).resolve().parent.parent / "bp_entries",
+        help="Output directory (default: <repo_root>/bp_entries).",
     )
     return parser.parse_args()
 
