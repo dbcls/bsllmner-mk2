@@ -144,7 +144,7 @@ async def bulk_fetch_biosample(
         for attempt in range(1, BULK_MAX_RETRIES + 1):
             try:
                 response = await client.post(
-                    f"{PROD_API}/entries/biosample/bulk",
+                    f"{STAGING_API}/entries/biosample/bulk",
                     json={"ids": chunk},
                     params={"format": "json", "includeDbXrefs": "false"},
                 )
