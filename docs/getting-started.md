@@ -76,7 +76,7 @@ Select mode extends extract mode by mapping extracted terms to ontology entries.
 docker compose exec app bsllmner2_select \
   --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
-  --select-config scripts/select-config.json \
+  --select-config scripts/select-config-hg38.json \
   --debug
 ```
 
@@ -123,4 +123,4 @@ For the full result schema, see [Data Formats](data-formats.md).
 
 - **ChIP-Atlas data processing**: See [chip-atlas.md](chip-atlas.md) for processing ChIP-Atlas data with hg38/mm10
 - **Model evaluation**: See [tests/model-evaluation/README.md](../tests/model-evaluation/README.md) for benchmarking different LLM models
-- **Custom configuration**: Create your own `select-config.json` to customize field extraction and ontology mapping
+- **Custom configuration**: Create your own select config JSON to customize field extraction and ontology mapping

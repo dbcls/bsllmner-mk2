@@ -25,7 +25,7 @@ LOG = logging.getLogger(__name__)
 
 APP_CONTAINER = "bsllmner-mk2-app"
 BS_ENTRIES_PATH = "tests/data/eval_biosample.json"
-SELECT_CONFIG_PATH = "tests/data/eval_select_config.json"
+SELECT_CONFIG_PATH = "scripts/select-config-hg38.json"
 MAPPING_PATH = "tests/data/eval_gold_standard.tsv"
 RESULTS_DIR_IN_CONTAINER = "results/speed_exploration"
 HEALTH_CHECK_INTERVAL_SEC = 2

@@ -54,7 +54,7 @@ docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly 
 
 ### Configuration Structure
 
-The `select-config.json` file defines which fields to extract and map to ontologies:
+The select config JSON file defines which fields to extract and map to ontologies:
 
 ```json
 {
@@ -77,7 +77,6 @@ For field property details, see [Select Mode - Select Config Customization](sele
 
 | File | TaxID | Fields | Use Case |
 |------|-------|--------|----------|
-| `select-config.json` | 9606 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Full extraction including gene perturbation info |
 | `select-config-hg38.json` | 9606 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Human ChIP-Atlas evaluation |
 | `select-config-mm10.json` | 10090 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Mouse ChIP-Atlas evaluation |
 

@@ -11,7 +11,7 @@ Usage::
     python tests/model-evaluation/analyze_token_usage.py \
         --model qwen3:8b \
         --bs-entries tests/data/eval_biosample.json \
-        --select-config tests/data/eval_select_config.json
+        --select-config scripts/select-config-hg38.json
 """
 
 from __future__ import annotations

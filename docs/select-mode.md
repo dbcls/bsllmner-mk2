@@ -63,7 +63,7 @@ SelectResult
 bsllmner2_select \
   --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
-  --select-config scripts/select-config.json \
+  --select-config scripts/select-config-hg38.json \
   --debug
 ```
 
@@ -93,7 +93,7 @@ When `--no-reasoning` is specified, the `reasoning` field is omitted from the ou
 
 ## Select Config Customization
 
-Select mode is configured via a JSON file (`--select-config`). Each field defines an extraction target with its ontology mapping. Several pre-built configs are available in `scripts/` (e.g., `select-config.json`, `select-config-hg38.json`, `select-config-mm10.json`).
+Select mode is configured via a JSON file (`--select-config`). Each field defines an extraction target with its ontology mapping. Pre-built configs are available in `scripts/` (`select-config-hg38.json`, `select-config-mm10.json`).
 
 To create a custom config, define fields as follows:
 

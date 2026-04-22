@@ -75,6 +75,5 @@ Version is managed via git tags using [hatch-vcs](https://github.com/ofek/hatch-
 | `prepare_bs_entries.py` | Prepare BioSample entries for ChIP-Atlas |
 | `print_select_result.py` | Display and analyze select results |
 | `list_unmapped.py` | List unmapped entries |
-| `select-config.json` | General select config (7 fields) |
 | `select-config-hg38.json` | Human (hg38) select config |
 | `select-config-mm10.json` | Mouse (mm10) select config |

@@ -145,7 +145,7 @@ bsllmner2_select \
   --debug \
   --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
-  --select-config ./scripts/select-config.json \
+  --select-config ./scripts/select-config-hg38.json \
   --run-name small-test
 
 # Extract mode
