@@ -43,12 +43,12 @@ def preprocess(input_path: Path, output_path: Path) -> None:
             # Extract disease name from NCIt/ORDO xref before filtering
             disease_match = DISEASE_XREF_RE.match(stripped)
             if disease_match:
-                pending_comments.append(f'comment: "Disease: {disease_match.group(1)}"')
+                pending_comments.append(f"comment: Disease: {disease_match.group(1)}")
 
             # Extract derived_from cell line name before filtering
             derived_match = DERIVED_FROM_RE.match(stripped)
             if derived_match:
-                pending_comments.append(f'comment: "derived_from: {derived_match.group(1)}"')
+                pending_comments.append(f"comment: derived_from: {derived_match.group(1)}")
 
             # Keep NCBI_TaxID xrefs
             if TAXID_XREF_RE.match(stripped):

@@ -269,21 +269,83 @@ def parse_sra_accessions_file(
 
 # === Prepare BP Entries and Mapping (for bsllmner2) ===
 
-DDBJ_SEARCH_BASE_URL = "https://ddbj.nig.ac.jp/search/entry/biosample"
+DDBJ_SEARCH_BASE_URL = "https://ddbj.nig.ac.jp/search/api/entries/biosample"
+DDBJ_SEARCH_BULK_URL = f"{DDBJ_SEARCH_BASE_URL}/bulk"
+BULK_BATCH_SIZE = 1000
+BULK_MAX_RETRIES = 3
+BULK_RETRY_DELAY_SEC = 5.0
 BS_ENTRIES_FILE_PATH = DATA_DIR.joinpath("bs_entries.jsonl")
 
 
-async def download_bs_entry(accession: str) -> Any | None:
+async def download_bs_entry(
+    accession: str,
+    client: httpx.AsyncClient | None = None,
+) -> Any | None:
     url = f"{DDBJ_SEARCH_BASE_URL}/{accession}.json"
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        response = await client.get(url)
-        if response.status_code == 200:
-            return response.json()
-        if response.status_code == 404:
-            LOGGER.info("BioSample entry not found for %s", accession)
-            return None
-        response.raise_for_status()
+    if client is None:
+        async with httpx.AsyncClient(timeout=30.0) as c:
+            return await _fetch_single_entry(c, url, accession)
+    return await _fetch_single_entry(client, url, accession)
+
+
+async def _fetch_single_entry(
+    client: httpx.AsyncClient,
+    url: str,
+    accession: str,
+) -> Any | None:
+    response = await client.get(url)
+    if response.status_code == 200:
+        return response.json()
+    if response.status_code == 404:
+        LOGGER.info("BioSample entry not found for %s", accession)
         return None
+    response.raise_for_status()
+    return None
+
+
+async def download_bs_entries_bulk(
+    accessions: list[str],
+    client: httpx.AsyncClient,
+) -> tuple[dict[str, Any], list[str]]:
+    """Fetch multiple BioSample entries via the Bulk API.
+
+    Returns (accession -> properties dict, list of not-found accessions).
+    """
+    data: dict[str, Any] = {}
+    for attempt in range(1, BULK_MAX_RETRIES + 1):
+        try:
+            response = await client.post(
+                DDBJ_SEARCH_BULK_URL,
+                json={"ids": accessions},
+                params={"format": "json"},
+            )
+            response.raise_for_status()
+            data = response.json()
+            break
+        except (httpx.HTTPStatusError, httpx.TransportError) as e:
+            if attempt == BULK_MAX_RETRIES:
+                raise RuntimeError(
+                    f"Bulk API request failed after {BULK_MAX_RETRIES} attempts",
+                ) from e
+            LOGGER.warning(
+                "Bulk API request failed (attempt %d/%d): %s. Retrying...",
+                attempt,
+                BULK_MAX_RETRIES,
+                e,
+            )
+            await asyncio.sleep(BULK_RETRY_DELAY_SEC * attempt)
+
+    entries_map: dict[str, Any] = {}
+    for entry in data.get("entries", []):
+        props = entry.get("properties", {})
+        accession = props.get("accession") or entry.get("identifier", "")
+        if accession and "accession" not in props:
+            props["accession"] = accession
+        if accession:
+            entries_map[accession] = props
+
+    not_found: list[str] = data.get("notFound", [])
+    return entries_map, not_found
 
 
 def get_bs_entry_cache_path(accession: str) -> Path:
@@ -300,24 +362,66 @@ def get_bs_entry_cache_path(accession: str) -> Path:
     return DATA_DIR.joinpath("bs_entries", prefix, f"{accession}.json")
 
 
-def load_or_download_bs_entry(accession: str, force: bool = False) -> Any | None:
-    cache_path = get_bs_entry_cache_path(accession)
-    cache_path.parent.mkdir(parents=True, exist_ok=True)
-    if cache_path.exists() and not force:
-        with cache_path.open("r", encoding="utf-8") as file:
-            return json.load(file)
+async def fetch_and_cache_bs_entries(
+    biosample_ids: list[str],
+    force: bool = False,
+) -> list[dict[str, Any]]:
+    """Fetch BioSample entries using Bulk API with caching."""
+    cached_entries: dict[str, Any] = {}
+    uncached_ids: list[str] = []
 
-    entry = asyncio.run(download_bs_entry(accession))
-    if entry is not None:
-        entry_props = entry.get("properties", {})
-        if "accession" not in entry_props:
-            entry_props["accession"] = accession
-        with cache_path.open("w", encoding="utf-8") as file:
-            json.dump(entry_props, file, indent=2)
+    for accession in biosample_ids:
+        cache_path = get_bs_entry_cache_path(accession)
+        if cache_path.exists() and not force:
+            with cache_path.open("r", encoding="utf-8") as f:
+                cached_entries[accession] = json.load(f)
+        else:
+            uncached_ids.append(accession)
 
-        return entry_props
+    LOGGER.info(
+        "BioSample entries: %d cached, %d to fetch",
+        len(cached_entries),
+        len(uncached_ids),
+    )
 
-    return None
+    fetched_entries: dict[str, Any] = {}
+    not_found_all: list[str] = []
+
+    if uncached_ids:
+        total_batches = (len(uncached_ids) + BULK_BATCH_SIZE - 1) // BULK_BATCH_SIZE
+        async with httpx.AsyncClient(timeout=60.0) as client:
+            for i in range(0, len(uncached_ids), BULK_BATCH_SIZE):
+                chunk = uncached_ids[i : i + BULK_BATCH_SIZE]
+                LOGGER.info(
+                    "Fetching batch %d/%d (%d entries)...",
+                    i // BULK_BATCH_SIZE + 1,
+                    total_batches,
+                    len(chunk),
+                )
+                entries_map, not_found = await download_bs_entries_bulk(chunk, client)
+                not_found_all.extend(not_found)
+
+                for accession, entry_props in entries_map.items():
+                    cache_path = get_bs_entry_cache_path(accession)
+                    cache_path.parent.mkdir(parents=True, exist_ok=True)
+                    with cache_path.open("w", encoding="utf-8") as f:
+                        json.dump(entry_props, f, indent=2)
+                    fetched_entries[accession] = entry_props
+
+    if not_found_all:
+        LOGGER.info(
+            "%d BioSample entries not found (first 10): %s",
+            len(not_found_all),
+            not_found_all[:10],
+        )
+
+    result: list[dict[str, Any]] = []
+    for accession in biosample_ids:
+        entry = cached_entries.get(accession) or fetched_entries.get(accession)
+        if entry is not None:
+            result.append(entry)
+
+    return result
 
 
 # === Main ===
@@ -357,17 +461,19 @@ def parse_args(raw_args: list[str] | None = None) -> Args:
 
 
 def main() -> None:
+    asyncio.run(async_main())
+
+
+async def async_main() -> None:
     LOGGER.info("Preparing ChIP-Atlas BioSample entries...")
     args = parse_args()
     LOGGER.info("Arguments: %s", args.model_dump())
 
     # 1. download experimentList.tab & parse
-    asyncio.run(
-        download_chip_atlas_experiment_list(
-            url=CHIP_ATLAS_EXPERIMENT_LIST_URL,
-            path=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
-            force=args.force,
-        ),
+    await download_chip_atlas_experiment_list(
+        url=CHIP_ATLAS_EXPERIMENT_LIST_URL,
+        path=CHIP_ATLAS_EXPERIMENT_LIST_PATH,
+        force=args.force,
     )
 
     experiments = parse_experiment_list(
@@ -376,11 +482,9 @@ def main() -> None:
     )
 
     # 2. Download SRA_Accessions.tab & map SRX to BioSample
-    asyncio.run(
-        download_sra_accessions_file(
-            path=SRA_ACCESSIONS_FILE_PATH,
-            force=args.force,
-        ),
+    await download_sra_accessions_file(
+        path=SRA_ACCESSIONS_FILE_PATH,
+        force=args.force,
     )
     srx_to_biosample = parse_sra_accessions_file(
         from_type="EXPERIMENT",
@@ -407,20 +511,21 @@ def main() -> None:
         json.dump(srx_to_biosample, f, indent=2)
     LOGGER.info("Saved srx_to_biosample.json to %s", SRX_TO_BIOSAMPLE_PATH)
 
-    # 4. Download BioSample entries
-    bs_entries = []
-    bs_entries_set: set[str] = set()
+    # 4. Collect unique BioSample IDs (preserving order)
+    unique_bs_ids: list[str] = []
+    seen: set[str] = set()
     for ex in experiments:
-        if ex.biosample_id is not None:
-            if ex.biosample_id in bs_entries_set:
-                continue
-            bs_entry = load_or_download_bs_entry(
-                accession=ex.biosample_id,
-                force=args.force,
-            )
-            if bs_entry is not None:
-                bs_entries.append(bs_entry)
-                bs_entries_set.add(ex.biosample_id)
+        if ex.biosample_id is not None and ex.biosample_id not in seen:
+            unique_bs_ids.append(ex.biosample_id)
+            seen.add(ex.biosample_id)
+
+    # 5. Fetch via Bulk API with caching
+    bs_entries = await fetch_and_cache_bs_entries(
+        biosample_ids=unique_bs_ids,
+        force=args.force,
+    )
+
+    # 6. Write bs_entries.jsonl
     with BS_ENTRIES_FILE_PATH.open("w", encoding="utf-8") as f:
         for entry in bs_entries:
             f.write(json.dumps(entry) + "\n")
