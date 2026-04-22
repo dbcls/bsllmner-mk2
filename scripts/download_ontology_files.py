@@ -52,16 +52,23 @@ async def main() -> None:
             "url": "https://ftp.expasy.org/databases/cellosaurus/cellosaurus.obo",
         },
         {
-            # Cell Ontology
-            # https://purl.obolibrary.org/obo/cl/cl-base.owl
-            "file_name": "cell_ontology.owl",
-            "url": "https://purl.obolibrary.org/obo/cl/cl-base.owl",
+            # Cell Ontology (full, required for cl:human_subset / cl:mouse_subset annotations
+            # consumed by sh-ikeda/ontology-constructor-for-bsllmner)
+            # https://purl.obolibrary.org/obo/cl.owl
+            "file_name": "cl.owl",
+            "url": "https://purl.obolibrary.org/obo/cl.owl",
         },
         {
-            # UBERON
-            # https://purl.obolibrary.org/obo/uberon/uberon-base.owl
+            # Experimental Factor Ontology (merged into CL subset as EFO:0000324 descendants)
+            # https://github.com/EBISPOT/efo/releases/download/current/efo.owl
+            "file_name": "efo.owl",
+            "url": "https://github.com/EBISPOT/efo/releases/download/current/efo.owl",
+        },
+        {
+            # UBERON (full, required for uberon:human_subset / uberon:mouse_subset annotations)
+            # https://purl.obolibrary.org/obo/uberon.owl
             "file_name": "uberon.owl",
-            "url": "https://purl.obolibrary.org/obo/uberon/uberon-base.owl",
+            "url": "https://purl.obolibrary.org/obo/uberon.owl",
         },
         {
             # MONDO

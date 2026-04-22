@@ -5,6 +5,7 @@
 #     https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz
 # $ gunzip gene_info.gz
 
+import argparse
 import csv
 from pathlib import Path
 
@@ -14,13 +15,32 @@ from rdflib.namespace import OWL
 HERE = Path(__file__).parent.resolve()
 ONTOLOGY_DIR = HERE.parent.joinpath("ontology")
 NCBI_GENE_FILE = ONTOLOGY_DIR.joinpath("gene_info")
-OWL_OUTPUT_FILE = ONTOLOGY_DIR.joinpath("ncbi_gene_human.owl")
 
 BASE = Namespace("http://purl.obolibrary.org/obo/NCBIGene_")
 OBOINOWL = Namespace("http://www.geneontology.org/formats/oboInOwl#")
+IAO_DEFINITION = URIRef("http://purl.obolibrary.org/obo/IAO_0000115")
+
+TAXID_TO_SUFFIX = {
+    "9606": "human",
+    "10090": "mouse",
+}
+
+
+def output_path_for(taxid: str) -> Path:
+    suffix = TAXID_TO_SUFFIX.get(taxid, taxid)
+    return ONTOLOGY_DIR.joinpath(f"ncbi_gene_{suffix}.owl")
 
 
 def main() -> None:
+    parser = argparse.ArgumentParser(description="Convert NCBI gene_info TSV into a per-taxon OWL.")
+    parser.add_argument(
+        "--taxid",
+        default="9606",
+        help="NCBI Taxonomy ID to extract (default: 9606 = human; 10090 = mouse).",
+    )
+    args = parser.parse_args()
+    taxid = str(args.taxid).strip()
+
     if not NCBI_GENE_FILE.exists():
         raise FileNotFoundError(f"NCBI Gene file not found: {NCBI_GENE_FILE}")
 
@@ -33,12 +53,15 @@ def main() -> None:
     with NCBI_GENE_FILE.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:
-            if row["#tax_id"] != "9606":  # Human genes only
+            if row["#tax_id"] != taxid:
                 continue
 
             gene_id = row["GeneID"] if row["GeneID"] != "-" else None
             symbol = row["Symbol"] if row["Symbol"] != "-" else None
             synonyms = row["Synonyms"] if row["Synonyms"] != "-" else None
+            description = row.get("description")
+            if description == "-" or not description:
+                description = None
 
             if gene_id is None or symbol is None:
                 continue
@@ -49,9 +72,12 @@ def main() -> None:
             if synonyms:
                 for synonym in synonyms.split("|"):
                     g.add((gene_uri, OBOINOWL.hasExactSynonym, Literal(synonym)))
+            if description:
+                g.add((gene_uri, IAO_DEFINITION, Literal(description)))
 
-    g.serialize(destination=OWL_OUTPUT_FILE, format="xml")
-    print(f"NCBI Gene OWL file written to: {OWL_OUTPUT_FILE}")
+    output_path = output_path_for(taxid)
+    g.serialize(destination=output_path, format="xml")
+    print(f"NCBI Gene OWL file written to: {output_path}")
 
 
 if __name__ == "__main__":

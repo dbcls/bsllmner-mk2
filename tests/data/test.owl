@@ -6,6 +6,7 @@
      xmlns:xml="http://www.w3.org/XML/1998/namespace"
      xmlns:xsd="http://www.w3.org/2001/XMLSchema#"
      xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:obo="http://purl.obolibrary.org/obo/"
      xmlns:oboInOwl="http://www.geneontology.org/formats/oboInOwl#"
      xmlns:skos="http://www.w3.org/2004/02/skos/core#">
 
@@ -15,12 +16,14 @@
     <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasExactSynonym"/>
     <owl:AnnotationProperty rdf:about="http://www.w3.org/2004/02/skos/core#prefLabel"/>
     <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasDbXref"/>
+    <owl:AnnotationProperty rdf:about="http://purl.obolibrary.org/obo/IAO_0000115"/>
 
     <!-- Classes -->
     <owl:Class rdf:about="http://example.org/test-ontology#TEST_0001">
         <rdfs:label>Alpha Cell</rdfs:label>
         <oboInOwl:hasExactSynonym>alpha</oboInOwl:hasExactSynonym>
         <rdfs:comment>Disease: Alpha disease</rdfs:comment>
+        <obo:IAO_0000115>The alpha-family cell type used for testing.</obo:IAO_0000115>
     </owl:Class>
 
     <owl:Class rdf:about="http://example.org/test-ontology#TEST_0002">
@@ -34,5 +37,7 @@
         <oboInOwl:hasDbXref>XREF:001</oboInOwl:hasDbXref>
         <rdfs:comment>Disease: Gamma disease</rdfs:comment>
         <rdfs:comment>derived_from: Delta Cell</rdfs:comment>
+        <obo:IAO_0000115>Primary gamma cell definition.</obo:IAO_0000115>
+        <obo:IAO_0000115>Alternative gamma cell definition.</obo:IAO_0000115>
     </owl:Class>
 </rdf:RDF>

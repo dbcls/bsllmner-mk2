@@ -991,6 +991,49 @@ class TestBuildIndexFromOwl:
         results = search_terms(index, ["Beta Cell"])
         assert results["Beta Cell"][0].comments is None
 
+    def test_definitions_collected_in_term_id_to_definitions(self) -> None:
+        """obo:IAO_0000115 values are stored in term_id_to_definitions."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "TEST:0001" in index.term_id_to_definitions
+        assert index.term_id_to_definitions["TEST:0001"] == ["The alpha-family cell type used for testing."]
+
+    def test_multiple_definitions_collected(self) -> None:
+        """Multiple obo:IAO_0000115 values on a single term are all collected."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        defs = index.term_id_to_definitions["TEST:0003"]
+        assert "Primary gamma cell definition." in defs
+        assert "Alternative gamma cell definition." in defs
+        assert len(defs) == 2
+
+    def test_no_definition_term_absent_from_definitions(self) -> None:
+        """Terms without obo:IAO_0000115 are absent from term_id_to_definitions."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "TEST:0002" not in index.term_id_to_definitions
+
+    def test_definitions_not_in_value_to_annotations(self) -> None:
+        """obo:IAO_0000115 values are NOT indexed in value_to_annotations."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        assert "the alpha-family cell type used for testing." not in index.value_to_annotations
+        assert "primary gamma cell definition." not in index.value_to_annotations
+
+    def test_definitions_filtered_by_additional_conditions(self) -> None:
+        """additional_conditions also filters term_id_to_definitions."""
+        index = build_index_from_owl(TEST_OWL_FILE, additional_conditions={"hasDbXref": "XREF:001"})
+        assert "TEST:0003" in index.term_id_to_definitions
+        assert "TEST:0001" not in index.term_id_to_definitions
+
+    def test_search_results_include_definitions(self) -> None:
+        """SearchResult.definitions is populated from term_id_to_definitions."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms(index, ["Alpha Cell"])
+        assert results["Alpha Cell"][0].definitions == ["The alpha-family cell type used for testing."]
+
+    def test_search_results_no_definitions_is_none(self) -> None:
+        """SearchResult.definitions is None when term has no definition."""
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms(index, ["Beta Cell"])
+        assert results["Beta Cell"][0].definitions is None
+
 
 # === build_index_from_file ===
 

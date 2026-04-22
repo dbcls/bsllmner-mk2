@@ -102,7 +102,7 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
             continue
 
         filter_hash = _compute_filter_hash(field_config.ontology_filter)
-        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{filter_hash}.pkl")
+        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{filter_hash}_v2.pkl")
         if cache_file_path.exists():
             try:
                 with stage_timer("cache_load") as t, cache_file_path.open("rb") as f:

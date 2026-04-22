@@ -22,6 +22,7 @@ DEFAULT_PREFIX_MAP: dict[str, str] = {
     "rdfs": "http://www.w3.org/2000/01/rdf-schema#",
     "skos": "http://www.w3.org/2004/02/skos/core#",
     "oboInOwl": "http://www.geneontology.org/formats/oboInOwl#",
+    "obo": "http://purl.obolibrary.org/obo/",
 }
 
 
@@ -230,6 +231,28 @@ def _collect_term_comments(
     return term_id_to_comments
 
 
+def _collect_term_definitions(
+    ontology: Ontology,
+    additional_conditions: dict[str, str] | None = None,
+) -> dict[str, list[str]]:
+    """Collect obo:IAO_0000115 (textual definition) values per term_id.
+
+    Definitions are stored as term-level metadata for LLM context,
+    not used for search/matching.
+    """
+    term_id_to_definitions: dict[str, list[str]] = {}
+    for cls_ in ontology.classes():
+        if additional_conditions and not _match_additional_conditions(cls_, additional_conditions):
+            continue
+        term_id = _normalize_term_id(_term_id_of(cls_))
+        for value in _iter_prop_values(cls_, "IAO_0000115"):
+            defs = term_id_to_definitions.setdefault(term_id, [])
+            if value not in defs:
+                defs.append(value)
+
+    return term_id_to_definitions
+
+
 def build_index(
     ontology: Ontology,
     additional_conditions: dict[str, str] | None = None,
@@ -250,11 +273,13 @@ def build_index(
         value_to_annotations.setdefault(key, []).append(ann)
 
     term_id_to_comments = _collect_term_comments(ontology, additional_conditions)
+    term_id_to_definitions = _collect_term_definitions(ontology, additional_conditions)
 
     return OntologyIndex(
         term_id_to_labels=term_id_to_labels,
         value_to_annotations=value_to_annotations,
         term_id_to_comments=term_id_to_comments,
+        term_id_to_definitions=term_id_to_definitions,
     )
 
 
@@ -482,6 +507,7 @@ def search_terms(
                 is_exact = _normalize_key(query) == _normalize_key(ann.value)
                 reasoning = f"Exact match on {_human_readable_prop(ann.prop_uri)}" if is_exact else None
                 comments = index.term_id_to_comments.get(ann.term_id) or None
+                definitions = index.term_id_to_definitions.get(ann.term_id) or None
                 result = SearchResult(
                     term_uri=ann.term_uri,
                     term_id=ann.term_id,
@@ -491,6 +517,7 @@ def search_terms(
                     exact_match=is_exact,
                     reasoning=reasoning,
                     comments=comments,
+                    definitions=definitions,
                 )
                 results.setdefault(query, []).append(result)
 
@@ -557,6 +584,7 @@ def search_terms_with_text2term(
                 continue
 
             comments = index.term_id_to_comments.get(term_id) or None
+            definitions = index.term_id_to_definitions.get(term_id) or None
             result = SearchResult(
                 term_uri=term_uri,
                 term_id=term_id,
@@ -567,6 +595,7 @@ def search_terms_with_text2term(
                 text2term_score=text2term_score,
                 reasoning=f"text2term score: {text2term_score:.2f}",
                 comments=comments,
+                definitions=definitions,
             )
             results[query].append(result)
 

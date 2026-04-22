@@ -12,35 +12,64 @@ docker compose up -d --build
 
 If this is your first time, complete the full setup in [Installation](installation.md) first.
 
-## 2. Download Ontology Files
+## 2. Prepare Ontology Files
 
-The ontology files are used by Select mode (Stage 2) for mapping extracted terms to ontology entries. The download script places files inside the container at `/app/ontology/`. Because `compose.yml` mounts `${PWD}:/app`, they are also available on the host at `./ontology/`.
+Select mode (Stage 2) uses **pre-subsetted** OWL files that expose only the properties the LLM needs (`rdfs:label`, various synonyms, `obo:IAO_0000115` definition, and `rdfs:comment` for ChEBI `has_role`). The `ontology/` directory is bind-mounted into the container.
 
-### 2.1 Run Download Script
+### 2.1 Download Upstream OWL Sources
 
 ```bash
 docker compose exec app python3 scripts/download_ontology_files.py
 ```
 
-This downloads the following ontology files to `ontology/`:
+This fetches the following upstream files to `ontology/`:
 
-- `cellosaurus.obo` - Cell line database
-- `cell_ontology.owl` - Cell Ontology
-- `uberon.owl` - UBERON (anatomy ontology)
-- `mondo.owl` - MONDO (disease ontology)
-- `chebi.owl` - ChEBI (chemical entities)
+- `cellosaurus.obo` - Cell line database (preprocessed to OWL in §2.2)
+- `cl.owl` - full Cell Ontology (input for CL human/mouse subset)
+- `efo.owl` - Experimental Factor Ontology (merged into the CL subset as additional cell types under `EFO:0000324`)
+- `uberon.owl` - full UBERON anatomy ontology (input for UBERON human/mouse subset)
+- `mondo.owl` - full MONDO disease ontology
+- `chebi.owl` - full ChEBI chemical entities
 
-### 2.2 Convert Cellosaurus OBO to OWL
+### 2.2 Preprocess Cellosaurus
 
-Cellosaurus is downloaded in OBO format and needs to be converted to OWL:
+Cellosaurus arrives in OBO format and needs light OBO→OWL preprocessing (disease `xref` → `comment`, `derived_from` → `comment`):
 
 ```bash
-cd ontology
-docker run -v $PWD:/work -w /work --rm -it obolibrary/robot robot convert \
-  -i ./cellosaurus.obo \
-  -o ./cellosaurus.owl \
-  --format owl
-cd ..
+docker compose exec app python3 scripts/preprocess_cellosaurus.py
+```
+
+### 2.3 Build Subset Ontologies
+
+Generate subset OWL files for CL / UBERON / ChEBI / MONDO. This runs `sh-ikeda/ontology-constructor-for-bsllmner` SPARQL templates through ROBOT (Docker), then applies a post-processing step to add `rdf:type owl:Class` so `owlready2` can load them.
+
+```bash
+bash scripts/build_subset_ontologies.sh
+```
+
+Outputs (all under `ontology/`):
+
+- `cl_human_subset.owl`, `cl_mouse_subset.owl` (CL `{human,mouse}_subset` merged with EFO cell types under `EFO:0000324`)
+- `uberon_human_subset.owl`, `uberon_mouse_subset.owl`
+- `chebi_subset.owl` (has-role info injected into `rdfs:comment`; the ChEBI update step needs `ROBOT_JAVA_ARGS="-Xmx24g"` because the upstream `chebi.owl` is large)
+- `mondo_human_subset.owl` (mm10 reuses the full `mondo.owl`)
+
+### 2.4 Generate NCBI Gene OWL
+
+`scripts/ncbi_gene_to_owl.py` converts NCBI's `gene_info` TSV into a per-taxon OWL file, storing the gene description (9th column) as `obo:IAO_0000115`:
+
+```bash
+# gene_info must be downloaded separately from https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz
+docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 9606   # -> ontology/ncbi_gene_human.owl
+docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 10090  # -> ontology/ncbi_gene_mouse.owl
+```
+
+### 2.5 (Optional) Clear Stale Index Cache
+
+Cache files under `ontology/index_cache/` are keyed by schema version, so stale entries are ignored automatically. If disk usage is a concern, remove them manually:
+
+```bash
+rm -rf ontology/index_cache/
 ```
 
 ## 3. (Optional) Pre-pull LLM Model

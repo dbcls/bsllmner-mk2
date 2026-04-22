@@ -86,8 +86,14 @@ For field property details, see [Select Mode - Select Config Customization](sele
 
 | Aspect | hg38 | mm10 |
 |--------|------|------|
-| cell_line TaxID filter | `NCBI_TaxID:9606` | `NCBI_TaxID:10090` |
-| disease TaxID filter | `NCBITaxon:9606` | None (no filter) |
+| `cell_line` ontology | `cellosaurus.owl` + `ontology_filter: NCBI_TaxID:9606` | `cellosaurus.owl` + `ontology_filter: NCBI_TaxID:10090` |
+| `cell_type` ontology | `cl_human_subset.owl` (CL human_subset + EFO cell types) | `cl_mouse_subset.owl` (CL mouse_subset + EFO cell types) |
+| `tissue` ontology | `uberon_human_subset.owl` | `uberon_mouse_subset.owl` |
+| `disease` ontology | `mondo_human_subset.owl` (`MONDO:0700096` subtree) | `mondo.owl` (full MONDO — no mouse subset query upstream) |
+| `drug` ontology | `chebi_subset.owl` | `chebi_subset.owl` |
+| `knockout/down/overexpressed_gene` ontology | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
+
+For CL / UBERON / ChEBI / MONDO the subset OWLs encode the species / hierarchy filter at build time, so no runtime `ontology_filter` is needed. `ontology_filter` is retained only for Cellosaurus (per-species tax ID).
 
 ## Processing hg38 (Human)
 
