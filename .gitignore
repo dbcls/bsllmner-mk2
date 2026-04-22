@@ -206,8 +206,14 @@ bsllmner2-results/
 chip-atlas-data/
 ontology/
 bp_entries/
+work/
 
 # Slurm
 slurm.sh
 compose.slurm.yml
 slurm-logs/
+
+# Large per-run result dumps kept locally on dbcls-ai01
+hg38-results/
+mm10-results/
+id_relation/
