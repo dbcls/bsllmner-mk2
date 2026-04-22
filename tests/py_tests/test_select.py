@@ -28,7 +28,9 @@ from bsllmner2.select import (
     _pick_exact_match_search_result,
     _pick_search_result_by_id,
     _serialize_candidates_for_llm,
+    _text2term_acronym,
     build_index_map,
+    build_text2term_cache,
     select,
 )
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
@@ -913,3 +915,138 @@ class TestBuildIndexMap:
             result, _disk_io = build_index_map(config)
         assert tsv in result
         assert isinstance(result[tsv], OntologyIndex)
+
+
+# === TestBuildText2termCache ===
+
+
+class TestBuildText2termCache:
+    """Tests for build_text2term_cache (text2term ontology preregistration)."""
+
+    @staticmethod
+    def _make_owl_config(
+        owl: Path,
+        ontology_filter: dict[str, str] | None = None,
+    ) -> SelectConfig:
+        return SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=owl,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                    ontology_filter=ontology_filter,
+                ),
+            },
+        )
+
+    def test_skips_non_owl(self, tmp_path: Path) -> None:
+        tsv = tmp_path / "cells.tsv"
+        tsv.write_text("CL:0000001\trdfs:label\tneuron\n", encoding="utf-8")
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    ontology_file=tsv,
+                    prompt_description="Cell line name",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "text2term_cache"
+        with (
+            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select.text2term_cache_exists") as mock_exists,
+            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+        ):
+            disk_io = build_text2term_cache(config)
+        mock_exists.assert_not_called()
+        mock_build.assert_not_called()
+        assert disk_io.text2term_cache_build_sec == []
+        assert disk_io.text2term_cache_load_sec == []
+
+    def test_cache_hit_skips_build(self, tmp_path: Path) -> None:
+        owl = tmp_path / "ont.owl"
+        owl.write_bytes(b"<rdf:RDF/>")
+        config = self._make_owl_config(owl)
+        cache_dir = tmp_path / "text2term_cache"
+        with (
+            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select.text2term_cache_exists", return_value=True) as mock_exists,
+            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+        ):
+            disk_io = build_text2term_cache(config)
+        mock_exists.assert_called_once()
+        mock_build.assert_not_called()
+        assert len(disk_io.text2term_cache_load_sec) == 1
+        assert disk_io.text2term_cache_build_sec == []
+
+    def test_cache_miss_triggers_build_with_expected_acronym(self, tmp_path: Path) -> None:
+        owl = tmp_path / "ont.owl"
+        owl.write_bytes(b"<rdf:RDF/>")
+        ontology_filter = {"hasDbXref": "NCBI_TaxID:9606"}
+        config = self._make_owl_config(owl, ontology_filter=ontology_filter)
+        cache_dir = tmp_path / "text2term_cache"
+        expected_acronym = f"ont_{_compute_filter_hash(ontology_filter)}"
+        with (
+            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select.text2term_cache_exists", return_value=False),
+            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+        ):
+            disk_io = build_text2term_cache(config)
+        mock_build.assert_called_once_with(owl, expected_acronym, cache_dir)
+        assert len(disk_io.text2term_cache_build_sec) == 1
+
+    def test_duplicate_path_built_once(self, tmp_path: Path) -> None:
+        owl = tmp_path / "ont.owl"
+        owl.write_bytes(b"<rdf:RDF/>")
+        config = SelectConfig(
+            fields={
+                "field_a": SelectConfigField(
+                    ontology_file=owl,
+                    prompt_description="A",
+                    value_type="string",
+                ),
+                "field_b": SelectConfigField(
+                    ontology_file=owl,
+                    prompt_description="B",
+                    value_type="string",
+                ),
+            },
+        )
+        cache_dir = tmp_path / "text2term_cache"
+        with (
+            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select.text2term_cache_exists", return_value=False),
+            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+        ):
+            build_text2term_cache(config)
+        assert mock_build.call_count == 1
+
+    def test_acronym_changes_with_filter(self, tmp_path: Path) -> None:
+        owl = tmp_path / "cells.owl"
+        a_nofilter = _text2term_acronym(owl, None)
+        a_human = _text2term_acronym(owl, {"hasDbXref": "NCBI_TaxID:9606"})
+        a_mouse = _text2term_acronym(owl, {"hasDbXref": "NCBI_TaxID:10090"})
+        assert a_nofilter.startswith("cells_")
+        assert len({a_nofilter, a_human, a_mouse}) == 3
+
+    def test_cache_ontology_oserror_logged_and_continues(
+        self,
+        tmp_path: Path,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        owl = tmp_path / "ont.owl"
+        owl.write_bytes(b"<rdf:RDF/>")
+        config = self._make_owl_config(owl)
+        cache_dir = tmp_path / "text2term_cache"
+        with (
+            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select.text2term_cache_exists", return_value=False),
+            patch(
+                "bsllmner2.select.build_text2term_cache_for_owl",
+                side_effect=OSError("disk full"),
+            ),
+            caplog.at_level(logging.WARNING),
+        ):
+            disk_io = build_text2term_cache(config)
+        assert disk_io.text2term_cache_build_sec == []
+        assert "text2term cache_ontology failed" in caplog.text

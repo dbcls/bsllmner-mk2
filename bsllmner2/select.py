@@ -27,9 +27,11 @@ from bsllmner2.models import (
 )
 from bsllmner2.ontology_search import (
     build_index_from_file,
+    build_text2term_cache_for_owl,
     is_label_prop,
     search_terms,
     search_terms_with_text2term,
+    text2term_cache_exists,
 )
 
 
@@ -40,6 +42,7 @@ class SelectStageTimings(TypedDict):
 
 
 INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "ontology/index_cache"))
+TEXT2TERM_CACHE_DIR = Path(os.environ.get("BSLLMNER2_TEXT2TERM_CACHE_DIR", "ontology/text2term_cache"))
 
 
 def _resolved_from_search_result(
@@ -126,6 +129,77 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
             LOGGER.warning("Failed to save cache %s", cache_file_path, exc_info=True)
 
     return mapping, disk_io
+
+
+def _text2term_acronym(ontology_file: Path, ontology_filter: dict[str, str] | None) -> str:
+    """Stable text2term acronym that invalidates alongside the word-combination index cache."""
+    return f"{ontology_file.stem}_{_compute_filter_hash(ontology_filter)}"
+
+
+def build_text2term_cache(select_config: SelectConfig) -> DiskIoTimings:
+    """Ensure each OWL ontology is preregistered with text2term under its stable acronym.
+
+    Called once per run before batch processing. Populates the shared cache folder so per-batch
+    ``text2term.map_terms(..., use_cache=True)`` avoids OWL parsing. Non-OWL ontology files are
+    skipped. Failures are logged and the acronym is simply not preregistered, in which case the
+    per-batch wrapper will fall back to the uncached path (``target_ontology=<owl_path>``).
+    """
+    try:
+        TEXT2TERM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        LOGGER.warning(
+            "Failed to create text2term cache directory %s; text2term will run without cache",
+            TEXT2TERM_CACHE_DIR,
+            exc_info=True,
+        )
+        return DiskIoTimings()
+
+    disk_io = DiskIoTimings()
+    seen: set[Path] = set()
+
+    for field_config in select_config.fields.values():
+        ontology_file_path = field_config.ontology_file
+        if ontology_file_path is None:
+            continue
+        if ontology_file_path.suffix != ".owl":
+            continue
+        if ontology_file_path in seen:
+            continue
+        seen.add(ontology_file_path)
+
+        acronym = _text2term_acronym(ontology_file_path, field_config.ontology_filter)
+
+        try:
+            with stage_timer("text2term_cache_load") as t:
+                exists = text2term_cache_exists(acronym, TEXT2TERM_CACHE_DIR)
+            disk_io.text2term_cache_load_sec.append(t.elapsed_sec)
+        except (OSError, AttributeError, RuntimeError):
+            LOGGER.warning(
+                "text2term cache_exists failed for %s (acronym=%s); skipping preregistration",
+                ontology_file_path,
+                acronym,
+                exc_info=True,
+            )
+            continue
+
+        if exists:
+            LOGGER.info("text2term cache hit for %s (acronym=%s)", ontology_file_path, acronym)
+            continue
+
+        try:
+            with stage_timer("text2term_cache_build") as t:
+                build_text2term_cache_for_owl(ontology_file_path, acronym, TEXT2TERM_CACHE_DIR)
+            disk_io.text2term_cache_build_sec.append(t.elapsed_sec)
+            LOGGER.info("text2term cache built for %s (acronym=%s)", ontology_file_path, acronym)
+        except (OSError, AttributeError, RuntimeError):
+            LOGGER.warning(
+                "text2term cache_ontology failed for %s (acronym=%s); falling back to per-call OWL parse",
+                ontology_file_path,
+                acronym,
+                exc_info=True,
+            )
+
+    return disk_io
 
 
 def _collect_queries(
@@ -246,6 +320,7 @@ def _text2term_wrapper(
     select_entries: list[SelectEntry],
     select_config: SelectConfig,
     index_map: dict[Path, OntologyIndex] | None = None,
+    cache_folder: Path | None = None,
 ) -> list[SelectEntry]:
     """Perform text2term search for each field in the select configuration."""
     for field_name, field_config in select_config.fields.items():
@@ -267,8 +342,19 @@ def _text2term_wrapper(
             continue
 
         index = index_map.get(ontology_file_path) if index_map is not None else None
+        acronym = (
+            _text2term_acronym(ontology_file_path, field_config.ontology_filter)
+            if cache_folder is not None
+            else None
+        )
         try:
-            results = search_terms_with_text2term(queries, ontology_file_path, index=index)
+            results = search_terms_with_text2term(
+                queries,
+                ontology_file_path,
+                index=index,
+                acronym=acronym,
+                cache_folder=cache_folder,
+            )
         except (OSError, ValueError, RuntimeError) as e:
             LOGGER.exception(
                 "text2term failed. field: %s, error: %s",
@@ -474,6 +560,7 @@ async def select(
     thinking: bool = False,
     include_reasoning: bool = True,
     index_map: dict[Path, OntologyIndex] | None = None,
+    text2term_cache_folder: Path | None = None,
     num_ctx: int | None = None,
 ) -> tuple[list[SelectEntry], list[ChatResponse], SelectStageTimings]:
     # Ensure model is available, pull if necessary
@@ -526,7 +613,12 @@ async def select(
 
     # 2. Perform text2term search for each field specified in the select configuration.
     with stage_timer("text2term") as t_text2term:
-        _text2term_wrapper(intermediate_entries, select_config, index_map=index_map)
+        _text2term_wrapper(
+            intermediate_entries,
+            select_config,
+            index_map=index_map,
+            cache_folder=text2term_cache_folder,
+        )
 
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
 

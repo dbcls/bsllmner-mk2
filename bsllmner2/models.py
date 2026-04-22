@@ -273,6 +273,8 @@ class DiskIoTimings(BaseModel):
     index_cache_load_sec: list[float] = Field(default_factory=list)
     index_cache_save_sec: list[float] = Field(default_factory=list)
     index_build_from_file_sec: list[float] = Field(default_factory=list)
+    text2term_cache_build_sec: list[float] = Field(default_factory=list)
+    text2term_cache_load_sec: list[float] = Field(default_factory=list)
     resume_write_sec: list[float] = Field(default_factory=list)
 
 

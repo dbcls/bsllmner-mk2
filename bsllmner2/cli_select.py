@@ -42,7 +42,13 @@ from bsllmner2.pipeline import (
     evaluate_select_output,
     populate_run_metadata,
 )
-from bsllmner2.select import SelectStageTimings, build_index_map, select
+from bsllmner2.select import (
+    TEXT2TERM_CACHE_DIR,
+    SelectStageTimings,
+    build_index_map,
+    build_text2term_cache,
+    select,
+)
 
 
 def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
@@ -158,6 +164,9 @@ async def run_cli_select_async() -> None:
         bs_entries = [entry for entry in bs_entries if entry.get("accession") not in skip_ids]
 
     select_index_map, disk_io_timings = build_index_map(select_config)
+    text2term_disk_io = build_text2term_cache(select_config)
+    disk_io_timings.text2term_cache_build_sec.extend(text2term_disk_io.text2term_cache_build_sec)
+    disk_io_timings.text2term_cache_load_sec.extend(text2term_disk_io.text2term_cache_load_sec)
 
     wall_start = time.perf_counter()
 
@@ -176,6 +185,7 @@ async def run_cli_select_async() -> None:
                 args.thinking,
                 include_reasoning=args.include_reasoning,
                 index_map=select_index_map,
+                text2term_cache_folder=TEXT2TERM_CACHE_DIR,
                 num_ctx=args.num_ctx,
             )
             select_results.extend(orphan_select)
@@ -216,6 +226,7 @@ async def run_cli_select_async() -> None:
                 args.thinking,
                 include_reasoning=args.include_reasoning,
                 index_map=select_index_map,
+                text2term_cache_folder=TEXT2TERM_CACHE_DIR,
                 num_ctx=args.num_ctx,
             )
 

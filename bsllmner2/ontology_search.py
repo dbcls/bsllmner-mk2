@@ -531,11 +531,22 @@ def search_terms_with_text2term(
     queries: Iterable[str],
     owl_file: Path,
     index: OntologyIndex | None = None,
+    *,
+    acronym: str | None = None,
+    cache_folder: Path | None = None,
 ) -> dict[str, list[SearchResult]]:
-    df = text2term.map_terms(
-        source_terms=list(queries),
-        target_ontology=str(owl_file),
-    )
+    if acronym is not None and cache_folder is not None:
+        df = text2term.map_terms(
+            source_terms=list(queries),
+            target_ontology=acronym,
+            use_cache=True,
+            cache_folder=str(cache_folder),
+        )
+    else:
+        df = text2term.map_terms(
+            source_terms=list(queries),
+            target_ontology=str(owl_file),
+        )
     required = ["Source Term", "Mapped Term Label", "Mapped Term IRI", "Mapped Term CURIE", "Mapping Score"]
     missing = [c for c in required if c not in df.columns]
     if missing:
@@ -600,6 +611,20 @@ def search_terms_with_text2term(
             results[query].append(result)
 
     return results
+
+
+def text2term_cache_exists(acronym: str, cache_folder: Path) -> bool:
+    """Return True if a text2term cache for the given acronym exists in cache_folder."""
+    return bool(text2term.cache_exists(acronym, cache_folder=str(cache_folder)))
+
+
+def build_text2term_cache_for_owl(owl_file: Path, acronym: str, cache_folder: Path) -> None:
+    """Prebuild a text2term ontology cache entry so subsequent map_terms(use_cache=True) skips OWL parsing."""
+    text2term.cache_ontology(
+        ontology_url=str(owl_file),
+        ontology_acronym=acronym,
+        cache_folder=str(cache_folder),
+    )
 
 
 if __name__ == "__main__":

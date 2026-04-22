@@ -29,7 +29,10 @@ Can also be enabled with the `--debug` CLI option.
 
 | Environment Variable | Default | Description |
 |---------------------|---------|-------------|
-| `BSLLMNER2_INDEX_CACHE_DIR` | `ontology/index_cache` | Ontology index cache directory |
+| `BSLLMNER2_INDEX_CACHE_DIR` | `ontology/index_cache` | Ontology index cache directory (word-combination search index) |
+| `BSLLMNER2_TEXT2TERM_CACHE_DIR` | `ontology/text2term_cache` | text2term ontology cache directory (prebuilt per OWL so per-batch `map_terms` skips OWL parsing) |
+
+Cache layout and invalidation are described in [getting-started.md#25-optional-clear-stale-caches](getting-started.md#25-optional-clear-stale-caches).
 
 ## Metrics
 

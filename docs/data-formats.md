@@ -303,4 +303,31 @@ Accuracy metrics (`accuracy`, `precision`, `recall`, `f1`) are in `SelectResult.
 | `total_prompt_tokens` | Total prompt tokens processed |
 | `total_eval_tokens` | Total tokens generated |
 
+### StageTimings Fields
+
+One entry per processed batch (`performance.stage_timings[]`).
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `batch_idx` | `int` | Zero-based batch index |
+| `batch_size` | `int` | Number of entries in this batch |
+| `ner_sec` | `float \| null` | Stage 1 NER wall-clock time |
+| `ontology_search_sec` | `float \| null` | Stage 2a word-combination search time |
+| `text2term_sec` | `float \| null` | Stage 2b `text2term.map_terms()` time (cache load + scoring once the text2term cache is warm) |
+| `llm_select_sec` | `float \| null` | Stage 3 LLM selection time (`asyncio.gather` max across fields) |
+| `resume_write_sec` | `float \| null` | Resume checkpoint write time after the batch completes |
+
+### DiskIoTimings Fields
+
+Run-wide disk I/O timing lists (`performance.disk_io`). Entries are appended in the order operations occur, so `len(list)` indicates how many times the operation ran.
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index_cache_load_sec` | `list[float]` | OntologyIndex cache load time per ontology file (hit) |
+| `index_cache_save_sec` | `list[float]` | OntologyIndex cache save time per ontology file (miss -> rebuilt) |
+| `index_build_from_file_sec` | `list[float]` | OntologyIndex build time per OWL/TSV file (cache miss) |
+| `text2term_cache_build_sec` | `list[float]` | `text2term.cache_ontology()` time per OWL (first run only) |
+| `text2term_cache_load_sec` | `list[float]` | `text2term.cache_exists()` check time per OWL (cache hit path) |
+| `resume_write_sec` | `list[float]` | Per-batch resume write time |
+
 For interpretation guidance, see [benchmarking.md](benchmarking.md).

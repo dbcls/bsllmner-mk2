@@ -131,10 +131,17 @@ Performance data is embedded in the result file's `performance` field (both `Ext
 
 Per-batch breakdown. Compare `ner_sec`, `ontology_search_sec`, `text2term_sec`, `llm_select_sec` to identify the bottleneck stage.
 
+`text2term_sec` measures Stage 2b (`text2term.map_terms()`). Since the text2term cache is prebuilt once per run (via `build_text2term_cache()` at start-up), a warm `text2term_sec` reflects only cache load + TF-IDF scoring — expect single-digit to low-tens seconds. A large `text2term_sec` without a corresponding `disk_io.text2term_cache_build_sec` in the same run indicates a cache miss inside `map_terms` (e.g. the acronym was not registered before per-batch calls) and should be investigated.
+
+`ontology_search_sec` on the other hand is a pure in-memory dict/set lookup and is usually < 0.1 s even for hundreds of queries; a sudden spike here points at an index rebuild, not at ontology content.
+
 ### `performance.disk_io`
 
 | Field | What to check |
 |-------|---------------|
-| `index_cache_load_sec` | Cache hit speed |
-| `index_cache_save_sec` | First-run overhead |
+| `index_cache_load_sec` | OntologyIndex cache hit speed |
+| `index_cache_save_sec` | First-run write overhead |
+| `index_build_from_file_sec` | OntologyIndex rebuild (cache miss) cost per OWL/TSV |
+| `text2term_cache_build_sec` | text2term cache ontology build cost (first run only; empty on warm runs) |
+| `text2term_cache_load_sec` | text2term `cache_exists` probe on warm runs (should be near-zero) |
 | `resume_write_sec` | I/O growth over batches |

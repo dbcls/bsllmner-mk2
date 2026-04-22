@@ -64,12 +64,17 @@ docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 9606   # -> 
 docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 10090  # -> ontology/ncbi_gene_mouse.owl
 ```
 
-### 2.5 (Optional) Clear Stale Index Cache
+### 2.5 (Optional) Clear Stale Caches
 
-Cache files under `ontology/index_cache/` are keyed by schema version, so stale entries are ignored automatically. If disk usage is a concern, remove them manually:
+Select mode uses two on-disk caches:
+
+- **`ontology/index_cache/`** — word-combination search index (serialized `OntologyIndex`). Files are named `{ontology_file_name}_{filter_hash}_v2.pkl`. The `filter_hash` is a short SHA-256 of `ontology_filter` (`nofilter` when unset), so changes to the filter automatically produce a new cache file. The `_v2` suffix indicates the on-disk format version; older entries are simply ignored when the format changes.
+- **`ontology/text2term_cache/`** — text2term prebuilt ontology cache. Each OWL is cached under an acronym of the form `{ontology_file_stem}_{filter_hash}`, so per-batch `text2term.map_terms()` can reuse the parsed ontology across runs instead of re-parsing the OWL. Override the location with `BSLLMNER2_TEXT2TERM_CACHE_DIR` (see [configuration.md](configuration.md#cache)).
+
+Stale entries are ignored automatically when the key changes. If disk usage is a concern, remove them manually:
 
 ```bash
-rm -rf ontology/index_cache/
+rm -rf ontology/index_cache/ ontology/text2term_cache/
 ```
 
 ## 3. (Optional) Pre-pull LLM Model

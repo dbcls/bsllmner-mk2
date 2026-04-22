@@ -1161,3 +1161,51 @@ class TestSearchTermsWithText2term:
         alpha_results = [r for r in results["Alpha Cell"] if r.term_id == "TEST:0001"]
         assert alpha_results
         assert alpha_results[0].label == "Alpha Cell"
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_default_target_ontology_is_owl_path(self, mock_map_terms: MagicMock) -> None:
+        """Without acronym/cache_folder, map_terms uses the OWL file path as target_ontology."""
+        mock_map_terms.return_value = self._make_text2term_df()
+        index = build_index_from_owl(TEST_OWL_FILE)
+        search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        _args, kwargs = mock_map_terms.call_args
+        assert kwargs["target_ontology"] == str(TEST_OWL_FILE)
+        assert "use_cache" not in kwargs
+        assert "cache_folder" not in kwargs
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_acronym_and_cache_folder_enable_use_cache(
+        self, mock_map_terms: MagicMock, tmp_path: Path
+    ) -> None:
+        """When both acronym and cache_folder are given, map_terms uses use_cache=True."""
+        mock_map_terms.return_value = self._make_text2term_df()
+        index = build_index_from_owl(TEST_OWL_FILE)
+        cache_dir = tmp_path / "cache"
+        search_terms_with_text2term(
+            ["Alpha Cell"],
+            TEST_OWL_FILE,
+            index=index,
+            acronym="test_acronym",
+            cache_folder=cache_dir,
+        )
+        _args, kwargs = mock_map_terms.call_args
+        assert kwargs["target_ontology"] == "test_acronym"
+        assert kwargs["use_cache"] is True
+        assert kwargs["cache_folder"] == str(cache_dir)
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_cache_folder_without_acronym_falls_back(
+        self, mock_map_terms: MagicMock, tmp_path: Path
+    ) -> None:
+        """When only cache_folder is given (no acronym), map_terms falls back to OWL path."""
+        mock_map_terms.return_value = self._make_text2term_df()
+        index = build_index_from_owl(TEST_OWL_FILE)
+        search_terms_with_text2term(
+            ["Alpha Cell"],
+            TEST_OWL_FILE,
+            index=index,
+            cache_folder=tmp_path / "cache",
+        )
+        _args, kwargs = mock_map_terms.call_args
+        assert kwargs["target_ontology"] == str(TEST_OWL_FILE)
+        assert "use_cache" not in kwargs
