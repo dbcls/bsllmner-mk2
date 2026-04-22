@@ -220,8 +220,9 @@ Configuration file for Select mode. Defines the ontology file, prompt, and filte
       "prompt_description": "Drug is a chemical or biological substance...",
       "value_type": "array"
     },
-    "gene_perturbation": {
-      "prompt_description": "Experimental perturbation applied to the target gene...",
+    "knockout_gene": {
+      "ontology_file": "/app/ontology/ncbi_gene_human.owl",
+      "prompt_description": "Knockout gene refers to a gene that has been rendered completely non-functional...",
       "value_type": "array"
     }
   }

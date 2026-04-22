@@ -77,9 +77,9 @@ For field property details, see [Select Mode - Select Config Customization](sele
 
 | File | TaxID | Fields | Use Case |
 |------|-------|--------|----------|
-| `select-config.json` | 9606 | 7 (cell_line, cell_type, tissue, disease, drug, gene, gene_perturbation) | Full extraction with gene info |
-| `select-config-hg38.json` | 9606 | 5 (cell_line, cell_type, tissue, disease, drug) | Human ChIP-Atlas evaluation |
-| `select-config-mm10.json` | 10090 | 5 (cell_line, cell_type, tissue, disease, drug) | Mouse ChIP-Atlas evaluation |
+| `select-config.json` | 9606 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Full extraction including gene perturbation info |
+| `select-config-hg38.json` | 9606 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Human ChIP-Atlas evaluation |
+| `select-config-mm10.json` | 10090 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Mouse ChIP-Atlas evaluation |
 
 **Note:** You should customize the select-config based on your specific needs.
 
