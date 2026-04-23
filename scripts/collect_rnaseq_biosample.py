@@ -1,6 +1,6 @@
 """Collect human RNA-Seq BioSample entries from DDBJ Search API.
 
-Uses cursor-based pagination (staging) to iterate all SRA experiments
+Uses cursor-based pagination to iterate all SRA experiments
 matching 'RNA-Seq' + 'Homo sapiens', filters by LIBRARY_STRATEGY,
 extracts BioSample IDs from dbXrefs, then bulk-fetches BioSample entries.
 
@@ -21,9 +21,7 @@ import httpx
 
 print = functools.partial(print, flush=True)  # noqa: A001
 
-# Staging has cursor support; production does not (yet).
-STAGING_API = "https://ddbj-staging.nig.ac.jp/search/api"
-PROD_API = "https://ddbj.nig.ac.jp/search/api"
+BASE_API = "https://ddbj.nig.ac.jp/search/api"
 
 PER_PAGE = 100
 BULK_BATCH_SIZE = 1000
@@ -82,7 +80,7 @@ async def collect_biosample_ids(
             }
 
         response = await client.get(
-            f"{STAGING_API}/entries/sra-experiment/",
+            f"{BASE_API}/entries/sra-experiment/",
             params=params,
         )
         response.raise_for_status()
@@ -144,7 +142,7 @@ async def bulk_fetch_biosample(
         for attempt in range(1, BULK_MAX_RETRIES + 1):
             try:
                 response = await client.post(
-                    f"{STAGING_API}/entries/biosample/bulk",
+                    f"{BASE_API}/entries/biosample/bulk",
                     json={"ids": chunk},
                     params={"format": "json", "includeDbXrefs": "false"},
                 )
