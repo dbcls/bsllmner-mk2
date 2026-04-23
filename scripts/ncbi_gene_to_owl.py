@@ -50,6 +50,10 @@ def main() -> None:
     g.bind("owl", OWL)
     g.bind("ncbi_gene", BASE)
 
+    # Declare annotation properties explicitly so owlready2 picks up values during OWL load.
+    g.add((OBOINOWL.hasExactSynonym, RDF.type, OWL.AnnotationProperty))
+    g.add((IAO_DEFINITION, RDF.type, OWL.AnnotationProperty))
+
     with NCBI_GENE_FILE.open("r", encoding="utf-8") as f:
         reader = csv.DictReader(f, delimiter="\t")
         for row in reader:

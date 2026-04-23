@@ -27,6 +27,8 @@ PER_PAGE = 100
 BULK_BATCH_SIZE = 1000
 BULK_MAX_RETRIES = 3
 BULK_RETRY_DELAY_SEC = 5.0
+SEARCH_MAX_RETRIES = 5
+SEARCH_RETRY_DELAY_SEC = 10.0
 
 
 # === Step 1: Collect BioSample IDs via SRA experiment search + cursor ===
@@ -79,12 +81,23 @@ async def collect_biosample_ids(
                 "datePublishedTo": date_to,
             }
 
-        response = await client.get(
-            f"{BASE_API}/entries/sra-experiment/",
-            params=params,
-        )
-        response.raise_for_status()
-        data = response.json()
+        data: dict[str, Any] = {}
+        for attempt in range(1, SEARCH_MAX_RETRIES + 1):
+            try:
+                response = await client.get(
+                    f"{BASE_API}/entries/sra-experiment/",
+                    params=params,
+                )
+                response.raise_for_status()
+                data = response.json()
+                break
+            except (httpx.HTTPStatusError, httpx.TransportError) as e:
+                if attempt == SEARCH_MAX_RETRIES:
+                    raise RuntimeError(
+                        f"Search API failed after {SEARCH_MAX_RETRIES} attempts (page {page_num + 1})",
+                    ) from e
+                print(f"  Retry {attempt}/{SEARCH_MAX_RETRIES} (page {page_num + 1}): {e}")
+                await asyncio.sleep(SEARCH_RETRY_DELAY_SEC * attempt)
 
         for item in data["items"]:
             total_checked += 1
@@ -211,7 +224,7 @@ async def async_main() -> None:
             biosample_ids = json.load(f)
         print(f"\n[Step 1] Loaded {len(biosample_ids)} BioSample IDs from {ids_path} (cached)")
     else:
-        print("\n[Step 1] Scanning SRA experiments (staging API with cursor)...")
+        print("\n[Step 1] Scanning SRA experiments (cursor pagination)...")
         async with httpx.AsyncClient(timeout=120.0) as client:
             biosample_ids = await collect_biosample_ids(
                 client,
