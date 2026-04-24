@@ -202,8 +202,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        default=Path(__file__).resolve().parent.parent / "bp_entries",
-        help="Output directory (default: <repo_root>/bp_entries).",
+        default=Path(__file__).resolve().parent.parent / "bs_entries",
+        help="Output directory (default: <repo_root>/bs_entries).",
     )
     return parser.parse_args()
 

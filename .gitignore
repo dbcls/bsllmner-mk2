@@ -205,7 +205,7 @@ ollama-data/
 bsllmner2-results/
 chip-atlas-data/
 ontology/
-bp_entries/
+bs_entries/
 work/
 
 # Slurm
