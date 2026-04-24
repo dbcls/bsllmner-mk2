@@ -44,6 +44,7 @@ from bsllmner2.pipeline import (
 )
 from bsllmner2.select import (
     TEXT2TERM_CACHE_DIR,
+    SearchMemo,
     SelectStageTimings,
     build_index_map,
     build_text2term_cache,
@@ -170,6 +171,12 @@ async def run_cli_select_async() -> None:
 
     wall_start = time.perf_counter()
 
+    # Run-scoped memoization so identical (field, value) queries resolved in
+    # an earlier batch are reused instead of re-running ontology / text2term
+    # lookups. Single-threaded asyncio means no locking is needed.
+    search_memo: SearchMemo = {}
+    t2t_memo: SearchMemo = {}
+
     async with run_with_lifecycle() as run_state:
         # Re-run select for orphan entries (extract already completed)
         if args.resume and orphan_ids:
@@ -187,6 +194,8 @@ async def run_cli_select_async() -> None:
                 index_map=select_index_map,
                 text2term_cache_folder=TEXT2TERM_CACHE_DIR,
                 num_ctx=args.num_ctx,
+                search_memo=search_memo,
+                t2t_memo=t2t_memo,
             )
             select_results.extend(orphan_select)
             all_select_chat_responses.extend(orphan_select_responses)
@@ -228,6 +237,8 @@ async def run_cli_select_async() -> None:
                 index_map=select_index_map,
                 text2term_cache_folder=TEXT2TERM_CACHE_DIR,
                 num_ctx=args.num_ctx,
+                search_memo=search_memo,
+                t2t_memo=t2t_memo,
             )
 
             return (

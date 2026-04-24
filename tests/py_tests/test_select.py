@@ -18,17 +18,20 @@ from bsllmner2.models import (
     SelectEntry,
 )
 from bsllmner2.select import (
+    SearchMemo,
     _build_select_schema,
     _build_select_system_message,
     _collect_candidates_for_field,
     _collect_queries,
     _compute_filter_hash,
     _distribute_results,
+    _ontology_search_wrapper,
     _parse_output_object,
     _pick_exact_match_search_result,
     _pick_search_result_by_id,
     _serialize_candidates_for_llm,
     _text2term_acronym,
+    _text2term_wrapper,
     build_index_map,
     build_text2term_cache,
     select,
@@ -1050,3 +1053,238 @@ class TestBuildText2termCache:
             disk_io = build_text2term_cache(config)
         assert disk_io.text2term_cache_build_sec == []
         assert "text2term cache_ontology failed" in caplog.text
+
+
+# === TestOntologySearchWrapperMemo (NEW) ===
+
+
+def _make_entry_with_value(accession: str, field: str, value: str) -> SelectEntry:
+    return SelectEntry(
+        extract=ExtractEntry(accession=accession, extracted={field: value}),
+        search_results={field: {}},
+        text2term_results={field: {}},
+        select_timings={field: {}},
+        results={},
+    )
+
+
+def _make_single_field_config(field: str, owl_path: Path) -> SelectConfig:
+    return SelectConfig(
+        fields={
+            field: SelectConfigField(
+                ontology_file=owl_path,
+                value_type="string",
+            ),
+        },
+    )
+
+
+class TestOntologySearchWrapperMemo:
+    """Memo shares (field, value) lookups across _ontology_search_wrapper batches."""
+
+    def _hela_result(self) -> SearchResult:
+        return _make_search_result(
+            term_id="CVCL:0030",
+            prop_uri=RDFS_LABEL,
+            exact_match=True,
+            value="HeLa",
+        )
+
+    def _h1299_result(self) -> SearchResult:
+        return _make_search_result(
+            term_id="CVCL:0060",
+            prop_uri=RDFS_LABEL,
+            exact_match=True,
+            value="H1299",
+        )
+
+    def test_memo_skips_repeated_query_on_second_batch(self) -> None:
+        owl_path = Path("fake_cell_line.owl")
+        config = _make_single_field_config("cell_line", owl_path)
+        index_map = {owl_path: OntologyIndex()}
+        memo: SearchMemo = {}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "HeLa")]
+        batch2 = [
+            _make_entry_with_value("SAM002", "cell_line", "HeLa"),
+            _make_entry_with_value("SAM003", "cell_line", "H1299"),
+        ]
+
+        def fake_search(index: OntologyIndex, queries: set[str]) -> dict[str, list[SearchResult]]:
+            out: dict[str, list[SearchResult]] = {}
+            if "HeLa" in queries:
+                out["HeLa"] = [self._hela_result()]
+            if "H1299" in queries:
+                out["H1299"] = [self._h1299_result()]
+            return out
+
+        with patch("bsllmner2.select.search_terms", side_effect=fake_search) as mock_search:
+            _ontology_search_wrapper(batch1, config, index_map=index_map, search_memo=memo)
+            _ontology_search_wrapper(batch2, config, index_map=index_map, search_memo=memo)
+
+        assert mock_search.call_count == 2
+        # Batch 1: HeLa requested.
+        assert mock_search.call_args_list[0].args[1] == {"HeLa"}
+        # Batch 2: HeLa is memoized; only H1299 is forwarded to search_terms.
+        assert mock_search.call_args_list[1].args[1] == {"H1299"}
+
+    def test_memo_populates_entries_for_cache_hit(self) -> None:
+        owl_path = Path("fake_cell_line.owl")
+        config = _make_single_field_config("cell_line", owl_path)
+        index_map = {owl_path: OntologyIndex()}
+        memo: SearchMemo = {}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "HeLa")]
+        batch2 = [_make_entry_with_value("SAM002", "cell_line", "HeLa")]
+
+        with patch(
+            "bsllmner2.select.search_terms",
+            return_value={"HeLa": [self._hela_result()]},
+        ):
+            _ontology_search_wrapper(batch1, config, index_map=index_map, search_memo=memo)
+            _ontology_search_wrapper(batch2, config, index_map=index_map, search_memo=memo)
+
+        # Cache hit must still populate the second batch's search_results.
+        cands = batch2[0].search_results["cell_line"]["HeLa"]
+        assert len(cands) == 1
+        assert cands[0].term_id == "CVCL:0030"
+
+    def test_memo_stores_empty_results_as_negative_cache(self) -> None:
+        owl_path = Path("fake_cell_line.owl")
+        config = _make_single_field_config("cell_line", owl_path)
+        index_map = {owl_path: OntologyIndex()}
+        memo: SearchMemo = {}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "UnknownCell")]
+        batch2 = [_make_entry_with_value("SAM002", "cell_line", "UnknownCell")]
+
+        # search_terms returns {} → memoized as an empty list; batch2 should not re-query.
+        with patch("bsllmner2.select.search_terms", return_value={}) as mock_search:
+            _ontology_search_wrapper(batch1, config, index_map=index_map, search_memo=memo)
+            _ontology_search_wrapper(batch2, config, index_map=index_map, search_memo=memo)
+
+        assert mock_search.call_count == 1
+        assert memo[("cell_line", "UnknownCell")] == []
+
+    def test_no_memo_searches_every_batch(self) -> None:
+        owl_path = Path("fake_cell_line.owl")
+        config = _make_single_field_config("cell_line", owl_path)
+        index_map = {owl_path: OntologyIndex()}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "HeLa")]
+        batch2 = [_make_entry_with_value("SAM002", "cell_line", "HeLa")]
+
+        with patch(
+            "bsllmner2.select.search_terms",
+            return_value={"HeLa": [self._hela_result()]},
+        ) as mock_search:
+            _ontology_search_wrapper(batch1, config, index_map=index_map)
+            _ontology_search_wrapper(batch2, config, index_map=index_map)
+
+        # Without memo, both batches forward the same query.
+        assert mock_search.call_count == 2
+        assert mock_search.call_args_list[0].args[1] == {"HeLa"}
+        assert mock_search.call_args_list[1].args[1] == {"HeLa"}
+
+
+# === TestText2termWrapperMemo (NEW) ===
+
+
+class TestText2termWrapperMemo:
+    """Memo shares (field, value) lookups across _text2term_wrapper batches; failed batches must not poison it."""
+
+    def _t2t_result(self, value: str, term_id: str, score: float = 0.9) -> SearchResult:
+        return _make_search_result(
+            term_id=term_id,
+            prop_uri=RDFS_LABEL,
+            exact_match=False,
+            value=value,
+            text2term_score=score,
+        )
+
+    def test_memo_skips_repeated_query_on_second_batch(self, tmp_path: Path) -> None:
+        owl_path = tmp_path / "fake_cell_line.owl"
+        owl_path.write_bytes(b"")
+        config = _make_single_field_config("cell_line", owl_path)
+        memo: SearchMemo = {}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "lung")]
+        batch2 = [
+            _make_entry_with_value("SAM002", "cell_line", "lung"),
+            _make_entry_with_value("SAM003", "cell_line", "brain"),
+        ]
+
+        def fake_t2t(
+            queries: set[str],
+            _owl: Path,
+            **_kwargs: object,
+        ) -> dict[str, list[SearchResult]]:
+            out: dict[str, list[SearchResult]] = {}
+            if "lung" in queries:
+                out["lung"] = [self._t2t_result("lung", "UBERON:0002048")]
+            if "brain" in queries:
+                out["brain"] = [self._t2t_result("brain", "UBERON:0000955")]
+            return out
+
+        with patch("bsllmner2.select.search_terms_with_text2term", side_effect=fake_t2t) as mock_t2t:
+            _text2term_wrapper(batch1, config, t2t_memo=memo)
+            _text2term_wrapper(batch2, config, t2t_memo=memo)
+
+        assert mock_t2t.call_count == 2
+        assert mock_t2t.call_args_list[0].args[0] == {"lung"}
+        assert mock_t2t.call_args_list[1].args[0] == {"brain"}
+
+    def test_memo_populates_entries_for_cache_hit(self, tmp_path: Path) -> None:
+        owl_path = tmp_path / "fake_cell_line.owl"
+        owl_path.write_bytes(b"")
+        config = _make_single_field_config("cell_line", owl_path)
+        memo: SearchMemo = {}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "lung")]
+        batch2 = [_make_entry_with_value("SAM002", "cell_line", "lung")]
+
+        with patch(
+            "bsllmner2.select.search_terms_with_text2term",
+            return_value={"lung": [self._t2t_result("lung", "UBERON:0002048")]},
+        ):
+            _text2term_wrapper(batch1, config, t2t_memo=memo)
+            _text2term_wrapper(batch2, config, t2t_memo=memo)
+
+        cands = batch2[0].text2term_results["cell_line"]["lung"]
+        assert len(cands) == 1
+        assert cands[0].term_id == "UBERON:0002048"
+
+    def test_exception_does_not_poison_memo(self, tmp_path: Path) -> None:
+        """Failed calls must not memoize queries, so the next batch can retry."""
+        owl_path = tmp_path / "fake_cell_line.owl"
+        owl_path.write_bytes(b"")
+        config = _make_single_field_config("cell_line", owl_path)
+        memo: SearchMemo = {}
+
+        batch1 = [_make_entry_with_value("SAM001", "cell_line", "lung")]
+        batch2 = [_make_entry_with_value("SAM002", "cell_line", "lung")]
+
+        # First call raises; second call succeeds.
+        outputs: list[Exception | dict[str, list[SearchResult]]] = [
+            RuntimeError("transient text2term error"),
+            {"lung": [self._t2t_result("lung", "UBERON:0002048")]},
+        ]
+
+        def fake_t2t(*_args: object, **_kwargs: object) -> dict[str, list[SearchResult]]:
+            item = outputs.pop(0)
+            if isinstance(item, Exception):
+                raise item
+            return item
+
+        with patch("bsllmner2.select.search_terms_with_text2term", side_effect=fake_t2t) as mock_t2t:
+            _text2term_wrapper(batch1, config, t2t_memo=memo)
+            _text2term_wrapper(batch2, config, t2t_memo=memo)
+
+        # Both batches forwarded "lung" (no negative memo from the failure).
+        assert mock_t2t.call_count == 2
+        # Second batch's entries received the recovered result.
+        cands = batch2[0].text2term_results["cell_line"]["lung"]
+        assert len(cands) == 1
+        assert cands[0].term_id == "UBERON:0002048"
+        # Failed queries are not in the memo.
+        assert memo[("cell_line", "lung")][0].term_id == "UBERON:0002048"

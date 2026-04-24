@@ -41,6 +41,12 @@ class SelectStageTimings(TypedDict):
     llm_select_sec: float
 
 
+# Run-scoped memoization for ontology / text2term search. Key is (field_name,
+# extracted value); reused across batches so identical queries are resolved
+# once per run. Single-threaded asyncio makes lock-free sharing safe.
+SearchMemo = dict[tuple[str, str], list[SearchResult]]
+
+
 INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "ontology/index_cache"))
 TEXT2TERM_CACHE_DIR = Path(os.environ.get("BSLLMNER2_TEXT2TERM_CACHE_DIR", "ontology/text2term_cache"))
 
@@ -290,8 +296,14 @@ def _ontology_search_wrapper(
     select_entries: list[SelectEntry],
     select_config: SelectConfig,
     index_map: dict[Path, OntologyIndex] | None = None,
+    search_memo: SearchMemo | None = None,
 ) -> list[SelectEntry]:
-    """Perform ontology search for each field in the select configuration."""
+    """Perform ontology search for each field in the select configuration.
+
+    When ``search_memo`` is provided, previously seen ``(field, value)`` pairs
+    reuse their cached candidates instead of re-scanning the ontology index.
+    """
+    memo = search_memo if search_memo is not None else {}
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
         if ontology_file_path is None:
@@ -310,7 +322,13 @@ def _ontology_search_wrapper(
         if not queries:
             continue
 
-        results = search_terms(index, queries)
+        uncached = {q for q in queries if (field_name, q) not in memo}
+        if uncached:
+            new_results = search_terms(index, uncached)
+            for q in uncached:
+                memo[(field_name, q)] = new_results.get(q, [])
+
+        results = {q: memo[(field_name, q)] for q in queries}
         _distribute_results(select_entries, field_name, results, "search_results")
 
     return select_entries
@@ -321,8 +339,15 @@ def _text2term_wrapper(
     select_config: SelectConfig,
     index_map: dict[Path, OntologyIndex] | None = None,
     cache_folder: Path | None = None,
+    t2t_memo: SearchMemo | None = None,
 ) -> list[SelectEntry]:
-    """Perform text2term search for each field in the select configuration."""
+    """Perform text2term search for each field in the select configuration.
+
+    When ``t2t_memo`` is provided, previously seen ``(field, value)`` pairs
+    reuse their cached candidates instead of re-invoking text2term. Failed
+    batches are not memoized so transient errors can retry on the next batch.
+    """
+    memo = t2t_memo if t2t_memo is not None else {}
     for field_name, field_config in select_config.fields.items():
         ontology_file_path = field_config.ontology_file
         if ontology_file_path is None:
@@ -347,22 +372,28 @@ def _text2term_wrapper(
             if cache_folder is not None
             else None
         )
-        try:
-            results = search_terms_with_text2term(
-                queries,
-                ontology_file_path,
-                index=index,
-                acronym=acronym,
-                cache_folder=cache_folder,
-            )
-        except (OSError, ValueError, RuntimeError) as e:
-            LOGGER.exception(
-                "text2term failed. field: %s, error: %s",
-                field_name,
-                e,
-            )
-            results = {}
 
+        uncached = {q for q in queries if (field_name, q) not in memo}
+        if uncached:
+            try:
+                new_results = search_terms_with_text2term(
+                    uncached,
+                    ontology_file_path,
+                    index=index,
+                    acronym=acronym,
+                    cache_folder=cache_folder,
+                )
+            except (OSError, ValueError, RuntimeError) as e:
+                LOGGER.exception(
+                    "text2term failed. field: %s, error: %s",
+                    field_name,
+                    e,
+                )
+            else:
+                for q in uncached:
+                    memo[(field_name, q)] = new_results.get(q, [])
+
+        results = {q: memo.get((field_name, q), []) for q in queries}
         _distribute_results(select_entries, field_name, results, "text2term_results")
 
     return select_entries
@@ -562,6 +593,8 @@ async def select(
     index_map: dict[Path, OntologyIndex] | None = None,
     text2term_cache_folder: Path | None = None,
     num_ctx: int | None = None,
+    search_memo: SearchMemo | None = None,
+    t2t_memo: SearchMemo | None = None,
 ) -> tuple[list[SelectEntry], list[ChatResponse], SelectStageTimings]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
@@ -609,7 +642,12 @@ async def select(
 
     # 1. Perform ontology search for each field specified in the select configuration.
     with stage_timer("ontology_search") as t_ontology:
-        _ontology_search_wrapper(intermediate_entries, select_config, index_map=index_map)
+        _ontology_search_wrapper(
+            intermediate_entries,
+            select_config,
+            index_map=index_map,
+            search_memo=search_memo,
+        )
 
     # 2. Perform text2term search for each field specified in the select configuration.
     with stage_timer("text2term") as t_text2term:
@@ -618,6 +656,7 @@ async def select(
             select_config,
             index_map=index_map,
             cache_folder=text2term_cache_folder,
+            t2t_memo=t2t_memo,
         )
 
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
