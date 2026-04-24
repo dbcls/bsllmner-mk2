@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate subset OWL files for CL / UBERON / ChEBI / MONDO using
+# Generate subset OWL files for CL / UBERON / ChEBI / MONDO / PO using
 # sh-ikeda/ontology-constructor-for-bsllmner SPARQL templates + ROBOT
 # (Docker image obolibrary/robot). Outputs land under ontology/ and are
 # loadable by owlready2.
@@ -14,11 +14,11 @@ for arg in "$@"; do
       cat <<'EOF'
 Usage: scripts/build_subset_ontologies.sh [--force]
 
-Generates subset OWL files for CL / UBERON / ChEBI / MONDO under ontology/.
+Generates subset OWL files for CL / UBERON / ChEBI / MONDO / PO under ontology/.
 
 Prerequisites:
   - Upstream OWLs present under ontology/: cl.owl, efo.owl, uberon.owl,
-    mondo.owl, chebi.owl (run scripts/download_ontology_files.py first).
+    mondo.owl, chebi.owl, po.owl (run scripts/download_ontology_files.py first).
   - docker with access to obolibrary/robot:latest.
   - git (for sh-ikeda clone/pull under work/).
 
@@ -41,7 +41,7 @@ WORK_DIR="${REPO_ROOT}/work"
 SH_IKEDA_DIR="${WORK_DIR}/ontology-constructor-for-bsllmner"
 
 missing=()
-for f in cl.owl efo.owl uberon.owl mondo.owl chebi.owl; do
+for f in cl.owl efo.owl uberon.owl mondo.owl chebi.owl po.owl; do
   [[ -f "${ONTOLOGY_DIR}/${f}" ]] || missing+=("${f}")
 done
 if (( ${#missing[@]} > 0 )); then
@@ -135,6 +135,35 @@ build_chebi_subset() {
   cleanup _chebi_role.owl _chebi_mod.ttl _chebi_pre.owl
 }
 
+po_preprocess() {
+  # Apply sh-ikeda/po/po_edit.awk inside the robot image to strip
+  # German/Japanese/Spanish synonyms and owl:Axiom blocks. GNU awk's gensub()
+  # is required, so delegate to the bundled gawk rather than host awk.
+  local infile="$1"
+  local outfile="$2"
+  docker run --rm \
+    -v "${ONTOLOGY_DIR}:/work" \
+    -v "${SH_IKEDA_DIR}:/queries" \
+    -w /work \
+    --entrypoint bash \
+    obolibrary/robot:latest \
+    -c "awk -f /queries/po/po_edit.awk ${infile} > ${outfile}"
+}
+
+build_po_subset() {
+  # $1: variant ("tissue" or "cell"), $2: output subset owl name.
+  # Assumes po_preprocess() has already produced _po_mod.owl.
+  local variant="$1"
+  local out="$2"
+  local tmp_ttl="_po_${variant}.ttl"
+  local tmp_owl="_po_${variant}_pre.owl"
+
+  robot "-Xmx8g" query --input _po_mod.owl --query "/queries/po/po_construct_${variant}.rq" "${tmp_ttl}"
+  robot "-Xmx8g" convert --input "${tmp_ttl}" --format owl --output "${tmp_owl}"
+  add_class_type "${tmp_owl}" "${out}"
+  cleanup "${tmp_ttl}" "${tmp_owl}"
+}
+
 if skip_if_exists cl_human_subset.owl; then
   build_cl_variant human cl_human_subset.owl
 fi
@@ -158,6 +187,19 @@ fi
 
 if skip_if_exists chebi_subset.owl; then
   build_chebi_subset
+fi
+
+# PO は tissue と cell の両方とも po_edit.awk で前処理した _po_mod.owl から
+# 抽出するので、どちらかでも生成が必要なら preprocess を 1 回だけ実行して共有する。
+need_po_tissue=0
+need_po_cell=0
+if skip_if_exists po_tissue_subset.owl; then need_po_tissue=1; fi
+if skip_if_exists po_cell_subset.owl; then need_po_cell=1; fi
+if (( need_po_tissue == 1 || need_po_cell == 1 )); then
+  po_preprocess po.owl _po_mod.owl
+  (( need_po_tissue == 1 )) && build_po_subset tissue po_tissue_subset.owl
+  (( need_po_cell == 1 )) && build_po_subset cell po_cell_subset.owl
+  cleanup _po_mod.owl
 fi
 
 echo ""

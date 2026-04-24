@@ -76,6 +76,7 @@ Version is managed via git tags using [hatch-vcs](https://github.com/ofek/hatch-
 | `inspect_select_result.py` | Inspect a SelectResult JSON (summary / show / find subcommands) |
 | `select-config-hg38.json` | Human (hg38) select config |
 | `select-config-mm10.json` | Mouse (mm10) select config |
+| `select-config-plants.json` | Plants (PO) select config (tissue / cell_type) |
 
 ## Debug tools
 

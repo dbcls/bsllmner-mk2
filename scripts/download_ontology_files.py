@@ -82,6 +82,13 @@ async def main() -> None:
             "file_name": "chebi.owl",
             "url": "https://ftp.ebi.ac.uk/pub/databases/chebi/ontology/chebi.owl",
         },
+        {
+            # Plant Ontology (full, required for po_tissue_subset / po_cell_subset
+            # consumed by sh-ikeda/ontology-constructor-for-bsllmner)
+            # https://purl.obolibrary.org/obo/po.owl
+            "file_name": "po.owl",
+            "url": "https://purl.obolibrary.org/obo/po.owl",
+        },
     ]
 
     for file_info in download_files:

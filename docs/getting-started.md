@@ -30,6 +30,7 @@ This fetches the following upstream files to `ontology/`:
 - `uberon.owl` - full UBERON anatomy ontology (input for UBERON human/mouse subset)
 - `mondo.owl` - full MONDO disease ontology
 - `chebi.owl` - full ChEBI chemical entities
+- `po.owl` - full Plant Ontology (input for PO plant tissue / cell subsets)
 
 ### 2.2 Preprocess Cellosaurus (per species)
 
@@ -55,7 +56,7 @@ docker run -v $PWD/ontology:/work -w /work --rm obolibrary/robot \
 
 ### 2.3 Build Subset Ontologies
 
-Generate subset OWL files for CL / UBERON / ChEBI / MONDO. This runs `sh-ikeda/ontology-constructor-for-bsllmner` SPARQL templates through ROBOT (Docker), then applies a post-processing step to add `rdf:type owl:Class` so `owlready2` can load them.
+Generate subset OWL files for CL / UBERON / ChEBI / MONDO / PO. This runs `sh-ikeda/ontology-constructor-for-bsllmner` SPARQL templates through ROBOT (Docker), then applies a post-processing step to add `rdf:type owl:Class` so `owlready2` can load them.
 
 ```bash
 bash scripts/build_subset_ontologies.sh
@@ -67,6 +68,7 @@ Outputs (all under `ontology/`):
 - `uberon_human_subset.owl`, `uberon_mouse_subset.owl`
 - `chebi_subset.owl` (has-role info injected into `rdfs:comment`; the ChEBI update step needs `ROBOT_JAVA_ARGS="-Xmx24g"` because the upstream `chebi.owl` is large)
 - `mondo_human_subset.owl` (mm10 reuses the same subset — mouse-model diseases are overwhelmingly human diseases, so no separate `mondo_mouse_subset.owl` is built)
+- `po_tissue_subset.owl`, `po_cell_subset.owl` (PO plant tissue / cell subtrees; `po.owl` is preprocessed with `po_edit.awk` to strip German/Japanese/Spanish synonyms and `owl:Axiom` blocks before the SPARQL CONSTRUCT)
 
 ### 2.4 Generate NCBI Gene OWL
 

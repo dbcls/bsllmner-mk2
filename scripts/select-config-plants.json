@@ -6,7 +6,7 @@
     },
     "cell_type": {
       "ontology_file": "ontology/po_cell_subset.owl",
-      "prompt_description": "Cell type is a classification of cells based on their structure and function, representing normal cells. e.g., guard cell, pollen sperm cell, etc."
+      "prompt_description": "Cell type is a classification of cells based on their structure and function, representing normal cells. e.g., guard cell, pollen sperm cell, etc. (NOTE: When the term to be extracted is written in the plural, change it to the singular.)"
     }
   }
 }

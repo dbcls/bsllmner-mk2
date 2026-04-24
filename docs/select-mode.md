@@ -98,7 +98,7 @@ When `--no-reasoning` is specified, the `reasoning` field is omitted from the ou
 
 ## Select Config Customization
 
-Select mode is configured via a JSON file (`--select-config`). Each field defines an extraction target with its ontology mapping. Pre-built configs are available in `scripts/` (`select-config-hg38.json`, `select-config-mm10.json`).
+Select mode is configured via a JSON file (`--select-config`). Each field defines an extraction target with its ontology mapping. Pre-built configs are available in `scripts/` (`select-config-hg38.json`, `select-config-mm10.json`, `select-config-plants.json`).
 
 To create a custom config, define fields as follows:
 
