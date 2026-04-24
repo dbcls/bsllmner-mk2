@@ -1,0 +1,12 @@
+{
+  "fields": {
+    "tissue": {
+      "ontology_file": "ontology/po_tissue_subset.owl",
+      "prompt_description": "Tissue is a group of cells that work together to perform a specific function in an organism. e.g., leaf, root, etc. (NOTE: When the term to be extracted is written in the plural, change it to the singular.)"
+    },
+    "cell_type": {
+      "ontology_file": "ontology/po_cell_subset.owl",
+      "prompt_description": "Cell type is a classification of cells based on their structure and function, representing normal cells. e.g., guard cell, pollen sperm cell, etc."
+    }
+  }
+}
