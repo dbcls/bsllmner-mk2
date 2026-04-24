@@ -6,7 +6,7 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # Default values
-NUM_GPUS=2
+NUM_GPUS=1
 PARTITION="h200"
 CPUS=32
 MEM="128G"
@@ -31,7 +31,7 @@ Options:
   -h, --help           Show this help message
 
 Examples:
-  $(basename "$0")                    # Use defaults (2 GPUs, h200 partition)
+  $(basename "$0")                    # Use defaults (1 GPU, h200 partition)
   $(basename "$0") -g 4 -t 72:00:00   # 4 GPUs, 72 hour limit
   $(basename "$0") -g 8 -m 256G       # 8 GPUs, 256GB memory
   $(basename "$0") -b                 # Enable docker build

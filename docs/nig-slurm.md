@@ -44,7 +44,7 @@ cd bsllmner-mk2
 Run `init-slurm.sh` to generate `slurm.sh` with your desired configuration:
 
 ```bash
-# Default: 2 GPUs, h200 partition, 168 hours
+# Default: 1 GPU, h200 partition, 168 hours
 ./init-slurm.sh
 
 # Custom: 4 GPUs, 72 hour limit
@@ -61,7 +61,7 @@ Available options:
 
 | Option | Description | Default |
 |--------|-------------|---------|
-| `-g, --gpus` | Number of GPUs | 2 |
+| `-g, --gpus` | Number of GPUs | 1 |
 | `-p, --partition` | Slurm partition | h200 |
 | `-c, --cpus` | CPUs per task | 32 |
 | `-m, --mem` | Memory allocation | 128G |
@@ -195,7 +195,7 @@ docker exec -t bsllmner-mk2-ollama nvidia-smi
 
    ```bash
    cat compose.slurm.yml | grep device_ids
-   # Expected: device_ids: [ "2", "3" ] (or similar)
+   # Expected: device_ids: [ "N" ] (GPU=1 なら 1 要素、N は Slurm の割当次第)
    ```
 
 ### Ollama Not Responding
