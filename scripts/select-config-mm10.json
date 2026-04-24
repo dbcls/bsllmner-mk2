@@ -1,11 +1,8 @@
 {
   "fields": {
     "cell_line": {
-      "ontology_file": "ontology/cellosaurus.owl",
-      "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc.",
-      "ontology_filter": {
-        "hasDbXref": "NCBI_TaxID:10090"
-      }
+      "ontology_file": "ontology/cellosaurus_mouse.owl",
+      "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc."
     },
     "cell_type": {
       "ontology_file": "ontology/cl_mouse_subset.owl",

@@ -932,14 +932,6 @@ class TestBuildIndexFromOwl:
         labels = index.term_id_to_labels.get("TEST:0001", [])
         assert "alpha" not in labels
 
-    def test_additional_conditions_filter(self) -> None:
-        """additional_conditions filters classes that lack the property value."""
-        index = build_index_from_owl(TEST_OWL_FILE, additional_conditions={"hasDbXref": "XREF:001"})
-        # Only TEST_0003 has hasDbXref="XREF:001"
-        assert "TEST:0003" in index.term_id_to_labels
-        assert "TEST:0001" not in index.term_id_to_labels
-        assert "TEST:0002" not in index.term_id_to_labels
-
     def test_search_after_owl_index(self) -> None:
         """Integration: build_index_from_owl + search_terms finds label."""
         index = build_index_from_owl(TEST_OWL_FILE)
@@ -972,12 +964,6 @@ class TestBuildIndexFromOwl:
         assert "disease: alpha disease" not in index.value_to_annotations
         assert "disease: gamma disease" not in index.value_to_annotations
         assert "derived_from: delta cell" not in index.value_to_annotations
-
-    def test_comments_filtered_by_additional_conditions(self) -> None:
-        """additional_conditions also filters term_id_to_comments."""
-        index = build_index_from_owl(TEST_OWL_FILE, additional_conditions={"hasDbXref": "XREF:001"})
-        assert "TEST:0003" in index.term_id_to_comments
-        assert "TEST:0001" not in index.term_id_to_comments
 
     def test_search_results_include_comments(self) -> None:
         """SearchResult.comments is populated from term_id_to_comments."""
@@ -1015,12 +1001,6 @@ class TestBuildIndexFromOwl:
         index = build_index_from_owl(TEST_OWL_FILE)
         assert "the alpha-family cell type used for testing." not in index.value_to_annotations
         assert "primary gamma cell definition." not in index.value_to_annotations
-
-    def test_definitions_filtered_by_additional_conditions(self) -> None:
-        """additional_conditions also filters term_id_to_definitions."""
-        index = build_index_from_owl(TEST_OWL_FILE, additional_conditions={"hasDbXref": "XREF:001"})
-        assert "TEST:0003" in index.term_id_to_definitions
-        assert "TEST:0001" not in index.term_id_to_definitions
 
     def test_search_results_include_definitions(self) -> None:
         """SearchResult.definitions is populated from term_id_to_definitions."""
@@ -1066,12 +1046,6 @@ class TestBuildIndexFromFile:
         txt.write_text("data", encoding="utf-8")
         with pytest.raises(ValueError, match="Unsupported"):
             build_index_from_file(txt)
-
-    def test_owl_with_filter(self) -> None:
-        """OWL dispatch passes ontology_filter as additional_conditions."""
-        index = build_index_from_file(TEST_OWL_FILE, ontology_filter={"hasDbXref": "XREF:001"})
-        assert "TEST:0003" in index.term_id_to_labels
-        assert "TEST:0001" not in index.term_id_to_labels
 
 
 # === search_terms_with_text2term ===

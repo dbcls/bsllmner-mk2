@@ -62,9 +62,6 @@ The select config JSON file defines which fields to extract and map to ontologie
     "field_name": {
       "ontology_file": "/app/ontology/example.owl",
       "prompt_description": "Description for LLM",
-      "ontology_filter": {
-        "hasDbXref": "NCBI_TaxID:9606"
-      },
       "value_type": "string"
     }
   }
@@ -86,14 +83,14 @@ For field property details, see [Select Mode - Select Config Customization](sele
 
 | Aspect | hg38 | mm10 |
 |--------|------|------|
-| `cell_line` ontology | `cellosaurus.owl` + `ontology_filter: NCBI_TaxID:9606` | `cellosaurus.owl` + `ontology_filter: NCBI_TaxID:10090` |
+| `cell_line` ontology | `cellosaurus_human.owl` (per-species OBO preprocessed via `--taxid 9606`) | `cellosaurus_mouse.owl` (`--taxid 10090`) |
 | `cell_type` ontology | `cl_human_subset.owl` (CL human_subset + EFO cell types) | `cl_mouse_subset.owl` (CL mouse_subset + EFO cell types) |
 | `tissue` ontology | `uberon_human_subset.owl` | `uberon_mouse_subset.owl` |
 | `disease` ontology | `mondo_human_subset.owl` (`MONDO:0700096` subtree) | `mondo.owl` (full MONDO — no mouse subset query upstream) |
 | `drug` ontology | `chebi_subset.owl` | `chebi_subset.owl` |
 | `knockout/down/overexpressed_gene` ontology | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
 
-For CL / UBERON / ChEBI / MONDO the subset OWLs encode the species / hierarchy filter at build time, so no runtime `ontology_filter` is needed. `ontology_filter` is retained only for Cellosaurus (per-species tax ID).
+All species / hierarchy filtering is encoded at ontology build time; no runtime filter is applied by Select mode.
 
 ## Processing hg38 (Human)
 

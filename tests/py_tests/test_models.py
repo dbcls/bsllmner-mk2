@@ -110,11 +110,9 @@ class TestSelectConfigField:
         f = SelectConfigField(
             ontology_file=None,
             prompt_description=None,
-            ontology_filter=None,
         )
         assert f.ontology_file is None
         assert f.prompt_description is None
-        assert f.ontology_filter is None
 
     @given(vt=st.text().filter(lambda s: s not in {"string", "array"}))
     @settings(max_examples=50)

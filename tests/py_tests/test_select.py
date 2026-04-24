@@ -2,7 +2,6 @@
 
 import logging
 import pickle
-import re
 from pathlib import Path
 from unittest.mock import patch
 
@@ -128,29 +127,13 @@ class TestPickExactMatchSearchResult:
 
 
 class TestComputeFilterHash:
-    def test_none_returns_nofilter(self) -> None:
-        assert _compute_filter_hash(None) == "nofilter"
+    """The runtime ontology_filter feature is removed; the helper now returns a stable constant."""
 
-    def test_same_dict_same_hash(self) -> None:
-        d = {"a": "1", "b": "2"}
-        assert _compute_filter_hash(d) == _compute_filter_hash(d)
+    def test_returns_nofilter_constant(self) -> None:
+        assert _compute_filter_hash() == "nofilter"
 
-    def test_key_order_independent(self) -> None:
-        d1 = {"a": "1", "b": "2"}
-        d2 = {"b": "2", "a": "1"}
-        assert _compute_filter_hash(d1) == _compute_filter_hash(d2)
-
-    def test_empty_dict_not_nofilter(self) -> None:
-        h = _compute_filter_hash({})
-        assert h != "nofilter"
-        assert re.fullmatch(r"[0-9a-f]{16}", h)
-
-    def test_different_dicts_different_hash(self) -> None:
-        assert _compute_filter_hash({"a": "1"}) != _compute_filter_hash({"a": "2"})
-
-    def test_hash_is_16_char_hex(self) -> None:
-        h = _compute_filter_hash({"key": "value"})
-        assert re.fullmatch(r"[0-9a-f]{16}", h)
+    def test_idempotent(self) -> None:
+        assert _compute_filter_hash() == _compute_filter_hash()
 
 
 # === TestParseOutputObject ===
@@ -927,17 +910,13 @@ class TestBuildText2termCache:
     """Tests for build_text2term_cache (text2term ontology preregistration)."""
 
     @staticmethod
-    def _make_owl_config(
-        owl: Path,
-        ontology_filter: dict[str, str] | None = None,
-    ) -> SelectConfig:
+    def _make_owl_config(owl: Path) -> SelectConfig:
         return SelectConfig(
             fields={
                 "cell_line": SelectConfigField(
                     ontology_file=owl,
                     prompt_description="Cell line name",
                     value_type="string",
-                    ontology_filter=ontology_filter,
                 ),
             },
         )
@@ -985,10 +964,9 @@ class TestBuildText2termCache:
     def test_cache_miss_triggers_build_with_expected_acronym(self, tmp_path: Path) -> None:
         owl = tmp_path / "ont.owl"
         owl.write_bytes(b"<rdf:RDF/>")
-        ontology_filter = {"hasDbXref": "NCBI_TaxID:9606"}
-        config = self._make_owl_config(owl, ontology_filter=ontology_filter)
+        config = self._make_owl_config(owl)
         cache_dir = tmp_path / "text2term_cache"
-        expected_acronym = f"ont_{_compute_filter_hash(ontology_filter)}"
+        expected_acronym = f"ont_{_compute_filter_hash()}"
         with (
             patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
             patch("bsllmner2.select.text2term_cache_exists", return_value=False),
@@ -1024,13 +1002,14 @@ class TestBuildText2termCache:
             build_text2term_cache(config)
         assert mock_build.call_count == 1
 
-    def test_acronym_changes_with_filter(self, tmp_path: Path) -> None:
+    def test_acronym_embeds_stem_and_nofilter_suffix(self, tmp_path: Path) -> None:
         owl = tmp_path / "cells.owl"
-        a_nofilter = _text2term_acronym(owl, None)
-        a_human = _text2term_acronym(owl, {"hasDbXref": "NCBI_TaxID:9606"})
-        a_mouse = _text2term_acronym(owl, {"hasDbXref": "NCBI_TaxID:10090"})
-        assert a_nofilter.startswith("cells_")
-        assert len({a_nofilter, a_human, a_mouse}) == 3
+        assert _text2term_acronym(owl) == f"cells_{_compute_filter_hash()}"
+
+    def test_acronym_differs_per_ontology_file(self, tmp_path: Path) -> None:
+        a = _text2term_acronym(tmp_path / "cells.owl")
+        b = _text2term_acronym(tmp_path / "genes.owl")
+        assert a != b
 
     def test_cache_ontology_oserror_logged_and_continues(
         self,

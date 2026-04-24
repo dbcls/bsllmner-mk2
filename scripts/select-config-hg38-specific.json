@@ -1,11 +1,8 @@
 {
   "fields": {
     "cell_line": {
-      "ontology_file": "ontology/cellosaurus.owl",
-      "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc. When multiple ontology candidates match, prefer the MOST SPECIFIC descendant term over broader parent terms (e.g., 'CD14-positive monocyte' rather than 'monocyte'; 'cutaneous melanoma' rather than 'melanoma'; 'aortic endothelial cell' rather than 'endothelial cell'). Generalize only when no specific term fits the evidence.",
-      "ontology_filter": {
-        "hasDbXref": "NCBI_TaxID:9606"
-      }
+      "ontology_file": "ontology/cellosaurus_human.owl",
+      "prompt_description": "Cell line is a group of cells that are genetically identical and have been cultured in a laboratory setting. e.g., HeLa, Jurkat, HEK293, etc. When multiple ontology candidates match, prefer the MOST SPECIFIC descendant term over broader parent terms (e.g., 'CD14-positive monocyte' rather than 'monocyte'; 'cutaneous melanoma' rather than 'melanoma'; 'aortic endothelial cell' rather than 'endothelial cell'). Generalize only when no specific term fits the evidence."
     },
     "cell_type": {
       "ontology_file": "ontology/cl_human_subset.owl",

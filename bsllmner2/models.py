@@ -75,20 +75,11 @@ class SelectConfigField(BaseModel):
     ontology_file: Path | None = Field(
         None,
         description="Path to the ontology OWL file or TSV file.",
-        examples=["ontology/cellosaurus.owl", "ontology/cellosaurus.tsv"],
+        examples=["ontology/cellosaurus_human.owl", "ontology/cellosaurus_human.tsv"],
     )
     prompt_description: str | None = Field(
         None,
         description="Description to be included in the prompt for select mode.",
-    )
-    ontology_filter: dict[str, str] | None = Field(
-        None,
-        description=(
-            "Runtime filter criteria for ontology terms (e.g., {'hasDbXref': 'NCBI_TaxID:9606'}). "
-            "With the default subset OWLs the species / hierarchy filter is encoded at build time, "
-            "so this is retained only for Cellosaurus (per-species tax ID)."
-        ),
-        examples=[{"hasDbXref": "NCBI_TaxID:9606"}],
     )
     value_type: Literal["string", "array"] = Field(
         "string",

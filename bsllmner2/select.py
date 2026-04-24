@@ -1,7 +1,6 @@
 """Select mode: ontology search, text2term mapping, and LLM-based selection."""
 
 import asyncio
-import hashlib
 import json
 import os
 import pickle
@@ -88,13 +87,13 @@ def _pick_exact_match_search_result(
     return exact_matches[0]
 
 
-def _compute_filter_hash(ontology_filter: dict[str, str] | None) -> str:
-    """Compute a hash of the ontology filter for cache key."""
-    if ontology_filter is None:
-        return "nofilter"
-    filter_str = json.dumps(ontology_filter, sort_keys=True)
+def _compute_filter_hash() -> str:
+    """Return the stable cache-key suffix used when no ontology filter is applied.
 
-    return hashlib.sha256(filter_str.encode()).hexdigest()[:16]
+    The runtime filter feature has been retired, but the ``_nofilter`` suffix
+    is kept so on-disk cache file names stay consistent with past runs.
+    """
+    return "nofilter"
 
 
 def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyIndex], DiskIoTimings]:
@@ -110,7 +109,7 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
         if ontology_file_path in mapping:
             continue
 
-        filter_hash = _compute_filter_hash(field_config.ontology_filter)
+        filter_hash = _compute_filter_hash()
         cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{filter_hash}_v2.pkl")
         if cache_file_path.exists():
             try:
@@ -123,7 +122,7 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
                 LOGGER.warning("Failed to load cache %s", cache_file_path, exc_info=True)
 
         with stage_timer("index_build") as t:
-            index = build_index_from_file(ontology_file_path, ontology_filter=field_config.ontology_filter)
+            index = build_index_from_file(ontology_file_path)
         disk_io.index_build_from_file_sec.append(t.elapsed_sec)
         mapping[ontology_file_path] = index
 
@@ -137,9 +136,9 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
     return mapping, disk_io
 
 
-def _text2term_acronym(ontology_file: Path, ontology_filter: dict[str, str] | None) -> str:
+def _text2term_acronym(ontology_file: Path) -> str:
     """Stable text2term acronym that invalidates alongside the word-combination index cache."""
-    return f"{ontology_file.stem}_{_compute_filter_hash(ontology_filter)}"
+    return f"{ontology_file.stem}_{_compute_filter_hash()}"
 
 
 def build_text2term_cache(select_config: SelectConfig) -> DiskIoTimings:
@@ -173,7 +172,7 @@ def build_text2term_cache(select_config: SelectConfig) -> DiskIoTimings:
             continue
         seen.add(ontology_file_path)
 
-        acronym = _text2term_acronym(ontology_file_path, field_config.ontology_filter)
+        acronym = _text2term_acronym(ontology_file_path)
 
         try:
             with stage_timer("text2term_cache_load") as t:
@@ -314,7 +313,7 @@ def _ontology_search_wrapper(
             if index is None:
                 continue
         else:
-            index = build_index_from_file(ontology_file_path, ontology_filter=field_config.ontology_filter)
+            index = build_index_from_file(ontology_file_path)
 
         LOGGER.info("Searching ontology for field: %s", field_name)
 
@@ -367,11 +366,7 @@ def _text2term_wrapper(
             continue
 
         index = index_map.get(ontology_file_path) if index_map is not None else None
-        acronym = (
-            _text2term_acronym(ontology_file_path, field_config.ontology_filter)
-            if cache_folder is not None
-            else None
-        )
+        acronym = _text2term_acronym(ontology_file_path) if cache_folder is not None else None
 
         uncached = {q for q in queries if (field_name, q) not in memo}
         if uncached:

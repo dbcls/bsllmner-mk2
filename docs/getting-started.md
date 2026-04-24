@@ -24,19 +24,33 @@ docker compose exec app python3 scripts/download_ontology_files.py
 
 This fetches the following upstream files to `ontology/`:
 
-- `cellosaurus.obo` - Cell line database (preprocessed to OWL in §2.2)
+- `cellosaurus.obo` - Cell line database (preprocessed per species in §2.2)
 - `cl.owl` - full Cell Ontology (input for CL human/mouse subset)
 - `efo.owl` - Experimental Factor Ontology (merged into the CL subset as additional cell types under `EFO:0000324`)
 - `uberon.owl` - full UBERON anatomy ontology (input for UBERON human/mouse subset)
 - `mondo.owl` - full MONDO disease ontology
 - `chebi.owl` - full ChEBI chemical entities
 
-### 2.2 Preprocess Cellosaurus
+### 2.2 Preprocess Cellosaurus (per species)
 
-Cellosaurus arrives in OBO format and needs light OBO→OWL preprocessing (disease `xref` → `comment`, `derived_from` → `comment`):
+Cellosaurus arrives in OBO format. Run the preprocessor once per taxon; it filters
+terms by `NCBI_TaxID`, preserves `Disease` / `derived_from` as `rdfs:comment`, and
+synthesizes a one-line `def:` (IAO_0000115 textual definition) from Category /
+Sex / Species of origin / Disease / Derived from so the Stage 3 LLM has richer
+context for each cell-line candidate.
 
 ```bash
-docker compose exec app python3 scripts/preprocess_cellosaurus.py
+docker compose exec app python3 scripts/preprocess_cellosaurus.py --taxid 9606    # -> ontology/cellosaurus_human.mod.obo
+docker compose exec app python3 scripts/preprocess_cellosaurus.py --taxid 10090   # -> ontology/cellosaurus_mouse.mod.obo
+```
+
+Then convert each `.mod.obo` to OWL with ROBOT:
+
+```bash
+docker run -v $PWD/ontology:/work -w /work --rm obolibrary/robot \
+    robot convert -i cellosaurus_human.mod.obo -o cellosaurus_human.owl --format owl
+docker run -v $PWD/ontology:/work -w /work --rm obolibrary/robot \
+    robot convert -i cellosaurus_mouse.mod.obo -o cellosaurus_mouse.owl --format owl
 ```
 
 ### 2.3 Build Subset Ontologies
@@ -68,8 +82,8 @@ docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 10090  # -> 
 
 Select mode uses two on-disk caches:
 
-- **`ontology/index_cache/`** — word-combination search index (serialized `OntologyIndex`). Files are named `{ontology_file_name}_{filter_hash}_v2.pkl`. The `filter_hash` is a short SHA-256 of `ontology_filter` (`nofilter` when unset), so changes to the filter automatically produce a new cache file. The `_v2` suffix indicates the on-disk format version; older entries are simply ignored when the format changes.
-- **`ontology/text2term_cache/`** — text2term prebuilt ontology cache. Each OWL is cached under an acronym of the form `{ontology_file_stem}_{filter_hash}`, so per-batch `text2term.map_terms()` can reuse the parsed ontology across runs instead of re-parsing the OWL. Override the location with `BSLLMNER2_TEXT2TERM_CACHE_DIR` (see [configuration.md](configuration.md#cache)).
+- **`ontology/index_cache/`** — word-combination search index (serialized `OntologyIndex`). Files are named `{ontology_file_name}_nofilter_v2.pkl`. The runtime ontology filter feature has been retired; the constant `_nofilter` suffix is kept so on-disk cache names remain stable with past runs. The `_v2` suffix indicates the on-disk format version; older entries are simply ignored when the format changes.
+- **`ontology/text2term_cache/`** — text2term prebuilt ontology cache. Each OWL is cached under an acronym of the form `{ontology_file_stem}_nofilter`, so per-batch `text2term.map_terms()` can reuse the parsed ontology across runs instead of re-parsing the OWL. Override the location with `BSLLMNER2_TEXT2TERM_CACHE_DIR` (see [configuration.md](configuration.md#cache)).
 
 Stale entries are ignored automatically when the key changes. If disk usage is a concern, remove them manually:
 

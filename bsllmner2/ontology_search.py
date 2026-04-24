@@ -123,24 +123,8 @@ def _normalize_term_id(term_id: str) -> str:
     return t
 
 
-def _match_additional_conditions(t: ThingClass, conditions: dict[str, str]) -> bool:
-    if not conditions:
-        return True
-    for key, condition_val in conditions.items():
-        found = False
-        for target_val in _iter_prop_values(t, key):
-            if _normalize_key(target_val) == _normalize_key(condition_val):
-                found = True
-                break
-        if not found:
-            return False
-
-    return True
-
-
 def iter_term_annotations(
     ontology: Ontology,
-    additional_conditions: dict[str, str] | None = None,
 ) -> Iterable[TermAnnotation]:
     rdfs = DEFAULT_PREFIX_MAP["rdfs"]
     rdfs_ns = ontology.get_namespace(rdfs)
@@ -161,9 +145,6 @@ def iter_term_annotations(
     }
 
     for cls_ in ontology.classes():
-        if additional_conditions and not _match_additional_conditions(cls_, additional_conditions):
-            continue
-
         term_uri = _term_uri_of(cls_)
         term_id = _normalize_term_id(_term_id_of(cls_))
 
@@ -211,7 +192,6 @@ def _human_readable_prop(prop_uri: str | None) -> str:
 
 def _collect_term_comments(
     ontology: Ontology,
-    additional_conditions: dict[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """Collect rdfs:comment values per term_id.
 
@@ -220,8 +200,6 @@ def _collect_term_comments(
     """
     term_id_to_comments: dict[str, list[str]] = {}
     for cls_ in ontology.classes():
-        if additional_conditions and not _match_additional_conditions(cls_, additional_conditions):
-            continue
         term_id = _normalize_term_id(_term_id_of(cls_))
         for comment_val in _iter_prop_values(cls_, "comment"):
             comments = term_id_to_comments.setdefault(term_id, [])
@@ -233,7 +211,6 @@ def _collect_term_comments(
 
 def _collect_term_definitions(
     ontology: Ontology,
-    additional_conditions: dict[str, str] | None = None,
 ) -> dict[str, list[str]]:
     """Collect obo:IAO_0000115 (textual definition) values per term_id.
 
@@ -242,8 +219,6 @@ def _collect_term_definitions(
     """
     term_id_to_definitions: dict[str, list[str]] = {}
     for cls_ in ontology.classes():
-        if additional_conditions and not _match_additional_conditions(cls_, additional_conditions):
-            continue
         term_id = _normalize_term_id(_term_id_of(cls_))
         for value in _iter_prop_values(cls_, "IAO_0000115"):
             defs = term_id_to_definitions.setdefault(term_id, [])
@@ -253,15 +228,12 @@ def _collect_term_definitions(
     return term_id_to_definitions
 
 
-def build_index(
-    ontology: Ontology,
-    additional_conditions: dict[str, str] | None = None,
-) -> OntologyIndex:
+def build_index(ontology: Ontology) -> OntologyIndex:
     term_id_to_labels: dict[str, list[str]] = {}
     term_id_label_norms: dict[str, set[str]] = {}
     value_to_annotations: dict[str, list[TermAnnotation]] = {}
 
-    for ann in iter_term_annotations(ontology, additional_conditions):
+    for ann in iter_term_annotations(ontology):
         key = _normalize_key(ann.value)
         if is_label_prop(ann.prop_uri):
             labels = term_id_to_labels.setdefault(ann.term_id, [])
@@ -272,8 +244,8 @@ def build_index(
 
         value_to_annotations.setdefault(key, []).append(ann)
 
-    term_id_to_comments = _collect_term_comments(ontology, additional_conditions)
-    term_id_to_definitions = _collect_term_definitions(ontology, additional_conditions)
+    term_id_to_comments = _collect_term_comments(ontology)
+    term_id_to_definitions = _collect_term_definitions(ontology)
 
     return OntologyIndex(
         term_id_to_labels=term_id_to_labels,
@@ -283,13 +255,10 @@ def build_index(
     )
 
 
-def build_index_from_owl(
-    owl_file: Path,
-    additional_conditions: dict[str, str] | None = None,
-) -> OntologyIndex:
+def build_index_from_owl(owl_file: Path) -> OntologyIndex:
     world = World()
     ontology = world.get_ontology(owl_file.resolve().as_uri()).load()
-    return build_index(ontology, additional_conditions=additional_conditions)
+    return build_index(ontology)
 
 
 def _iter_rows(file_path: Path) -> Iterable[tuple[str, str, str]]:
@@ -343,13 +312,10 @@ def build_index_from_table(
     )
 
 
-def build_index_from_file(
-    path: Path,
-    ontology_filter: dict[str, str] | None = None,
-) -> OntologyIndex:
+def build_index_from_file(path: Path) -> OntologyIndex:
     """Build an OntologyIndex from an OWL or TSV/CSV file."""
     if path.suffix == ".owl":
-        return build_index_from_owl(path, additional_conditions=ontology_filter)
+        return build_index_from_owl(path)
     if path.suffix in (".tsv", ".csv"):
         return build_index_from_table(path)
     raise ValueError(f"Unsupported ontology file format: {path}")
