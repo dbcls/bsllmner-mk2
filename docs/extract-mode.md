@@ -96,6 +96,18 @@ Prompts are defined as a YAML list where each element has `role` and `content`.
 
 At runtime, the BioSample entry JSON is appended to the `content` of the last message.
 
+### Select-Mode NER Prompt (`build_extract_prompt_for_select`)
+
+When extraction runs as the first stage of Select mode (driven by the select config, not a standalone prompt YAML), the prompt is synthesized in code by `bsllmner2.pipeline.build_extract_prompt_for_select()`. Its `user` message includes two rule blocks:
+
+- **Output rules** — JSON-only output, per-field value-type handling, prefer exact mentions, avoid hallucination
+- **Category assignment rules** — domain-agnostic boundaries that mitigate cross-field leaks observed in large-scale runs:
+  - Each extracted value belongs to **at most one** category; ambiguous values must pick the single most appropriate one by biological meaning
+  - Values are classified by biological meaning, **not** by the attribute key/label in the input (e.g., if an attribute labeled `drug` actually contains `HeLa`, it belongs in `cell_line`)
+  - Experimental control terms (`negative control`, `NC`, `vehicle`, `mock`, `empty vector`, `scramble`, `non-targeting`, `shControl`, `siControl`, …) are **not** extracted into any category — they are experimental conditions, not biological entities
+
+These rules are intentionally generic (no ontology- or field-specific guidance) so bsllmner stays applicable to arbitrary select configs.
+
 ### Customization
 
 1. Copy the built-in prompt (`bsllmner2/prompt/prompt_extract.yml`)

@@ -284,6 +284,54 @@ class TestBuildExtractPromptForSelectMutations:
         assert "organism" in prompts[1].content
 
 
+# === build_extract_prompt_for_select: Category assignment rules ===
+
+
+class TestBuildExtractPromptForSelectCategoryRules:
+    """The 'Category assignment rules' block guards against cross-field value leaks."""
+
+    def _prompt(self) -> str:
+        config = SelectConfig(
+            fields={
+                "cell_line": SelectConfigField(
+                    value_type="string",
+                    prompt_description="Cell line",
+                ),
+            },
+        )
+        return build_extract_prompt_for_select(config)[1].content
+
+    def test_section_header_present(self) -> None:
+        assert "Category assignment rules:" in self._prompt()
+
+    def test_one_category_per_value_rule(self) -> None:
+        content = self._prompt()
+        assert "at most ONE category" in content
+        assert "biological meaning" in content
+
+    def test_biological_meaning_over_attribute_label(self) -> None:
+        """The rule must give the 'drug attribute contains HeLa' worked example."""
+        content = self._prompt()
+        assert '"drug"' in content
+        assert '"HeLa"' in content
+        assert '"cell_line"' in content
+
+    def test_experimental_control_exclusion(self) -> None:
+        content = self._prompt()
+        assert "Do NOT extract experimental control terms" in content
+        # A representative subset of listed control terms must appear.
+        for term in ("negative control", "vehicle", "mock", "scramble", "shControl", "siControl"):
+            assert term in content
+
+    def test_rules_placed_between_output_rules_and_metadata(self) -> None:
+        """Category rules must be appended AFTER Output rules and BEFORE the input stub."""
+        content = self._prompt()
+        out_idx = content.index("Output rules:")
+        cat_idx = content.index("Category assignment rules:")
+        meta_idx = content.index("Here is the input metadata:")
+        assert out_idx < cat_idx < meta_idx
+
+
 # === build_extract_schema_for_select: mutation-killing ===
 
 

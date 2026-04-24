@@ -230,6 +230,17 @@ def build_extract_prompt_for_select(config: SelectConfig) -> list[Prompt]:
         "  - Do not mix different kinds of concepts in the same category.\n"
         "\n"
         "---\n"
+        "Category assignment rules:\n"
+        "  - Each extracted value must belong to at most ONE category. If a value could fit multiple\n"
+        "    categories, pick the single most appropriate one based on its biological meaning.\n"
+        "  - Classify values by their biological meaning, not by attribute keys or labels in the input\n"
+        '    metadata (e.g., if an attribute labeled "drug" actually contains "HeLa", extract it as\n'
+        '    "cell_line", not "drug").\n'
+        "  - Do NOT extract experimental control terms into any category. They are experimental\n"
+        '    conditions, not biological entities (e.g., "negative control", "NC", "vehicle", "mock",\n'
+        '    "empty vector", "scramble", "non-targeting", "shControl", "siControl").\n'
+        "\n"
+        "---\n"
         "Here is the input metadata:\n"
     )
 
