@@ -66,7 +66,7 @@ Outputs (all under `ontology/`):
 - `cl_human_subset.owl`, `cl_mouse_subset.owl` (CL `{human,mouse}_subset` merged with EFO cell types under `EFO:0000324`)
 - `uberon_human_subset.owl`, `uberon_mouse_subset.owl`
 - `chebi_subset.owl` (has-role info injected into `rdfs:comment`; the ChEBI update step needs `ROBOT_JAVA_ARGS="-Xmx24g"` because the upstream `chebi.owl` is large)
-- `mondo_human_subset.owl` (mm10 reuses the full `mondo.owl`)
+- `mondo_human_subset.owl` (mm10 reuses the same subset — mouse-model diseases are overwhelmingly human diseases, so no separate `mondo_mouse_subset.owl` is built)
 
 ### 2.4 Generate NCBI Gene OWL
 

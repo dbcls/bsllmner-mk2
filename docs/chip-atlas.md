@@ -86,7 +86,7 @@ For field property details, see [Select Mode - Select Config Customization](sele
 | `cell_line` ontology | `cellosaurus_human.owl` (per-species OBO preprocessed via `--taxid 9606`) | `cellosaurus_mouse.owl` (`--taxid 10090`) |
 | `cell_type` ontology | `cl_human_subset.owl` (CL human_subset + EFO cell types) | `cl_mouse_subset.owl` (CL mouse_subset + EFO cell types) |
 | `tissue` ontology | `uberon_human_subset.owl` | `uberon_mouse_subset.owl` |
-| `disease` ontology | `mondo_human_subset.owl` (`MONDO:0700096` subtree) | `mondo.owl` (full MONDO — no mouse subset query upstream) |
+| `disease` ontology | `mondo_human_subset.owl` (`MONDO:0700096` subtree) | `mondo_human_subset.owl` (same subset reused — mouse-model diseases are overwhelmingly human diseases) |
 | `drug` ontology | `chebi_subset.owl` | `chebi_subset.owl` |
 | `knockout/down/overexpressed_gene` ontology | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
 
@@ -247,7 +247,14 @@ docker compose exec app python3 scripts/prepare_bs_entries.py \
 **Solution:**
 
 1. Run the download script: `python3 scripts/download_ontology_files.py`
-2. Convert Cellosaurus OBO to OWL (see Prerequisites section)
+2. Generate per-species Cellosaurus OWLs and NCBI Gene OWLs (see [getting-started.md](getting-started.md#2-prepare-ontology-files)). For mm10:
+
+   ```bash
+   python3 scripts/preprocess_cellosaurus.py --taxid 10090
+   # then ROBOT convert cellosaurus_mouse.mod.obo -> cellosaurus_mouse.owl
+   python3 scripts/ncbi_gene_to_owl.py --taxid 10090
+   # mondo_human_subset.owl is reused for mm10 (no separate mouse subset is built)
+   ```
 
 ## Data Volume Reference
 
