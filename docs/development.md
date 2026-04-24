@@ -73,7 +73,42 @@ Version is managed via git tags using [hatch-vcs](https://github.com/ofek/hatch-
 | `download_ontology_files.py` | Download ontology files |
 | `ncbi_gene_to_owl.py` | Convert NCBI Gene data to OWL |
 | `prepare_bs_entries.py` | Prepare BioSample entries for ChIP-Atlas |
-| `print_select_result.py` | Display and analyze select results |
-| `list_unmapped.py` | List unmapped entries |
+| `inspect_select_result.py` | Inspect a SelectResult JSON (summary / show / find subcommands) |
 | `select-config-hg38.json` | Human (hg38) select config |
 | `select-config-mm10.json` | Mouse (mm10) select config |
+
+## Debug tools
+
+### `inspect_select_result.py`
+
+Inspect a `SelectResult` JSON produced by `bsllmner2_select`. All three
+subcommands emit plain text by default and JSON with `--json`.
+
+```bash
+# Run-wide overview: mapping rate per field, NOT_FOUND top values,
+# LLM timing, evaluation metrics.
+uv run python scripts/inspect_select_result.py summary \
+  bsllmner2-results/select/select_<run>.json
+
+# Override how many NOT_FOUND values to print per field (default 10).
+uv run python scripts/inspect_select_result.py summary \
+  bsllmner2-results/select/select_<run>.json --top-nf 30
+
+# Entry-level detail for a specific BioSample accession.
+uv run python scripts/inspect_select_result.py show \
+  bsllmner2-results/select/select_<run>.json --accession SAMN00000001
+
+# Only entries that contain at least one unmapped value.
+uv run python scripts/inspect_select_result.py show \
+  bsllmner2-results/select/select_<run>.json --unmapped-only --limit 20
+
+# Locate every entry that extracted a particular (field, value) pair.
+uv run python scripts/inspect_select_result.py find \
+  bsllmner2-results/select/select_<run>.json --field cell_line --value HeLa
+```
+
+`show` and `find` tag each resolved value with its source:
+
+- `[exact]` - an exact match was found during ontology search
+- `[llm]` - the LLM selected the term from multiple candidates
+- `[text2term]` - text2term similarity picked the top candidate
