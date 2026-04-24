@@ -136,18 +136,13 @@ build_chebi_subset() {
 }
 
 po_preprocess() {
-  # Apply sh-ikeda/po/po_edit.awk inside the robot image to strip
-  # German/Japanese/Spanish synonyms and owl:Axiom blocks. GNU awk's gensub()
-  # is required, so delegate to the bundled gawk rather than host awk.
+  # Apply sh-ikeda/po/po_edit.awk to strip German/Japanese/Spanish synonyms and
+  # owl:Axiom blocks. Runs on the host because the awk script uses GNU awk's
+  # gensub() while obolibrary/robot ships mawk.
   local infile="$1"
   local outfile="$2"
-  docker run --rm \
-    -v "${ONTOLOGY_DIR}:/work" \
-    -v "${SH_IKEDA_DIR}:/queries" \
-    -w /work \
-    --entrypoint bash \
-    obolibrary/robot:latest \
-    -c "awk -f /queries/po/po_edit.awk ${infile} > ${outfile}"
+  gawk -f "${SH_IKEDA_DIR}/po/po_edit.awk" \
+    "${ONTOLOGY_DIR}/${infile}" > "${ONTOLOGY_DIR}/${outfile}"
 }
 
 build_po_subset() {
