@@ -317,7 +317,7 @@ async def download_bs_entries_bulk(
             response = await client.post(
                 DDBJ_SEARCH_BULK_URL,
                 json={"ids": accessions},
-                params={"format": "json"},
+                params={"format": "json", "includeDbXrefs": "false"},
             )
             response.raise_for_status()
             data = response.json()

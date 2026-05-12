@@ -34,14 +34,6 @@ SEARCH_RETRY_DELAY_SEC = 10.0
 # === Step 1: Collect BioSample IDs via SRA experiment search + cursor ===
 
 
-def _extract_library_strategy(item: dict[str, Any]) -> str:
-    """Extract LIBRARY_STRATEGY from an SRA experiment's properties."""
-    props = item.get("properties", {})
-    experiment = props.get("EXPERIMENT_SET", {}).get("EXPERIMENT", {})
-    descriptor = experiment.get("DESIGN", {}).get("LIBRARY_DESCRIPTOR", {})
-    return descriptor.get("LIBRARY_STRATEGY", "")
-
-
 def _extract_biosample_ids(item: dict[str, Any]) -> list[str]:
     """Extract BioSample identifiers from an entry's dbXrefs."""
     return [xref["identifier"] for xref in item.get("dbXrefs", []) if xref.get("type") == "biosample"]
@@ -54,29 +46,35 @@ async def collect_biosample_ids(
 ) -> list[str]:
     """Search SRA experiments and collect linked BioSample IDs.
 
-    Uses cursor pagination on staging API. Filters results locally
-    by LIBRARY_STRATEGY == 'RNA-Seq'.
+    Filters server-side via libraryStrategy=RNA-Seq + organism=9606
+    (Homo sapiens), then walks cursor pagination. dbXrefs from each
+    matched entry yield the BioSample IDs.
     """
     biosample_ids: dict[str, None] = {}  # ordered set
-    total_checked = 0
     total_matched = 0
     cursor: str | None = None
     page_num = 0
 
     while True:
         if cursor is not None:
-            # Cursor mode: only cursor + perPage allowed
+            # Cursor mode: only perPage / dbXrefsLimit / includeDbXrefs
+            # are allowed alongside cursor (see ddbj-search-api spec).
             params: dict[str, Any] = {
                 "perPage": PER_PAGE,
                 "cursor": cursor,
             }
         else:
-            # First request: include all search params
+            # First request: filter at the API side with the term filter
+            # `libraryStrategy=RNA-Seq` plus keyword `Homo sapiens`. The
+            # SRA experiment ES index has no `organism` field populated
+            # (it is wired up on sra-sample / biosample side), so the
+            # `organism=9606` term filter returns zero — fall back to a
+            # keyword match on the experiment description.
             params = {
                 "perPage": PER_PAGE,
-                "includeProperties": "true",
                 "sort": "datePublished:asc",
-                "keywords": '"RNA-Seq",Homo sapiens',
+                "libraryStrategy": "RNA-Seq",
+                "keywords": "Homo sapiens",
                 "datePublishedFrom": date_from,
                 "datePublishedTo": date_to,
             }
@@ -100,10 +98,6 @@ async def collect_biosample_ids(
                 await asyncio.sleep(SEARCH_RETRY_DELAY_SEC * attempt)
 
         for item in data["items"]:
-            total_checked += 1
-            strategy = _extract_library_strategy(item)
-            if strategy != "RNA-Seq":
-                continue
             total_matched += 1
             for bs_id in _extract_biosample_ids(item):
                 biosample_ids[bs_id] = None
@@ -116,8 +110,7 @@ async def collect_biosample_ids(
 
         if page_num % 50 == 0:
             print(
-                f"  Page {page_num}: checked {total_checked}, "
-                f"matched {total_matched}, "
+                f"  Page {page_num}: matched {total_matched}, "
                 f"unique BioSample IDs: {len(biosample_ids)}"
             )
 
@@ -126,8 +119,7 @@ async def collect_biosample_ids(
         cursor = pagination["nextCursor"]
 
     print(
-        f"Done scanning. Checked {total_checked} experiments, "
-        f"{total_matched} matched RNA-Seq, "
+        f"Done scanning. {total_matched} RNA-Seq Homo sapiens experiments, "
         f"{len(biosample_ids)} unique BioSample IDs."
     )
     return list(biosample_ids)
