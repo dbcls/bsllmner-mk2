@@ -1,70 +1,52 @@
 # Extract Mode
 
-Performs Named Entity Recognition (NER) on BioSample records using an LLM to extract biological information in specified categories.
+`bsllmner2_extract` performs Named Entity Recognition (NER) over BioSample records using an LLM and emits structured JSON.
 
 ## Overview
 
 ```
-BioSample JSON
-      |
-      v
-+------------+
-| Load       |
-| bs_entries |
-+------------+
-      |
-      v
-+------------+
-| Build      |
-| messages   |
-+------------+
-      |
-      v
-+------------+
-| Ollama     |
-| chat()     |
-+------------+
-      |
-      v
-+------------+
-| Parse JSON |
-| response   |
-+------------+
+BioSample JSON/JSONL
+        |
+        v
++------------------+
+| Filter keys      |  bsllmner2/biosample.py
+| (filter_keys.json)|
++------------------+
+        |
+        v
++------------------+
+| Build messages   |  Prompt YAML + entry JSON appended
++------------------+
+        |
+        v
++------------------+
+| Ollama chat()    |  optional JSON Schema via format=
++------------------+
+        |
+        v
++------------------+
+| Parse last JSON  |  extracted + raw_output captured
++------------------+
+        |
+        v
+   ExtractResult JSON
 ```
 
-1. Load BioSample entries from JSON/JSONL
-2. Apply prompt (YAML) and format schema (JSON Schema)
-3. Send batch requests to Ollama
-4. Extract and parse JSON from responses
+Input is loaded as JSON (a list of objects) or JSONL (one object per line). Each entry is normalised with `construct_llm_input_json()` (dropping keys listed in `filter_keys.json` and flattening EBI-style `characteristics`) before being appended to the prompt's final user message.
 
-## CLI Options
+## CLI
 
-### Common Options
+See [CLI Reference](cli.md#bsllmner2_extract) for the full option table. Extract-specific options at a glance:
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--bs-entries` | Path to the input JSON or JSONL file containing BioSample entries (required) | -- |
-| `--model` | LLM model to use for NER | `llama3.1:70b` |
-| `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `false` |
-| `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
-| `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
-| `--debug` | Enable debug mode for more verbose logging | `false` |
-| `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
-| `--resume` | Resume from the last incomplete run | `false` |
-| `--batch-size` | Number of entries to process in each batch | `1024` |
-| `--num-ctx` | Context length for Ollama | `4096` |
+| Option | Default | Purpose |
+|---|---|---|
+| `--prompt PATH` | `bsllmner2/prompt/prompt_extract.yml` | Prompt YAML to use. |
+| `--format PATH` | (none) | JSON Schema enforced via Ollama's `format=` parameter. |
 
-### Extract-Specific Options
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--prompt` | Path to the prompt file in YAML format | `bsllmner2/prompt/prompt_extract.yml` |
-| `--format` | Path to the JSON schema file for the output format | `None` |
-
-## Usage Examples
+Example:
 
 ```bash
-bsllmner2_extract \
+docker compose exec app bsllmner2_extract \
   --bs-entries tests/data/example_biosample.json \
   --prompt bsllmner2/prompt/prompt_extract.yml \
   --format bsllmner2/format/cell_line.schema.json \
@@ -72,17 +54,9 @@ bsllmner2_extract \
   --debug
 ```
 
-With Docker:
+## Prompt YAML
 
-```bash
-docker compose exec app bsllmner2_extract \
-  --bs-entries tests/data/example_biosample.json \
-  --model llama3.1:70b
-```
-
-## Prompt Specification
-
-Prompts are defined as a YAML list where each element has `role` and `content`.
+A prompt file is a YAML list of `{role, content}` messages. The built-in `bsllmner2/prompt/prompt_extract.yml` extracts `cell_line`, `tissue`, and `organism`:
 
 ```yaml
 - role: system
@@ -90,35 +64,18 @@ Prompts are defined as a YAML list where each element has `role` and `content`.
     You are a smart curator of biological data
 - role: user
   content: |-
-    I will input JSON formatted metadata of a sample...
+    I will input JSON formatted metadata of a sample for a biological experiment.
+    ...
     Here is the input metadata:
 ```
 
-At runtime, the BioSample entry JSON is appended to the `content` of the last message.
+At runtime, the entry's filtered JSON is appended (with a leading newline) to the `content` of the last message. To customise: copy the built-in YAML, edit categories and output rules, then pass it with `--prompt`.
 
-### Select-Mode NER Prompt (`build_extract_prompt_for_select`)
+Note: when extraction runs as the first stage of [Select Mode](select-mode.md#stage-1-ner-extraction), the prompt is synthesised in code from the select config -- `--prompt` is not used in that flow.
 
-When extraction runs as the first stage of Select mode (driven by the select config, not a standalone prompt YAML), the prompt is synthesized in code by `bsllmner2.pipeline.build_extract_prompt_for_select()`. Its `user` message includes two rule blocks:
+## Output Format Schema
 
-- **Output rules** — JSON-only output, per-field value-type handling, prefer exact mentions, avoid hallucination
-- **Category assignment rules** — domain-agnostic boundaries that mitigate cross-field leaks observed in large-scale runs:
-  - Each extracted value belongs to **at most one** category; ambiguous values must pick the single most appropriate one by biological meaning
-  - Values are classified by biological meaning, **not** by the attribute key/label in the input (e.g., if an attribute labeled `drug` actually contains `HeLa`, it belongs in `cell_line`)
-  - Experimental control terms (`negative control`, `NC`, `vehicle`, `mock`, `empty vector`, `scramble`, `non-targeting`, `shControl`, `siControl`, …) are **not** extracted into any category — they are experimental conditions, not biological entities
-
-These rules are intentionally generic (no ontology- or field-specific guidance) so bsllmner stays applicable to arbitrary select configs.
-
-### Customization
-
-1. Copy the built-in prompt (`bsllmner2/prompt/prompt_extract.yml`)
-2. Edit the category descriptions and output rules
-3. Specify the file with `--prompt`
-
-## Output Format Specification
-
-When a JSON Schema is specified with `--format`, the Ollama structured output feature (`format` parameter) constrains the output format.
-
-Built-in schema (`bsllmner2/format/cell_line.schema.json`):
+Pass a JSON Schema via `--format` to enforce structured output. Ollama's `format=` parameter applies the schema to the model output. Built-in example (`bsllmner2/format/cell_line.schema.json`):
 
 ```json
 {
@@ -132,21 +89,8 @@ Built-in schema (`bsllmner2/format/cell_line.schema.json`):
 }
 ```
 
-If `--format` is omitted, the LLM responds in free form. The last JSON object/array is extracted from the response using a regex and parsed.
+If `--format` is omitted the LLM responds in free form. `bsllmner2` then scans the message text and parses the **last** valid JSON object/array it finds; both the parsed value (`extracted`) and the raw JSON substring (`raw_output`) are preserved.
 
-## Resume
+## Output
 
-When `--resume` is specified, processing continues from the previous interruption. The resume file is automatically deleted after successful completion.
-
-The same `--run-name` must be specified as the original run. If the original run used the auto-generated name (`{model}_{timestamp}`), you need to find it from the resume file in `bsllmner2-results/extract/`.
-
-## Result Files
-
-See [Data Formats](data-formats.md) for the full result schema.
-
-| File | Description |
-|------|-------------|
-| `bsllmner2-results/extract/{run_name}.json` | Complete result |
-| `bsllmner2-results/extract/{run_name}_resume.json` | Resume intermediate file (during processing only) |
-
-The default `run_name` is `{model}_{YYYYMMDD_HHMMSS}` (UTC).
+Result file: `bsllmner2-results/extract/{run_name}.json` (and a per-batch `{run_name}_resume.json` while running). For the full `ExtractResult` schema, see [Data Formats](data-formats.md#extractresult).

@@ -35,25 +35,30 @@ markdown_extensions:
 
 nav:
   - Home: index.md
-  - Getting Started: getting-started.md
-  - Installation: installation.md
-  - Extract Mode: extract-mode.md
-  - Select Mode: select-mode.md
-  - Data Formats: data-formats.md
-  - Configuration: configuration.md
-  - ChIP-Atlas: chip-atlas.md
-  - NIG Slurm: nig-slurm.md
-  - Development: development.md
-  - Testing: testing.md
-  - Benchmarking: benchmarking.md
+  - Basics:
+      - Getting Started: getting-started.md
+      - Installation: installation.md
+  - Modes:
+      - Extract Mode: extract-mode.md
+      - Select Mode: select-mode.md
+  - Reference:
+      - CLI: cli.md
+      - Data Formats: data-formats.md
+      - Configuration: configuration.md
+  - Operations:
+      - Ontology Preparation: ontology.md
+      - ChIP-Atlas: chip-atlas.md
+      - NIG Slurm: nig-slurm.md
+  - Contributing:
+      - Development: development.md
+      - Testing: testing.md
+      - Benchmarking: benchmarking.md
 
 extra:
   social:
     - icon: fontawesome/brands/github
       link: https://github.com/dbcls/bsllmner-mk2
 
-# README.md (index.md) contains links relative to the repo root (e.g., docs/installation.md)
-# which are correct for GitHub but unresolvable in MkDocs. The nav bar provides navigation.
 validation:
   links:
-    not_found: info
+    not_found: warn

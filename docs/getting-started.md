@@ -1,19 +1,15 @@
 # Getting Started
 
-This guide walks you through running bsllmner-mk2 for the first time.
+This guide takes you from a fresh clone to your first Extract and Select runs.
 
-For installation details (Docker Compose, uv, GPU configuration), see [Installation](installation.md).
+For setup details (Docker Compose, uv, host requirements, GPU configuration), see [Installation](installation.md). For per-option reference, see [CLI](cli.md).
 
 ## Prerequisites
 
-Before running the steps below, make sure the following are in place:
-
-- **Docker / docker compose** with the NVIDIA Container Toolkit installed and at least one GPU visible inside the container (`docker compose exec ollama nvidia-smi`).
-- The `ontology/` directory at the repo root, which is bind-mounted into the `app` and `ollama` containers and stores every OWL / OBO / cache file produced by the steps below. It is created automatically on first run; just make sure it lives on a writable host path.
-- The [`obolibrary/robot`](https://github.com/ontodev/robot) Docker image, required to convert preprocessed Cellosaurus and Plant Ontology subsets to OWL. The first time you run §2.2 or `scripts/build_subset_ontologies.sh`, Docker will pull it on demand.
-- **GNU awk (`gawk`)** on the host, used by the Plant Ontology preprocessor in `scripts/build_subset_ontologies.sh` (the robot image lacks `gensub()`).
-- `gene_info.gz` from NCBI, fetched as part of §2.4 (`scripts/ncbi_gene_to_owl.py` downloads it directly). No manual download is required.
-- An LLM model pulled into the Ollama service. §3 walks through this; you can also pre-pull a model with `docker compose exec ollama ollama pull qwen3:32b`.
+- Docker / docker compose with the NVIDIA Container Toolkit. Verify GPU visibility with `docker compose exec ollama nvidia-smi`.
+- A writable `ontology/` directory at the repo root (bind-mounted into both containers; created automatically).
+- The host packages and Docker images listed in [Installation](installation.md#system-requirements) (notably `gawk` and the `obolibrary/robot` image used by the ontology pipeline).
+- An LLM model. Pre-pull or rely on Ollama's auto-pull at first use; see [Step 3](#3-optional-pre-pull-llm-model).
 
 ## 1. Start the Service
 
@@ -21,104 +17,30 @@ Before running the steps below, make sure the following are in place:
 docker compose up -d --build
 ```
 
-If this is your first time, complete the full setup in [Installation](installation.md) first.
+The `app` and `ollama` containers come up under the `bsllmner-mk2-network` bridge. `app` mounts the project root at `/app`, so `git pull` on the host is immediately visible inside the container.
 
 ## 2. Prepare Ontology Files
 
-Select mode (Stage 2) uses **pre-subsetted** OWL files that expose only the properties the LLM needs (`rdfs:label`, various synonyms, `obo:IAO_0000115` definition, and `rdfs:comment` for ChEBI `has_role`). The `ontology/` directory is bind-mounted into the container.
+Select mode reads pre-built OWL files from `ontology/`. Follow [Ontology Preparation](ontology.md) end-to-end on the first setup; subsequent runs reuse the generated files. The full pipeline:
 
-### 2.1 Download Upstream OWL Sources
+1. Download upstream OWL/OBO sources.
+2. Preprocess Cellosaurus per species and convert to OWL.
+3. Build CL / UBERON / MONDO / ChEBI / PO subset OWLs.
+4. Generate per-species NCBI Gene OWLs.
 
-```bash
-docker compose exec app python3 scripts/download_ontology_files.py
-```
-
-This fetches the following upstream files to `ontology/`:
-
-- `cellosaurus.obo` - Cell line database (preprocessed per species in §2.2)
-- `cl.owl` - full Cell Ontology (input for CL human/mouse subset)
-- `efo.owl` - Experimental Factor Ontology (merged into the CL subset as additional cell types under `EFO:0000324`)
-- `uberon.owl` - full UBERON anatomy ontology (input for UBERON human/mouse subset)
-- `mondo.owl` - full MONDO disease ontology
-- `chebi.owl` - full ChEBI chemical entities
-- `po.owl` - full Plant Ontology (input for PO plant tissue / cell subsets)
-
-### 2.2 Preprocess Cellosaurus (per species)
-
-Cellosaurus arrives in OBO format. Run the preprocessor once per taxon; it filters
-terms by `NCBI_TaxID`, preserves `Disease` / `derived_from` as `rdfs:comment`, and
-synthesizes a one-line `def:` (IAO_0000115 textual definition) from Category /
-Sex / Species of origin / Disease / Derived from so the Stage 3 LLM has richer
-context for each cell-line candidate.
-
-```bash
-docker compose exec app python3 scripts/preprocess_cellosaurus.py --taxid 9606    # -> ontology/cellosaurus_human.mod.obo
-docker compose exec app python3 scripts/preprocess_cellosaurus.py --taxid 10090   # -> ontology/cellosaurus_mouse.mod.obo
-```
-
-Then convert each `.mod.obo` to OWL with ROBOT:
-
-```bash
-docker run -v $PWD/ontology:/work -w /work --rm obolibrary/robot \
-    robot convert -i cellosaurus_human.mod.obo -o cellosaurus_human.owl --format owl
-docker run -v $PWD/ontology:/work -w /work --rm obolibrary/robot \
-    robot convert -i cellosaurus_mouse.mod.obo -o cellosaurus_mouse.owl --format owl
-```
-
-### 2.3 Build Subset Ontologies
-
-Generate subset OWL files for CL / UBERON / ChEBI / MONDO / PO. This runs `sh-ikeda/ontology-constructor-for-bsllmner` SPARQL templates through ROBOT (Docker), then applies a post-processing step to add `rdf:type owl:Class` so `owlready2` can load them.
-
-```bash
-bash scripts/build_subset_ontologies.sh
-```
-
-Outputs (all under `ontology/`):
-
-- `cl_human_subset.owl`, `cl_mouse_subset.owl` (CL `{human,mouse}_subset` merged with EFO cell types under `EFO:0000324`)
-- `uberon_human_subset.owl`, `uberon_mouse_subset.owl`
-- `chebi_subset.owl` (has-role info injected into `rdfs:comment`; the ChEBI update step needs `ROBOT_JAVA_ARGS="-Xmx24g"` because the upstream `chebi.owl` is large)
-- `mondo_human_subset.owl` (mm10 reuses the same subset — mouse-model diseases are overwhelmingly human diseases, so no separate `mondo_mouse_subset.owl` is built)
-- `po_tissue_subset.owl`, `po_cell_subset.owl` (PO plant tissue / cell subtrees; `po.owl` is preprocessed with `po_edit.awk` to strip German/Japanese/Spanish synonyms and `owl:Axiom` blocks before the SPARQL CONSTRUCT)
-
-### 2.4 Generate NCBI Gene OWL
-
-`scripts/ncbi_gene_to_owl.py` converts NCBI's `gene_info` TSV into a per-taxon OWL file, storing the gene description (9th column) as `obo:IAO_0000115`:
-
-```bash
-# gene_info must be downloaded separately from https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz
-docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 9606   # -> ontology/ncbi_gene_human.owl
-docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 10090  # -> ontology/ncbi_gene_mouse.owl
-```
-
-### 2.5 (Optional) Clear Stale Caches
-
-Select mode uses two on-disk caches:
-
-- **`ontology/index_cache/`** — word-combination search index (serialized `OntologyIndex`). Files are named `{ontology_file_name}_nofilter_v2.pkl`. The runtime ontology filter feature has been retired; the constant `_nofilter` suffix is kept so on-disk cache names remain stable with past runs. The `_v2` suffix indicates the on-disk format version; older entries are simply ignored when the format changes.
-- **`ontology/text2term_cache/`** — text2term prebuilt ontology cache. Each OWL is cached under an acronym of the form `{ontology_file_stem}_nofilter`, so per-batch `text2term.map_terms()` can reuse the parsed ontology across runs instead of re-parsing the OWL. Override the location with `BSLLMNER2_TEXT2TERM_CACHE_DIR` (see [configuration.md](configuration.md#cache)).
-
-Stale entries are ignored automatically when the key changes. If disk usage is a concern, remove them manually:
-
-```bash
-rm -rf ontology/index_cache/ ontology/text2term_cache/
-```
+Extract mode does not need any ontology files; you can skip this step if you only run `bsllmner2_extract`.
 
 ## 3. (Optional) Pre-pull LLM Model
 
-The LLM model is automatically downloaded on first use via the Ollama API. No manual pull is required.
-
-To pre-download the model before running (recommended for large models like 70b):
+Ollama auto-pulls the model on first use. For large models (e.g., 70B ~ 40 GB), pre-pull to keep the first run from blocking on the download:
 
 ```bash
 docker compose exec ollama ollama pull llama3.1:70b
 ```
 
-The model (~40GB for 70b) is stored in the `ollama-data/` directory.
+Models live in the `ollama-data` Docker volume.
 
 ## 4. Run Extract Mode
-
-Extract mode performs Named Entity Recognition (NER) to extract biological terms from BioSample records.
 
 ```bash
 docker compose exec app bsllmner2_extract \
@@ -127,11 +49,9 @@ docker compose exec app bsllmner2_extract \
   --debug
 ```
 
-For all extract CLI options, see [Extract Mode](extract-mode.md#cli-options).
+Output: `bsllmner2-results/extract/{run_name}.json`. See [Extract Mode](extract-mode.md) for the pipeline and [CLI](cli.md#bsllmner2_extract) for every option.
 
 ## 5. Run Select Mode
-
-Select mode extends extract mode by mapping extracted terms to ontology entries.
 
 ```bash
 docker compose exec app bsllmner2_select \
@@ -141,47 +61,26 @@ docker compose exec app bsllmner2_select \
   --debug
 ```
 
-For all select CLI options, see [Select Mode](select-mode.md#cli-options).
+Output: `bsllmner2-results/select/select_{run_name}.json`. See [Select Mode](select-mode.md) for the three-stage pipeline and [CLI](cli.md#bsllmner2_select) for every option.
 
 ## 6. Inspect Results
 
-Results are saved in `bsllmner2-results/`:
-
 ```bash
-# List result files
 ls bsllmner2-results/extract/
 ls bsllmner2-results/select/
+
+# Run-wide summary (mapping rate, NOT_FOUND, LLM timing)
+docker compose exec app python3 scripts/inspect_select_result.py summary bsllmner2-results/select/select_<run-name>.json
+
+# Per-entry detail
+docker compose exec app python3 scripts/inspect_select_result.py show \
+  bsllmner2-results/select/select_<run-name>.json --accession SAMD00000001
 ```
 
-View the extract result:
-
-```bash
-# Show run metadata
-jq '.run_metadata' bsllmner2-results/extract/*.json
-
-# Show extracted values
-jq '.output[] | {accession, output}' bsllmner2-results/extract/*.json
-```
-
-View the select result:
-
-```bash
-# Show mapped ontology terms
-jq '.[0].results' bsllmner2-results/select/*.json
-```
-
-### Result Structure
-
-- **Extract results**: `bsllmner2-results/extract/{run_name}.json`
-  - Contains extracted entities and metadata
-
-- **Select results**: `bsllmner2-results/select/select_{run_name}.json`
-  - Contains ontology-mapped results for each field
-
-For the full result schema, see [Data Formats](data-formats.md).
+Result schemas are defined in [Data Formats](data-formats.md). See [Development](development.md#inspect_select_resultpy) for additional `inspect_select_result.py` subcommands.
 
 ## Next Steps
 
-- **ChIP-Atlas data processing**: See [chip-atlas.md](chip-atlas.md) for processing ChIP-Atlas data with hg38/mm10
-- **Model evaluation**: See [tests/model-evaluation/README.md](../tests/model-evaluation/README.md) for benchmarking different LLM models
-- **Custom configuration**: Create your own select config JSON to customize field extraction and ontology mapping
+- [ChIP-Atlas](chip-atlas.md) -- process ChIP-Atlas data with the hg38 / mm10 select configs.
+- [Benchmarking](benchmarking.md) -- read performance metrics in the result JSON.
+- [Select Mode](select-mode.md#selectconfig-customization) -- author a custom `select-config.json`.

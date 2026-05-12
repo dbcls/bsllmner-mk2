@@ -1,80 +1,74 @@
 # Configuration
 
-Reference for environment variables and configuration values.
+Reference for the environment variables bsllmner-mk2 reads and the Ollama tuning knobs set in `compose.yml`.
 
-## Ollama
+## Environment Variables
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL |
+### Ollama
 
-Can also be overridden with the `--ollama-host` CLI option.
+| Variable | Default | Description |
+|---|---|---|
+| `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL. Inside `compose.yml`, `app` sets this to `http://bsllmner-mk2-ollama:11434`. Can also be overridden by `--ollama-host`. |
 
-## CLI
+### CLI / Runtime
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BSLLMNER2_DEBUG` | `false` | Debug mode (enabled with `true`/`1`/`yes`/`on`) |
+| Variable | Default | Description |
+|---|---|---|
+| `BSLLMNER2_DEBUG` | unset | Truthy values (`true`/`1`/`yes`/`on`, case-insensitive) enable DEBUG-level logging. Equivalent to `--debug`. |
 
-Can also be enabled with the `--debug` CLI option.
+### Directories
 
-## Directories
+| Variable | Default | Description |
+|---|---|---|
+| `BSLLMNER2_RESULT_DIR` | `$PWD/bsllmner2-results` | Root for result and resume files. Subdirectories `extract/` and `select/` are created on demand. |
+| `BSLLMNER2_TMP_DIR` | `$TMPDIR/bsllmner2-$UID` | Temporary directory; holds the `progress/` subdirectory. |
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BSLLMNER2_RESULT_DIR` | `$PWD/bsllmner2-results` | Root directory for extract/select result files |
-| `BSLLMNER2_TMP_DIR` | `$TMPDIR/bsllmner2-$UID` | Temporary directory for progress files |
+### Cache
 
-## Cache
+| Variable | Default | Description |
+|---|---|---|
+| `BSLLMNER2_INDEX_CACHE_DIR` | `ontology/index_cache` | Serialised `OntologyIndex` cache, one file per ontology (`{owl_name}_nofilter_v2.pkl`). |
+| `BSLLMNER2_TEXT2TERM_CACHE_DIR` | `ontology/text2term_cache` | text2term prebuilt cache, registered under acronym `{owl_stem}_nofilter`. |
 
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BSLLMNER2_INDEX_CACHE_DIR` | `ontology/index_cache` | Ontology index cache directory (word-combination search index) |
-| `BSLLMNER2_TEXT2TERM_CACHE_DIR` | `ontology/text2term_cache` | text2term ontology cache directory (prebuilt per OWL so per-batch `map_terms` skips OWL parsing) |
-
-Cache layout and invalidation are described in [getting-started.md#25-optional-clear-stale-caches](getting-started.md#25-optional-clear-stale-caches).
-
-## Metrics
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BSLLMNER2_CONTAINER_NAME` | `bsllmner-mk2-ollama` | Docker container name for metrics collection |
+Cache layout and cleanup are documented in [Ontology Preparation](ontology.md#cache-layout).
 
 ## Ollama Performance Tuning (Docker Compose)
 
-Configured in the ollama service of `compose.yml`.
+Set on the `ollama` service in `compose.yml`. Override via shell exports before `docker compose up`, or by editing the file directly.
 
-| Environment Variable | Value | Description |
-|---------------------|-------|-------------|
-| `OLLAMA_HOST` | `0.0.0.0:11434` | In-container bind address |
-| `OLLAMA_KV_CACHE_TYPE` | `q8_0` | KV cache quantization type |
-| `OLLAMA_FLASH_ATTENTION` | `1` | Enable Flash Attention |
-| `OLLAMA_NUM_PARALLEL` | `16` | Parallel inference threads |
-| `OLLAMA_MAX_QUEUE` | `1024` | Maximum queue size |
-| `CUDA_VISIBLE_DEVICES` | `0,1` | GPU devices to use |
-| `OLLAMA_SCHED_SPREAD` | `1` | Spread inference load across GPUs |
+| Variable | Value | Purpose |
+|---|---|---|
+| `OLLAMA_HOST` | `0.0.0.0:11434` | In-container bind address. |
+| `OLLAMA_KV_CACHE_TYPE` | `q8_0` | KV cache quantisation. |
+| `OLLAMA_FLASH_ATTENTION` | `1` | Enable Flash Attention. |
+| `OLLAMA_NUM_PARALLEL` | `16` | Parallel inference slots. Shell-overrideable via `OLLAMA_NUM_PARALLEL=8 docker compose up`. |
+| `OLLAMA_MAX_QUEUE` | `1024` | Request queue cap. |
+| `CUDA_VISIBLE_DEVICES` | `0,1` | GPUs exposed inside the container. |
+| `OLLAMA_SCHED_SPREAD` | `1` | Spread inference work across GPUs. |
+| `OLLAMA_LOAD_TIMEOUT` | `30m` | Model load timeout. |
 
-### `num_ctx` and Ollama >= 0.15.5
+References:
+
+- [Ollama FAQ: KV cache quantisation](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-set-the-quantization-type-for-the-kv-cache)
+- [Ollama FAQ: Flash Attention](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-enable-flash-attention)
+
+### num_ctx and Ollama >= 0.15.5
 
 Ollama 0.15.5 introduced tiered default context lengths based on available VRAM:
 
 | VRAM | Default `num_ctx` |
-|------|-------------------|
+|---|---|
 | < 24 GB | 4,096 |
 | 24-48 GB | 32,768 |
 | >= 48 GB | 262,144 |
 
-When `num_ctx` is not explicitly specified, Ollama auto-selects a value from the table above. On high-VRAM GPUs (e.g., RTX 6000 Ada with 48 GB), this results in a very large context length. Combined with `OLLAMA_NUM_PARALLEL`, the KV cache allocation (`num_ctx * NUM_PARALLEL`) can exhaust VRAM and severely degrade throughput.
-
-**Always specify `--num-ctx` explicitly** to avoid this issue. A value of 4096 is sufficient for typical BioSample NER workloads.
+On a 48 GB GPU the implicit default is 262,144 -- combined with `OLLAMA_NUM_PARALLEL=16`, the KV cache footprint (`num_ctx * NUM_PARALLEL`) can exhaust VRAM and collapse throughput. Always pass `--num-ctx` explicitly; `4096` is sufficient for typical BioSample NER workloads.
 
 References:
 
-- [Ollama FAQ: KV cache](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-set-the-quantization-type-for-the-kv-cache)
-- [Ollama FAQ: Flash Attention](https://github.com/ollama/ollama/blob/main/docs/faq.md#how-can-i-enable-flash-attention)
 - [Tiered context length can exhaust VRAM (GitHub #14116)](https://github.com/ollama/ollama/issues/14116)
 - [New default context lengths will break (GitHub #14073)](https://github.com/ollama/ollama/issues/14073)
 
 ## Slurm Configuration
 
-`init-slurm.sh` generates a Slurm job script. For details, see [NIG Slurm - Generate slurm.sh](nig-slurm.md#2-generate-slurmsh).
+`init-slurm.sh` generates `slurm.sh` from a template. See [NIG Slurm](nig-slurm.md#2-generate-slurmsh) for usage.

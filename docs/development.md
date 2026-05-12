@@ -1,89 +1,49 @@
 # Development
 
-## Prerequisites
-
-- Python 3.10+
-- Docker, Docker Compose
-- NVIDIA GPU + CUDA driver (for Ollama)
-- Node.js 24+ (frontend development only)
-
-## CLI Entry Points
+## Entry Points
 
 Defined in `pyproject.toml` under `[project.scripts]`:
 
-| Command | Entry Point | Description |
-|---------|-------------|-------------|
-| `bsllmner2_extract` | `bsllmner2.cli_extract:run_cli_extract` | Extract mode CLI |
-| `bsllmner2_select` | `bsllmner2.cli_select:run_cli_select` | Select mode CLI |
+| Command | Entry Point |
+|---|---|
+| `bsllmner2_extract` | `bsllmner2.cli_extract:run_cli_extract` |
+| `bsllmner2_select` | `bsllmner2.cli_select:run_cli_select` |
+
+For options, see [CLI Reference](cli.md).
 
 ## Local Development Setup
 
-### Python Package
+Requirements: Python 3.10+, [uv](https://docs.astral.sh/uv/), Docker (for end-to-end runs against Ollama), and an NVIDIA GPU if you intend to exercise the LLM path.
 
 ```bash
-uv sync --all-extras
+uv sync --all-extras           # install runtime + test dependencies
+docker compose up -d --build    # bring up app + ollama containers
+docker compose exec app bash    # interactive shell inside app container
 ```
 
-### Docker Environment
+For test commands, lint, type check, and mutation testing, see [Testing](testing.md).
 
-```bash
-docker compose up -d --build
-docker compose exec app bash
-```
+## scripts/ Reference
 
-## Running Tests
+| File | Purpose |
+|---|---|
+| `download_ontology_files.py` | Fetch upstream OWL/OBO sources into `ontology/`. |
+| `preprocess_cellosaurus.py` | Filter Cellosaurus OBO per NCBI taxonomy ID and synthesise `def:` lines. |
+| `ncbi_gene_to_owl.py` | Convert NCBI `gene_info` TSV into per-taxon OWL. |
+| `build_subset_ontologies.sh` | Build CL / UBERON / MONDO / ChEBI / PO subset OWLs via SPARQL + ROBOT. |
+| `prepare_bs_entries.py` | Build ChIP-Atlas `bs_entries.jsonl` from `experimentList.tab` + DDBJ Bulk API. |
+| `collect_rnaseq_biosample.py` | Collect RNA-Seq BioSample entries via the DDBJ Search API. |
+| `inspect_select_result.py` | Debug tool for SelectResult JSON files (`summary` / `show` / `find`). |
+| `run_model_bench.sh` | Run Select mode against the 600-entry evaluation set across multiple Ollama models. |
+| `select-config-hg38.json` | Human (hg38) select config. |
+| `select-config-mm10.json` | Mouse (mm10) select config. |
+| `select-config-plants.json` | Plant Ontology select config (tissue / cell_type). |
 
-```bash
-# Tests
-uv run pytest
+## Debug Tools
 
-# Type checking
-uv run mypy
+### inspect_select_result.py
 
-# Linter
-uv run ruff check bsllmner2/ tests/ scripts/
-
-# Formatter
-uv run ruff format bsllmner2/ tests/ scripts/
-
-# Format check (for CI)
-uv run ruff format --check bsllmner2/ tests/ scripts/
-```
-
-For details on test structure, mutation testing, and model evaluation, see [Testing](testing.md).
-
-## Release Process
-
-Version is managed via git tags using [hatch-vcs](https://github.com/ofek/hatch-vcs). No manual version editing in `pyproject.toml` is required.
-
-1. Merge PR to `main`
-2. Create and push a version tag:
-   ```bash
-   git tag X.Y.Z
-   git push origin X.Y.Z
-   ```
-3. The tag push triggers `.github/workflows/release.yml`:
-   - Build and push Docker image to `ghcr.io/dbcls/bsllmner-mk2`
-   - Create GitHub Release with auto-generated notes
-
-## scripts/ Utility Scripts
-
-| Script | Description |
-|--------|-------------|
-| `download_ontology_files.py` | Download ontology files |
-| `ncbi_gene_to_owl.py` | Convert NCBI Gene data to OWL |
-| `prepare_bs_entries.py` | Prepare BioSample entries for ChIP-Atlas |
-| `inspect_select_result.py` | Inspect a SelectResult JSON (summary / show / find subcommands) |
-| `select-config-hg38.json` | Human (hg38) select config |
-| `select-config-mm10.json` | Mouse (mm10) select config |
-| `select-config-plants.json` | Plants (PO) select config (tissue / cell_type) |
-
-## Debug tools
-
-### `inspect_select_result.py`
-
-Inspect a `SelectResult` JSON produced by `bsllmner2_select`. All three
-subcommands emit plain text by default and JSON with `--json`.
+`scripts/inspect_select_result.py` parses a SelectResult JSON file and exposes three subcommands. All emit human-readable text by default and JSON with `--json`.
 
 ```bash
 # Run-wide overview: mapping rate per field, NOT_FOUND top values,
@@ -91,7 +51,7 @@ subcommands emit plain text by default and JSON with `--json`.
 uv run python scripts/inspect_select_result.py summary \
   bsllmner2-results/select/select_<run>.json
 
-# Override how many NOT_FOUND values to print per field (default 10).
+# Adjust how many NOT_FOUND values to print per field (default 10).
 uv run python scripts/inspect_select_result.py summary \
   bsllmner2-results/select/select_<run>.json --top-nf 30
 
@@ -110,6 +70,17 @@ uv run python scripts/inspect_select_result.py find \
 
 `show` and `find` tag each resolved value with its source:
 
-- `[exact]` - an exact match was found during ontology search
-- `[llm]` - the LLM selected the term from multiple candidates
-- `[text2term]` - text2term similarity picked the top candidate
+- `[exact]` -- an exact match was found during ontology search.
+- `[llm]` -- the LLM selected the term from multiple candidates.
+- `[text2term]` -- text2term similarity picked the top candidate.
+
+## Release Process
+
+Versions are managed via git tags using [hatch-vcs](https://github.com/ofek/hatch-vcs); no manual edit to `pyproject.toml` is required.
+
+```bash
+git tag X.Y.Z
+git push origin X.Y.Z
+```
+
+The tag push triggers `.github/workflows/release.yml`, which builds and publishes the Docker image to `ghcr.io/dbcls/bsllmner-mk2` and creates a GitHub Release with auto-generated notes.

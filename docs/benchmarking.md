@@ -1,147 +1,88 @@
 # Benchmarking
 
-## Evaluation axes
+How to read the performance and accuracy data embedded in the result JSON. For the schema of each field, see [Data Formats](data-formats.md#performancesummary).
 
-Benchmarking covers two orthogonal axes:
+## Evaluation Axes
 
 | Axis | Metrics | Scope |
-|------|---------|-------|
-| **Performance** | tokens/sec, latency, wall-clock time | Both Extract and Select modes |
-| **Accuracy** | precision, recall, F1 vs human-curated gold standard | **Select mode only** |
+|---|---|---|
+| **Performance** | tokens/sec, latency, wall-clock time | Extract and Select modes. |
+| **Accuracy** | precision, recall, F1, accuracy | Select mode only, comparing `term_id` against `mapping answer ID`. |
 
-### Why accuracy evaluation is Select-mode only
-
-The mapping TSV `extraction_answer` column is the output of a previous tool (MetaSRA), not a human-curated ground truth. Therefore it cannot serve as a reliable gold standard for Extract evaluation.
-
-The `mapping_answer_id` column, on the other hand, is human-curated and compares the pipeline's final ontology term selection against a known-correct answer. Accuracy evaluation is performed exclusively via Select mode using this column.
+The `extraction answer` column in the mapping TSV is an auxiliary annotation (originally from MetaSRA) and is not used for evaluation; only `mapping answer ID` is treated as ground truth. Accuracy is therefore only meaningful for Select mode.
 
 ## Why tokens/sec, not GPU utilization
 
-`nvidia-smi` reports SM (Streaming Multiprocessor) utilization, which measures compute occupancy. LLM inference, however, is memory-bandwidth-bound: the bottleneck is moving weights from VRAM to the compute units, not the compute itself. A GPU can show 5% SM utilization while being completely saturated on memory bandwidth.
+`nvidia-smi` reports SM (Streaming Multiprocessor) occupancy. LLM inference is memory-bandwidth-bound, so a GPU can show 5% SM utilisation while being completely saturated on memory bandwidth. `tokens_per_sec = eval_count / eval_duration` directly measures generation rate and is the right metric for:
 
-**tokens/sec** (`eval_count / eval_duration`) directly measures how fast the model is generating output tokens. This is the correct metric for:
+- Comparing pipeline configurations (parallelism, batch size).
+- Detecting GPU saturation.
+- Estimating wall-clock time for a given workload.
 
-- Comparing pipeline configurations (parallelism, batch size)
-- Detecting GPU saturation
-- Estimating wall-clock time for a given workload
+## LLM Timing Fields
 
-## LLM timing fields
-
-Each `ExtractEntry` persists an `LlmTimingFields` object with the subset of Ollama timing data needed for benchmarking. `ChatResponse` objects are kept in memory during the run for aggregate statistics but are not saved to disk.
-
-Every `ChatResponse` from Ollama contains nanosecond-precision timing data:
+Each LLM call records nanosecond-precision timings via `LlmTimingFields` (see [Data Formats](data-formats.md#llmtimingfields)). Useful identities:
 
 ```
-total_duration = load_duration + prompt_eval_duration + eval_duration + internal overhead
+total_duration ≈ load_duration + prompt_eval_duration + eval_duration + (internal overhead)
+latency_sec    = (total_duration - load_duration) / 1e9
+tokens_per_sec = eval_count / (eval_duration / 1e9)
 ```
 
-| Field | Unit | Description |
-|-------|------|-------------|
-| `total_duration` | ns | Wall-clock time inside Ollama for this request |
-| `load_duration` | ns | Model load/unload time (high on cold start) |
-| `prompt_eval_count` | tokens | Number of prompt tokens evaluated |
-| `prompt_eval_duration` | ns | Time spent on prompt evaluation |
-| `eval_count` | tokens | Number of generated tokens |
-| `eval_duration` | ns | Time spent on token generation |
+`LlmTimingSummary` (in `PerformanceSummary.ner_llm_timing` and `PerformanceSummary.select_llm_timing`) aggregates these across all calls of a stage. Schema: [Data Formats](data-formats.md#llmtimingsummary).
 
-## Diagnosing execution time variance
+## Diagnosing Execution Time Variance
 
-Execution time varies between runs even with identical inputs. The `performance` field in the result JSON provides data to isolate the cause.
+When two runs of the same workload differ, look at:
 
-### Layer 1: LLM internal
+- **`load_duration` spikes** -- the model was unloaded between requests. Inspect `mean_load_duration_sec` and `max_load_duration_sec`. Likely Ollama eviction under memory pressure or load timeout.
+- **`tokens_per_sec` p99 vs p50 gap** -- intermittent hardware interference, KV cache pressure, or thermal throttling.
+- **`sum(total_duration)` << wall-clock** -- requests are spending time in the Ollama queue. Reduce concurrency or `OLLAMA_NUM_PARALLEL`.
+- **Stage time imbalance** -- compare `ner_sec`, `ontology_search_sec`, `text2term_sec`, and `llm_select_sec` in `stage_timings[]` to find the bottleneck. `ontology_search_sec` should stay sub-second; a spike there means an index rebuild, not ontology content.
+- **`text2term_sec` without `disk_io.text2term_cache_build_sec`** -- the text2term cache acronym was not registered before per-batch calls, so `map_terms()` paid a per-call cache miss. Verify `build_text2term_cache()` ran at startup.
+- **`asyncio.gather` tail** -- `llm_select_sec` is the maximum of all concurrent Stage 3 calls per batch, so one slow call dominates.
+- **Shared-cluster noise** -- on NIG Slurm, other jobs compete for GPU, network, and storage. Compare runs at different times.
 
-- **`load_duration` spikes**: Model was unloaded from GPU between requests. Indicates Ollama evicted the model (memory pressure, timeout). Check `max_load_duration_sec` and `mean_load_duration_sec`.
-- **`eval_duration / eval_count` variance**: Per-token generation speed fluctuates. May indicate KV cache pressure or Ollama queuing.
-- **`total_duration` vs wall-clock gap**: If `sum(total_duration)` is much less than wall-clock time, requests are spending time in the Ollama queue.
+## Detecting GPU Saturation
 
-### Layer 2: GPU / hardware
+Run the same workload at several concurrency levels (e.g. 1, 4, 16, 64, 256) and read `mean_tokens_per_sec` (`T_N`) from each result. Compute `N * T_N`:
 
-- Thermal throttling reduces clock speed under sustained load.
-- Memory bandwidth contention from other processes sharing the GPU.
-- Compare `tokens_per_sec` p50 vs p99: a large gap suggests intermittent hardware interference.
+| Observation | Interpretation |
+|---|---|
+| `N * T_N` increases linearly | GPU is underutilised. Increase concurrency. |
+| `N * T_N` plateaus | GPU is saturated. Optimal concurrency reached. |
+| `N * T_N` decreases | Contention overhead. Reduce concurrency. |
+| `T_N` drops sharply at some N | Queue pressure. Use the previous N. |
 
-### Layer 3: Pipeline structure
+## Reproducibility
 
-- `asyncio.gather` takes the maximum of all coroutine durations, so one slow request dominates batch time.
-- Resume file writes (`resume_write_sec`) grow linearly with accumulated outputs.
-
-### Layer 4: OS / environment
-
-- On shared clusters (e.g., NIG Slurm), other jobs compete for GPU, network, and storage.
-- Compare runs at different times to isolate environmental noise.
-
-## Detecting GPU saturation
-
-GPU saturation means adding more parallelism no longer increases total throughput.
-
-### Method
-
-1. Run the same workload with different concurrency levels (e.g., 1, 4, 16, 64, 256).
-2. From the result's `performance` field, compute:
-   - `T_N`: mean per-request tokens/sec at concurrency N
-   - `N * T_N`: estimated total throughput
-
-### Interpretation
-
-| Observation | Meaning |
-|-------------|---------|
-| `N * T_N` increases linearly | GPU is underutilized; increase concurrency |
-| `N * T_N` plateaus | GPU is saturated; optimal concurrency reached |
-| `N * T_N` decreases | Contention overhead; reduce concurrency |
-| `T_N` drops sharply at some N | Queue pressure; consider the previous N as optimal |
-
-## Ensuring reproducibility
-
-### Warm-up
-
-Cold starts inflate `load_duration`. Before benchmarking, send a few dummy requests to ensure the model is loaded and the KV cache is initialized.
-
-### Multiple runs
-
-Report **median +- IQR** (interquartile range) over at least 3 runs. Mean is sensitive to outliers; median is not.
-
-### Normalize by tokens/sec
-
-Wall-clock time depends on the number of tokens generated, which varies with input. Use `tokens_per_sec` to compare across different inputs.
+- **Warm-up.** Cold starts inflate `load_duration`. Send a few dummy requests before timing.
+- **Multiple runs.** Report median +- IQR over at least 3 runs. Mean is sensitive to outliers.
+- **Normalise.** Wall-clock time depends on the token budget of the input. Compare `tokens_per_sec` across runs to factor that out.
 
 ## Reading PerformanceSummary
 
-Performance data is embedded in the result file's `performance` field (both `ExtractResult` and `SelectResult`).
-
-### Top-level fields
-
 | Field | What to check |
-|-------|---------------|
-| `performance.total_wall_sec` | End-to-end wall-clock time |
-| `performance.total_input_entries` / `performance.completed_count` | Did all entries complete? |
-| `evaluation.accuracy` / `evaluation.precision` / `evaluation.recall` / `evaluation.f1` | Accuracy regression check (Select mode only, in `SelectResult.evaluation`) |
+|---|---|
+| `performance.total_wall_sec` | End-to-end wall-clock time. |
+| `performance.total_input_entries` / `completed_count` | Did every entry complete? |
+| `performance.ner_llm_timing.mean_tokens_per_sec` | NER GPU throughput. |
+| `performance.select_llm_timing.mean_tokens_per_sec` | Stage 3 GPU throughput (Select only). |
+| `performance.ner_llm_timing.mean_load_duration_sec` / `max_load_duration_sec` | Warm-up effectiveness. |
+| `performance.ner_llm_timing.p50_latency_sec` vs `p99_latency_sec` | Tail latency. |
+| `performance.stage_timings[].{ner_sec, ontology_search_sec, text2term_sec, llm_select_sec, resume_write_sec}` | Per-batch breakdown of the Select pipeline. |
+| `performance.disk_io.text2term_cache_build_sec` (length and total) | First-run cost of building the text2term cache (Select only). |
+| `performance.disk_io.index_cache_load_sec` vs `index_build_from_file_sec` | Cache hits vs rebuilds (Select only). |
+| `evaluation.{accuracy, precision, recall, f1}` | Accuracy regression check (Select only, 0-1 ratios). |
 
-### `performance.ner_llm_timing` / `performance.select_llm_timing`
+Field definitions live in [Data Formats](data-formats.md#performancesummary); this page is the interpretation guide only.
 
-| Field | What to check |
-|-------|---------------|
-| `mean_tokens_per_sec` | GPU throughput indicator |
-| `p50_tokens_per_sec` | Typical throughput |
-| `mean_load_duration_sec` | Warm-up effectiveness |
-| `max_load_duration_sec` | Worst-case model load |
-| `p50_latency_sec` vs `p99_latency_sec` | Tail latency (outlier detection) |
-| `total_prompt_tokens` / `total_eval_tokens` | Token budget |
+## Multi-Model Bench Script
 
-### `performance.stage_timings[]`
+`scripts/run_model_bench.sh` runs Select mode against `tests/data/eval_biosample.json` (600 entries) with `tests/data/eval_gold_standard.tsv` as the gold standard, sweeping a fixed list of Ollama models under `--no-reasoning --batch-size 128`. Outputs:
 
-Per-batch breakdown. Compare `ner_sec`, `ontology_search_sec`, `text2term_sec`, `llm_select_sec` to identify the bottleneck stage.
+- `bench-logs/{run_name}.log` / `.err` per model.
+- `bench-logs/summary.tsv` -- `model`, `run_name`, `wall_sec`, `result_json`, `status`.
+- `bsllmner2-results/select/select_{run_name}.json` per model.
 
-`text2term_sec` measures Stage 2b (`text2term.map_terms()`). Since the text2term cache is prebuilt once per run (via `build_text2term_cache()` at start-up), a warm `text2term_sec` reflects only cache load + TF-IDF scoring — expect single-digit to low-tens seconds. A large `text2term_sec` without a corresponding `disk_io.text2term_cache_build_sec` in the same run indicates a cache miss inside `map_terms` (e.g. the acronym was not registered before per-batch calls) and should be investigated.
-
-`ontology_search_sec` on the other hand is a pure in-memory dict/set lookup and is usually < 0.1 s even for hundreds of queries; a sudden spike here points at an index rebuild, not at ontology content.
-
-### `performance.disk_io`
-
-| Field | What to check |
-|-------|---------------|
-| `index_cache_load_sec` | OntologyIndex cache hit speed |
-| `index_cache_save_sec` | First-run write overhead |
-| `index_build_from_file_sec` | OntologyIndex rebuild (cache miss) cost per OWL/TSV |
-| `text2term_cache_build_sec` | text2term cache ontology build cost (first run only; empty on warm runs) |
-| `text2term_cache_load_sec` | text2term `cache_exists` probe on warm runs (should be near-zero) |
-| `resume_write_sec` | I/O growth over batches |
+The script intentionally does not set `set -e`; one model failing does not abort the sweep.

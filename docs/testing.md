@@ -1,26 +1,21 @@
 # Testing
 
-## Running Unit Tests
+## Unit Tests
 
 ```bash
-# Run all tests
-uv run pytest
-
-# Run a specific test file
-uv run pytest tests/py_tests/test_utils.py
-
-# Exclude slow tests
-uv run pytest -m "not slow"
-
-# Run with randomized order (enabled by pytest-randomly)
-uv run pytest -p randomly
+uv run pytest                          # all tests, with coverage
+uv run pytest tests/py_tests/test_io.py
+uv run pytest -m "not slow"            # skip slow tests
+uv run pytest -p randomly              # explicit randomised order
 ```
 
-### Test Markers
+Pytest is configured in `pyproject.toml` with `--cov=bsllmner2 --cov-report=term-missing`, strict markers, and async support. Property-based tests are written with [hypothesis](https://hypothesis.readthedocs.io/).
+
+### Markers
 
 | Marker | Description |
-|--------|-------------|
-| `@pytest.mark.slow` | Long-running tests, skipped with `-m "not slow"` |
+|---|---|
+| `slow` | Long-running tests. Skip with `-m "not slow"`. |
 
 ## Type Checking
 
@@ -28,54 +23,45 @@ uv run pytest -p randomly
 uv run mypy
 ```
 
-Configured in `pyproject.toml` with strict mode and the pydantic plugin.
+`mypy` runs in `strict` mode with the `pydantic.mypy` plugin against `bsllmner2/**/*.py` and `tests/**/*.py`. External modules without stubs (`ijson`, `owlready2`, `text2term`, `ollama`, `pandas`, `matplotlib`) have their missing-imports ignored in `pyproject.toml`.
 
 ## Linting and Formatting
 
 ```bash
-# Lint
 uv run ruff check bsllmner2/ tests/ scripts/
-
-# Format
 uv run ruff format bsllmner2/ tests/ scripts/
-
-# Format check (for CI)
 uv run ruff format --check bsllmner2/ tests/ scripts/
 ```
 
+Ruff is configured with `select = ["ALL"]` and an explicit `ignore` list (see `[tool.ruff.lint]` in `pyproject.toml`). `target-version = "py310"` and `line-length = 120`.
+
 ## Mutation Testing
 
-[mutmut](https://github.com/boxed/mutmut) validates that tests can detect code mutations.
+[mutmut](https://github.com/boxed/mutmut) validates that the test suite detects code mutations.
 
 ```bash
-# Run mutation testing
 uv run mutmut run
-
-# Show results
 uv run mutmut results
 ```
 
-Target modules are configured in `pyproject.toml`:
+Configured in `pyproject.toml`:
 
 ```toml
 [tool.mutmut]
-paths_to_mutate = "bsllmner2/"
-tests_dir = "tests/py_tests/"
+paths_to_mutate = ["bsllmner2/"]
+tests_dir = ["tests/py_tests/"]
+pytest_add_cli_args = ["--no-cov", "-p", "no:randomly"]
 ```
 
 ## Model Evaluation
 
-The `tests/model-evaluation/` directory contains scripts for benchmarking LLM models on ontology mapping accuracy.
+`tests/model-evaluation/` benchmarks LLM models on the ontology mapping task using the 600-entry evaluation set in `tests/data/eval_biosample.json` with `tests/data/eval_gold_standard.tsv` as the gold standard for the `cell_line` field.
 
-**Datasets** (hosted on Zenodo):
+Source datasets (Zenodo):
 
 - <https://zenodo.org/records/14881142>
 - <https://zenodo.org/records/14643285>
 
-600 BioSample entries evaluated against a human-curated gold standard. Data files are stored in `tests/data/` (see `tests/data/README.md` for details).
+Metrics produced: accuracy, precision, recall, F1 (see `SelectResult.evaluation` in [Data Formats](data-formats.md#selectresult)). For how to interpret performance numbers in the result JSON, see [Benchmarking](benchmarking.md).
 
-**Evaluated models**: deepseek-r1 (8b/32b), gemma3 (4b/12b/27b), gpt-oss (20b), llama3.1 (8b), phi4 (14b), qwen3 (4b/8b/32b)
-
-**Metrics**: Precision, Recall, F1-score, Accuracy (for the `cell_line` field)
-
-For the full evaluation workflow (batch execution, metric computation, result aggregation), see [tests/model-evaluation/README.md](../tests/model-evaluation/README.md).
+Full workflow (batch execution across models, metric aggregation): see [`tests/model-evaluation/README.md`](https://github.com/dbcls/bsllmner-mk2/blob/main/tests/model-evaluation/README.md).

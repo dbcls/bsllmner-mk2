@@ -1,110 +1,67 @@
 # ChIP-Atlas Data Processing
 
-This guide explains how to process ChIP-Atlas data using bsllmner-mk2 for both human (hg38) and mouse (mm10) genome assemblies.
+How to fetch ChIP-Atlas experiments and run Select mode against them for human (hg38) and mouse (mm10) assemblies.
 
 ## Overview
 
-### What is ChIP-Atlas?
-
-[ChIP-Atlas](https://chip-atlas.org) is a comprehensive data-mining suite for exploring epigenomic landscapes by fully integrating ChIP-seq, ATAC-seq, DNase-seq, and Bisulfite-seq experiments.
-
-### Relationship with bsllmner-mk2
-
-- Each SRX (experiment) entry in ChIP-Atlas is linked to a BioSample record
-- SRX and BioSample have a one-to-one relationship
-- ChIP-Atlas provides human-curated metadata values for each experiment
-- bsllmner-mk2 can extract and map values from BioSample records using LLM
-- This enables benchmarking LLM-based NER against human-curated annotations
+[ChIP-Atlas](https://chip-atlas.org) is a data-mining suite covering ChIP-seq, ATAC-seq, DNase-seq, and Bisulfite-seq experiments. Each SRX entry maps one-to-one to a BioSample record. ChIP-Atlas itself provides human-curated metadata, which makes it a useful benchmark target for the LLM-based extraction in `bsllmner2_select`.
 
 ## Prerequisites
 
-Before processing ChIP-Atlas data, ensure:
-
-1. Docker environment is running (see [getting-started.md](getting-started.md))
-2. Ontology files are downloaded and converted (see [Quick Start §2](getting-started.md#2-download-ontology-files))
+1. The Docker environment is up (see [Installation](installation.md)).
+2. Ontology files have been prepared (see [Ontology Preparation](ontology.md)).
 
 ## Data Preparation
 
-### scripts/prepare_bs_entries.py
-
-This script downloads and prepares BioSample entries from ChIP-Atlas:
+`scripts/prepare_bs_entries.py` downloads ChIP-Atlas `experimentList.tab`, builds an SRX-to-BioSample mapping from NCBI `SRA_Accessions.tab`, and fetches the corresponding BioSample entries through the DDBJ Search Bulk API.
 
 ```bash
-# Inside Docker container
 docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly <GENOME>
 ```
 
-**Options:**
+| Option | Description |
+|---|---|
+| `--genome-assembly` | Filter experiments by genome assembly (e.g. `hg38`, `mm10`). |
+| `--force` | Re-download files even if cached copies exist. |
 
-- `--genome-assembly`: Filter by genome assembly (e.g., `hg38`, `mm10`)
-- `--force`: Re-download files even if they already exist
-
-**Output Files** (in `chip-atlas-data/`):
+Output under `chip-atlas-data/`:
 
 | File | Description |
-|------|-------------|
-| `experimentList.tab` | Raw metadata from ChIP-Atlas |
-| `experimentList.json` | Parsed experiment metadata |
-| `SRA_Accessions.tab` | SRX to BioSample mapping source |
-| `srx_to_biosample.json` | SRX to BioSample ID mapping |
-| `bs_entries.jsonl` | BioSample entries (one per line) |
-| `bs_entries/{prefix}/{accession}.json` | Cached individual BioSample files |
+|---|---|
+| `experimentList.tab` | Raw ChIP-Atlas metadata. |
+| `experimentList.json` | Parsed `ChipAtlasExperiment` list. |
+| `SRA_Accessions.tab` | NCBI SRA accession mapping source. |
+| `srx_to_biosample.json` | SRX -> BioSample ID mapping. |
+| `bs_entries.jsonl` | BioSample entries (one JSON per line). |
+| `bs_entries/{prefix}/{accession}.json` | Per-accession cache. |
 
-## Select Configuration
+DDBJ Bulk API calls are batched in groups of 1000 and retried up to 3 times with exponential backoff. Cached entries are reused on re-runs unless `--force` is given.
 
-### Configuration Structure
+## Provided Select Configs
 
-The select config JSON file defines which fields to extract and map to ontologies:
+| File | Taxonomy | Fields |
+|---|---|---|
+| `scripts/select-config-hg38.json` | 9606 (human) | `cell_line`, `cell_type`, `tissue`, `disease`, `drug`, `knockout_gene`, `knockdown_gene`, `overexpressed_gene` |
+| `scripts/select-config-mm10.json` | 10090 (mouse) | Same 8 fields, with mouse ontologies. |
 
-```json
-{
-  "fields": {
-    "field_name": {
-      "ontology_file": "/app/ontology/example.owl",
-      "prompt_description": "Description for LLM",
-      "value_type": "string"
-    }
-  }
-}
-```
+For the SelectConfig schema itself, see [Select Mode](select-mode.md#selectconfig-customization). To customise: copy one of the files above and edit the field list / ontology paths.
 
-For field property details, see [Select Mode - Select Config Customization](select-mode.md#select-config-customization).
+### Field Comparison
 
-### Provided Configuration Files
+| Field | hg38 ontology | mm10 ontology |
+|---|---|---|
+| `cell_line` | `cellosaurus_human.owl` | `cellosaurus_mouse.owl` |
+| `cell_type` | `cl_human_subset.owl` | `cl_mouse_subset.owl` |
+| `tissue` | `uberon_human_subset.owl` | `uberon_mouse_subset.owl` |
+| `disease` | `mondo_human_subset.owl` | `mondo_human_subset.owl` (reused) |
+| `drug` | `chebi_subset.owl` | `chebi_subset.owl` |
+| `knockout_gene` / `knockdown_gene` / `overexpressed_gene` | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
 
-| File | TaxID | Fields | Use Case |
-|------|-------|--------|----------|
-| `select-config-hg38.json` | 9606 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Human ChIP-Atlas evaluation |
-| `select-config-mm10.json` | 10090 | 8 (cell_line, cell_type, tissue, disease, drug, knockout_gene, knockdown_gene, overexpressed_gene) | Mouse ChIP-Atlas evaluation |
-
-**Note:** You should customize the select-config based on your specific needs.
-
-### Key Differences Between hg38 and mm10 Configs
-
-| Aspect | hg38 | mm10 |
-|--------|------|------|
-| `cell_line` ontology | `cellosaurus_human.owl` (per-species OBO preprocessed via `--taxid 9606`) | `cellosaurus_mouse.owl` (`--taxid 10090`) |
-| `cell_type` ontology | `cl_human_subset.owl` (CL human_subset + EFO cell types) | `cl_mouse_subset.owl` (CL mouse_subset + EFO cell types) |
-| `tissue` ontology | `uberon_human_subset.owl` | `uberon_mouse_subset.owl` |
-| `disease` ontology | `mondo_human_subset.owl` (`MONDO:0700096` subtree) | `mondo_human_subset.owl` (same subset reused — mouse-model diseases are overwhelmingly human diseases) |
-| `drug` ontology | `chebi_subset.owl` | `chebi_subset.owl` |
-| `knockout/down/overexpressed_gene` ontology | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
-
-All species / hierarchy filtering is encoded at ontology build time; no runtime filter is applied by Select mode.
-
-## Processing hg38 (Human)
-
-### 1. Prepare Data
+## Processing hg38
 
 ```bash
 docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly hg38
-```
 
-This downloads and processes human experiments from ChIP-Atlas.
-
-### 2. Run Select Mode
-
-```bash
 docker compose exec app bsllmner2_select \
   --bs-entries ./chip-atlas-data/bs_entries.jsonl \
   --model llama3.1:70b \
@@ -113,33 +70,13 @@ docker compose exec app bsllmner2_select \
   --debug
 ```
 
-### 3. Check Results
+Result: `bsllmner2-results/select/select_hg38-full.json`.
 
-```bash
-ls bsllmner2-results/extract/
-ls bsllmner2-results/select/
-```
-
-## Processing mm10 (Mouse)
-
-### 1. Backup Existing Data (if switching from hg38)
-
-```bash
-# Optional: backup hg38 data before overwriting
-mv chip-atlas-data/bs_entries.jsonl chip-atlas-data/bs_entries_hg38.jsonl
-mv chip-atlas-data/experimentList.json chip-atlas-data/experimentList_hg38.json
-mv chip-atlas-data/srx_to_biosample.json chip-atlas-data/srx_to_biosample_hg38.json
-```
-
-### 2. Prepare Data
+## Processing mm10
 
 ```bash
 docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly mm10
-```
 
-### 3. Run Select Mode
-
-```bash
 docker compose exec app bsllmner2_select \
   --bs-entries ./chip-atlas-data/bs_entries.jsonl \
   --model llama3.1:70b \
@@ -148,126 +85,26 @@ docker compose exec app bsllmner2_select \
   --debug
 ```
 
-## Large-Scale Processing Tips
+`prepare_bs_entries.py` overwrites `chip-atlas-data/bs_entries.jsonl` and the related JSON files. To keep the previous assembly's output, rename the files before the second run (e.g. `mv chip-atlas-data/bs_entries.jsonl chip-atlas-data/bs_entries_hg38.jsonl`).
 
-### Test with Limited Entries
+## Tips for Large-Scale Runs
 
-Before processing the full dataset, test with a subset:
+- **Test first**: use `--max-entries 100 --run-name <run>-test` to validate the pipeline end-to-end before launching the full run.
+- **Sample**: `awk 'NR % 350 == 1' chip-atlas-data/bs_entries.jsonl > chip-atlas-data/bs_entries.small.jsonl` gives ~500 entries.
+- **Resume**: keep the same `--run-name` and add `--resume`. See [CLI Reference](cli.md#resume).
+- **Batch size**: lower `--batch-size` (default 1024) if VRAM is tight.
 
-```bash
-docker compose exec app bsllmner2_select \
-  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
-  --select-config ./scripts/select-config-hg38.json \
-  --model llama3.1:70b \
-  --max-entries 100 \
-  --run-name hg38-test
-```
+Approximate data volumes:
 
-### Resume Interrupted Processing
-
-If processing is interrupted, resume from where it left off:
-
-```bash
-docker compose exec app bsllmner2_select \
-  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
-  --select-config ./scripts/select-config-hg38.json \
-  --model llama3.1:70b \
-  --run-name hg38-full \
-  --resume
-```
-
-### Adjust Batch Size
-
-If you encounter memory issues, reduce the batch size:
-
-```bash
-docker compose exec app bsllmner2_select \
-  --bs-entries ./chip-atlas-data/bs_entries.jsonl \
-  --select-config ./scripts/select-config-hg38.json \
-  --model llama3.1:70b \
-  --batch-size 256 \
-  --run-name hg38-full
-```
-
-Default batch size is 1024.
-
-### Sample Data for Quick Testing
-
-Create a smaller dataset by sampling:
-
-```bash
-# Sample every 350th entry (reduces ~188k to ~500 entries)
-awk 'NR % 350 == 1' chip-atlas-data/bs_entries.jsonl > chip-atlas-data/bs_entries.small.jsonl
-
-# Run on sampled data
-docker compose exec app bsllmner2_select \
-  --bs-entries ./chip-atlas-data/bs_entries.small.jsonl \
-  --select-config ./scripts/select-config-mm10.json \
-  --model llama3.1:70b \
-  --run-name mm10-test-small
-```
-
-## Troubleshooting
-
-### Out of Memory Errors
-
-**Symptom:** Container crashes during processing
-
-**Solutions:**
-
-1. Reduce `--batch-size` (e.g., `--batch-size 128`)
-2. Reduce Ollama parallel requests in `compose.yml`:
-
-   ```yaml
-   environment:
-     - OLLAMA_NUM_PARALLEL=8  # reduce from 16
-   ```
-
-3. Use a smaller model (e.g., `llama3.1:8b` instead of `llama3.1:70b`)
-
-### Data Download Failures
-
-**Symptom:** Network errors during `prepare_bs_entries.py`
-
-The script uses the DDBJ Search Bulk API to fetch BioSample entries in batches of 1000. If a batch fails, it retries up to 3 times with exponential backoff. Successfully cached entries are skipped on re-run.
-
-**Solution:**
-
-```bash
-# Re-run with --force to retry failed downloads
-docker compose exec app python3 scripts/prepare_bs_entries.py \
-  --genome-assembly hg38 \
-  --force
-```
-
-### Missing Ontology Files
-
-**Symptom:** FileNotFoundError for `.owl` files
-
-**Solution:**
-
-1. Run the download script: `python3 scripts/download_ontology_files.py`
-2. Generate per-species Cellosaurus OWLs and NCBI Gene OWLs (see [getting-started.md](getting-started.md#2-prepare-ontology-files)). For mm10:
-
-   ```bash
-   python3 scripts/preprocess_cellosaurus.py --taxid 10090
-   # then ROBOT convert cellosaurus_mouse.mod.obo -> cellosaurus_mouse.owl
-   python3 scripts/ncbi_gene_to_owl.py --taxid 10090
-   # mondo_human_subset.owl is reused for mm10 (no separate mouse subset is built)
-   ```
-
-## Data Volume Reference
-
-Approximate data sizes by genome assembly:
-
-| Assembly | Experiments | BioSample Entries |
-|----------|-------------|-------------------|
+| Assembly | Experiments | BioSample entries |
+|---|---|---|
 | hg38 | ~200,000+ | ~150,000+ |
 | mm10 | ~188,000 | ~140,000 |
 
-Processing times vary based on:
+## Troubleshooting
 
-- Model size (larger models = slower but more accurate)
-- GPU performance
-- Number of parallel requests (`OLLAMA_NUM_PARALLEL`)
-- Batch size
+**Out of memory.** Reduce `--batch-size` (e.g. 128), drop `OLLAMA_NUM_PARALLEL` in `compose.yml`, or run a smaller model. See [Configuration](configuration.md#ollama-performance-tuning-docker-compose).
+
+**Bulk API failures.** Re-run with `--force` to retry. The script retries each batch up to 3 times with exponential backoff; cached entries are reused across attempts.
+
+**Missing ontology files.** Build them following [Ontology Preparation](ontology.md). For mm10 specifically you need `cellosaurus_mouse.owl`, `cl_mouse_subset.owl`, `uberon_mouse_subset.owl`, and `ncbi_gene_mouse.owl`; `mondo_human_subset.owl` is reused.

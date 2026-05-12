@@ -1,13 +1,13 @@
 # bsllmner-mk2
 
-A tool for extracting biological named entities from [BioSample](https://www.ncbi.nlm.nih.gov/biosample/) records using Large Language Models (LLMs) and mapping them to ontology terms.
+A CLI tool that extracts biological named entities from [BioSample](https://www.ncbi.nlm.nih.gov/biosample/) records with LLMs ([Ollama](https://ollama.com/)) and maps them to ontology terms.
 
-**Key capabilities:**
+**Documentation:** <https://dbcls.github.io/bsllmner-mk2>
 
-- **Extract mode** -- Performs Named Entity Recognition (NER) to extract terms such as cell line, tissue, and organism from BioSample metadata
-- **Select mode** -- Extends extract mode by mapping extracted terms to ontology entries (Cellosaurus, UBERON, Cell Ontology, etc.)
+## Capabilities
 
-bsllmner-mk2 uses [Ollama](https://ollama.com/) as the LLM inference server.
+- **Extract mode** (`bsllmner2_extract`) -- Performs Named Entity Recognition (NER) over BioSample metadata and emits structured JSON.
+- **Select mode** (`bsllmner2_select`) -- Runs the same NER pass, searches each extracted value against ontologies (Cellosaurus, Cell Ontology, UBERON, MONDO, ChEBI, NCBI Gene, Plant Ontology), and lets the LLM pick the best ontology term per field.
 
 ## Quick Start
 
@@ -18,40 +18,43 @@ docker compose exec app bsllmner2_extract \
   --model llama3.1:70b --debug
 ```
 
-For a complete walkthrough including ontology setup and Select mode, see [Getting Started](docs/getting-started.md).
+A complete walkthrough -- including ontology preparation and Select mode -- is in [Getting Started](docs/getting-started.md).
 
 ## Documentation
 
-Full documentation is available at **<https://dbcls.github.io/bsllmner-mk2>**.
-
 **Basics**
 
-- [Getting Started](docs/getting-started.md) -- First run walkthrough with ontology setup
-- [Installation](docs/installation.md) -- Docker Compose, uv, and GPU configuration
+- [Getting Started](docs/getting-started.md) -- First-run walkthrough.
+- [Installation](docs/installation.md) -- Docker Compose, uv, host requirements.
 
-**Features**
+**Modes**
 
-- [Extract Mode](docs/extract-mode.md) -- NER extraction pipeline and CLI options
-- [Select Mode](docs/select-mode.md) -- Ontology mapping pipeline and CLI options
-- [Data Formats](docs/data-formats.md) -- Input/output data format specification
-- [Configuration](docs/configuration.md) -- Environment variables and settings
+- [Extract Mode](docs/extract-mode.md) -- NER pipeline.
+- [Select Mode](docs/select-mode.md) -- NER + ontology mapping pipeline.
+
+**Reference**
+
+- [CLI](docs/cli.md) -- `bsllmner2_extract` / `bsllmner2_select` options.
+- [Data Formats](docs/data-formats.md) -- Input/output schemas.
+- [Configuration](docs/configuration.md) -- Environment variables and Ollama tuning.
 
 **Operations**
 
-- [ChIP-Atlas](docs/chip-atlas.md) -- Processing ChIP-Atlas data (hg38/mm10)
-- [NIG Slurm](docs/nig-slurm.md) -- Running on NIG Slurm environment
+- [Ontology Preparation](docs/ontology.md) -- Building the OWL files Select mode consumes.
+- [ChIP-Atlas](docs/chip-atlas.md) -- Processing ChIP-Atlas data (hg38 / mm10).
+- [NIG Slurm](docs/nig-slurm.md) -- Running on the NIG Slurm environment.
 
-**Development**
+**Contributing**
 
-- [Development](docs/development.md) -- Development environment setup
-- [Testing](docs/testing.md) -- Unit tests, linting, mutation testing, model evaluation
+- [Development](docs/development.md) -- Local development setup.
+- [Testing](docs/testing.md) -- pytest, mypy, ruff, mutmut, model evaluation.
+- [Benchmarking](docs/benchmarking.md) -- Reading performance and accuracy data.
 
 ## Related Resources
 
 - Original repository: [sh-ikeda/bsllmner](https://github.com/sh-ikeda/bsllmner)
-- Related paper: [https://doi.org/10.1101/2025.02.17.638570](https://doi.org/10.1101/2025.02.17.638570)
+- Related paper: <https://doi.org/10.1101/2025.02.17.638570>
 
 ## License
 
-This repository is released under the MIT License.
-For details, see the [LICENSE](./LICENSE) file.
+Released under the MIT License. See [LICENSE](./LICENSE).

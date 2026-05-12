@@ -1,12 +1,12 @@
-# Running on NIG Slurm Environment
+# NIG Slurm
 
-Instructions for running bsllmner-mk2 as a Slurm job on NIG computing environment.
+Running bsllmner-mk2 as a Slurm job on the NIG GPU compute environment.
 
 ## Prerequisites
 
-### SSH Configuration
+### SSH
 
-Add the following to `~/.ssh/config`:
+Add to `~/.ssh/config`:
 
 ```
 Host nig-gw-3
@@ -22,11 +22,9 @@ Host nig-gpu
     ProxyJump nig-gw-3
 ```
 
-### Required Software
+### Software on the Compute Node
 
-The compute node must have:
-
-- Docker (with NVIDIA Container Toolkit)
+- Docker with NVIDIA Container Toolkit
 - Slurm
 
 ## Setup
@@ -41,43 +39,32 @@ cd bsllmner-mk2
 
 ### 2. Generate slurm.sh
 
-Run `init-slurm.sh` to generate `slurm.sh` with your desired configuration:
-
 ```bash
-# Default: 1 GPU, h200 partition, 168 hours
-./init-slurm.sh
-
-# Custom: 4 GPUs, 72 hour limit
-./init-slurm.sh -g 4 -t 72:00:00
-
-# Custom: 8 GPUs, 256GB memory
-./init-slurm.sh -g 8 -m 256G
-
-# First run (with docker build)
-./init-slurm.sh -b
+./init-slurm.sh                     # defaults: 1 GPU, h200, 168 h
+./init-slurm.sh -g 4 -t 72:00:00    # 4 GPUs, 72 h
+./init-slurm.sh -g 8 -m 256G        # 8 GPUs, 256 GB memory
+./init-slurm.sh -b                  # also build the Docker image on job start
 ```
 
-Available options:
+| Flag | Default | Description |
+|---|---|---|
+| `-g, --gpus` | `1` | GPU count. |
+| `-p, --partition` | `h200` | Slurm partition. |
+| `-c, --cpus` | `32` | CPUs per task. |
+| `-m, --mem` | `128G` | Memory allocation. |
+| `-t, --time` | `168:00:00` | Time limit. |
+| `-b, --build` | off | Pass `--build` to `docker compose` when the job starts. |
+| `-f, --force` | off | Overwrite existing `slurm.sh` without prompting. |
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `-g, --gpus` | Number of GPUs | 1 |
-| `-p, --partition` | Slurm partition | h200 |
-| `-c, --cpus` | CPUs per task | 32 |
-| `-m, --mem` | Memory allocation | 128G |
-| `-t, --time` | Time limit | 168:00:00 |
-| `-b, --build` | Enable docker image build | false |
-| `-f, --force` | Overwrite without prompt | false |
+`slurm.sh` is gitignored.
 
-The generated `slurm.sh` is gitignored, so local changes won't affect the repository.
-
-### 3. Create Docker Network
+### 3. Create the Docker Network
 
 ```bash
 docker network create bsllmner-mk2-network
 ```
 
-### 4. Create Ollama Data Directory
+### 4. Create the Ollama Data Directory
 
 ```bash
 mkdir -p ollama-data
@@ -85,78 +72,43 @@ mkdir -p ollama-data
 
 ### 5. Run Preparation Scripts
 
+Prepare ChIP-Atlas BioSample entries (see [ChIP-Atlas](chip-atlas.md)) before submitting the Slurm job:
+
 ```bash
 docker compose -f compose.yml up app -d --build
-docker compose -f compose.yml exec app bash
-
-# Inside container
-cd scripts
-python3 prepare_bs_entries.py --genome-assembly mm10  # or hg38
-exit
-
+docker compose -f compose.yml exec app python3 scripts/prepare_bs_entries.py --genome-assembly hg38
 docker compose -f compose.yml down
 ```
 
-Ontology files setup (download + OBO→OWL conversion) is described in [Quick Start §2](getting-started.md#2-download-ontology-files).
+Ontology setup (download + subset build + NCBI Gene OWL) is documented in [Ontology Preparation](ontology.md).
 
 ## Running Slurm Jobs
 
-### Submit Job
-
 ```bash
-sbatch slurm.sh
+sbatch slurm.sh             # submit
+squeue -u $USER             # status
+scancel <job-id>            # cancel
+tail -f slurm-logs/bsllmner2-ollama-<job-id>.out     # stdout
+tail -f slurm-logs/bsllmner2-ollama-<job-id>.err     # stderr
 ```
 
-### Check Job Status
+`slurm.sh` reads `SLURM_JOB_GPUS`, rewrites the `__DEVICE_IDS__` placeholder in `compose.slurm.yml.template` into a JSON array, and brings up `bsllmner-mk2-app` + `bsllmner-mk2-ollama` via `docker compose -f compose.slurm.yml up -d --force-recreate`. The job stays alive (`tail -f /dev/null`) so subsequent `docker exec` calls can run `bsllmner2_extract` / `bsllmner2_select` inside the container. On exit the trap runs `docker compose -f compose.slurm.yml down`.
 
-```bash
-squeue -u $USER
-```
-
-### Cancel Job
-
-```bash
-scancel <job-id>
-```
-
-### View Logs
-
-```bash
-# stdout
-tail -f slurm-logs/bsllmner2-ollama-<job-id>.out
-
-# stderr
-tail -f slurm-logs/bsllmner2-ollama-<job-id>.err
-```
-
-## Running Applications
-
-### Access Container
+## Running the Application
 
 ```bash
 docker exec -it bsllmner-mk2-app bash
-```
 
-### Example Commands
-
-```bash
-# Select mode
+# Inside the app container
 bsllmner2_select \
-  --debug \
   --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --select-config ./scripts/select-config-hg38.json \
-  --run-name small-test
-
-# Extract mode
-bsllmner2_extract \
-  --debug \
-  --bs-entries tests/data/example_biosample.json \
-  --model llama3.1:70b \
-  --run-name small-test
+  --run-name small-test \
+  --debug
 ```
 
-### Verify GPU Allocation
+GPU sanity check inside the ollama container:
 
 ```bash
 docker exec -t bsllmner-mk2-ollama nvidia-smi
@@ -164,61 +116,36 @@ docker exec -t bsllmner-mk2-ollama nvidia-smi
 
 ## Troubleshooting
 
-### GPUs Not Visible
+**GPUs not visible.** Verify Slurm GPU allocation and `--gres=gpu:N`:
 
-1. Check Slurm GPU allocation:
+```bash
+env | grep -E 'SLURM_.*GPU|CUDA_VISIBLE_DEVICES'
+```
 
-   ```bash
-   env | grep -E 'SLURM_.*GPU|CUDA_VISIBLE_DEVICES'
-   ```
+`SLURM_JOB_GPUS` or `SLURM_STEP_GPUS` must be set; otherwise `slurm.sh` aborts.
 
-2. Verify `SLURM_JOB_GPUS` or `SLURM_STEP_GPUS` is set
+**Container won't start.** Confirm the network exists, remove stale containers, and check that `compose.slurm.yml` was rewritten:
 
-3. Confirm `--gres=gpu:N` option is correctly specified
+```bash
+docker network ls | grep bsllmner-mk2-network
+docker rm -f bsllmner-mk2-app bsllmner-mk2-ollama 2>/dev/null
+grep device_ids compose.slurm.yml
+```
 
-### Container Won't Start
+**Ollama not responding.** Inspect the container logs and GPU memory:
 
-1. Check Docker network exists:
-
-   ```bash
-   docker network ls | grep bsllmner-mk2-network
-   ```
-
-2. Remove existing containers:
-
-   ```bash
-   docker ps -a | grep bsllmner-mk2
-   docker rm -f bsllmner-mk2-app bsllmner-mk2-ollama
-   ```
-
-3. Verify `compose.slurm.yml` was generated correctly:
-
-   ```bash
-   cat compose.slurm.yml | grep device_ids
-   # Expected: device_ids: [ "N" ] (GPU=1 なら 1 要素、N は Slurm の割当次第)
-   ```
-
-### Ollama Not Responding
-
-1. Check Ollama container logs:
-
-   ```bash
-   docker logs bsllmner-mk2-ollama
-   ```
-
-2. Check GPU memory usage:
-
-   ```bash
-   docker exec -t bsllmner-mk2-ollama nvidia-smi
-   ```
+```bash
+docker logs bsllmner-mk2-ollama
+docker exec -t bsllmner-mk2-ollama nvidia-smi
+```
 
 ## File Reference
 
 | File | Description |
-|------|-------------|
-| `init-slurm.sh` | Setup script (generates slurm.sh with options) |
-| `slurm.sh.template` | Slurm job script template |
-| `slurm.sh` | Generated Slurm job script (gitignored) |
-| `compose.slurm.yml.template` | Docker Compose template |
-| `compose.slurm.yml` | Generated Compose file at runtime (gitignored) |
-| `slurm-logs/` | Job log output directory (gitignored) |
+|---|---|
+| `init-slurm.sh` | Generates `slurm.sh` from the template. |
+| `slurm.sh.template` | Slurm job script template (placeholders `__NUM_GPUS__`, `__PARTITION__`, ...). |
+| `slurm.sh` | Generated job script (gitignored). |
+| `compose.slurm.yml.template` | Docker Compose template with a `__DEVICE_IDS__` placeholder. |
+| `compose.slurm.yml` | Generated at job start (gitignored). |
+| `slurm-logs/` | Slurm stdout / stderr (gitignored). |

@@ -1,66 +1,52 @@
 # Select Mode
 
-A 3-stage pipeline that performs NER (like Extract mode) and then maps the extracted results to ontology terms.
+`bsllmner2_select` runs a three-stage pipeline: NER extraction, ontology search (word combinations + text2term), and LLM selection from the resulting candidate set.
 
 ## Overview
 
-Select mode internally runs Extract before performing ontology mapping. There is no need to run Extract separately.
-
 ```
-BioSample JSON
-      |
-      v
+BioSample JSON/JSONL
+        |
+        v
 +--------------------------------------------+
 | Stage 1: NER Extraction                    |
-| dynamic prompt + schema from SelectConfig  |
+| dynamic prompt + JSON Schema from          |
+| SelectConfig                               |
 +--------------------------------------------+
-      |
-      v
+        |
+        v
 +--------------------------------------------+
 | Stage 2: Ontology Search                   |
-| 2a. Word-combination search (index lookup) |
-| 2b. text2term fallback (OWL only)          |
+| 2a. Word-combination index lookup          |
+| 2b. text2term similarity fallback (OWL)    |
 +--------------------------------------------+
-      |
-      v
+        |
+        v
 +--------------------------------------------+
 | Stage 3: LLM Selection                     |
-| choose best term_id from candidates        |
+| pick best term_id per (field, value)       |
 +--------------------------------------------+
-      |
-      v
-SelectResult
+        |
+        v
+   SelectResult
 ```
 
-## CLI Options
+Select mode is self-contained; there is no need to run `bsllmner2_extract` separately.
 
-### Common Options
+## CLI
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--bs-entries` | Path to the input JSON or JSONL file containing BioSample entries (required) | -- |
-| `--model` | LLM model to use for NER | `llama3.1:70b` |
-| `--thinking BOOL` | Enable or disable thinking mode for the LLM (`true`/`false`) | `false` |
-| `--max-entries` | Process only the first N entries (`-1` for all) | `-1` |
-| `--ollama-host` | Host URL for the Ollama server | `http://localhost:11434` |
-| `--debug` | Enable debug mode for more verbose logging | `false` |
-| `--run-name` | Name of the run for identification purposes | `{model}_{timestamp}` |
-| `--resume` | Resume from the last incomplete run | `false` |
-| `--batch-size` | Number of entries to process in each batch | `1024` |
-| `--num-ctx` | Context length for Ollama | `4096` |
+See [CLI Reference](cli.md#bsllmner2_select) for the full option table. Select-specific options at a glance:
 
-### Select-Specific Options
+| Option | Default | Purpose |
+|---|---|---|
+| `--select-config PATH` | (required) | Field-to-ontology mapping (see [SelectConfig Customization](#selectconfig-customization)). |
+| `--mapping PATH` | (none) | Gold-standard TSV for evaluation metrics. |
+| `--no-reasoning` | reasoning on | Strip the `reasoning` field from the Stage 3 schema. |
 
-| Option | Description | Default |
-|--------|-------------|---------|
-| `--mapping` | Path to the mapping file in TSV format (for evaluation) | `None` |
-| `--select-config` | Path to the select configuration file in JSON format (required) | -- |
-| `--no-reasoning` | Disable reasoning step during selection | `false` |
-
-## Usage Example
+Example:
 
 ```bash
-bsllmner2_select \
+docker compose exec app bsllmner2_select \
   --bs-entries tests/data/example_biosample.json \
   --model llama3.1:70b \
   --select-config scripts/select-config-hg38.json \
@@ -69,67 +55,84 @@ bsllmner2_select \
 
 ## Stage 1: NER Extraction
 
-SelectConfig field definitions are used to dynamically generate a prompt and JSON Schema, then extract entities using the same `ner()` function as Extract mode.
+The same `ner()` function used by Extract mode runs here, but its prompt and JSON Schema are synthesised from the select config at runtime:
 
-- Prompt: `build_extract_prompt_for_select()` constructs the prompt from each field's `prompt_description` and `value_type`
-- Schema: `build_extract_schema_for_select()` generates a JSON Schema from field definitions (`"string"` -> `["string", "null"]`, `"array"` -> `["array", "null"]`)
+- `build_extract_schema_for_select()` -- maps each field to a JSON Schema property (`value_type: "string"` -> `["string", "null"]`, `"array"` -> `["array", "null"]` of strings). All fields are `required`; `additionalProperties` is `false`.
+- `build_extract_prompt_for_select()` -- emits a two-message prompt embedding the field list, `prompt_description`s, and the rules below.
+
+### Category Assignment Rules
+
+The Stage 1 user message enforces these domain-agnostic constraints:
+
+- **Output rules** -- JSON-only output, per-`value_type` value handling, prefer exact mentions, no hallucination.
+- **Category assignment rules** -- each extracted value belongs to **at most one** category; classify by biological meaning rather than the attribute key (e.g. an attribute labelled `drug` containing `HeLa` is extracted as `cell_line`); experimental control terms (`negative control`, `NC`, `vehicle`, `mock`, `empty vector`, `scramble`, `non-targeting`, `shControl`, `siControl`, ...) are never extracted into any category.
+
+These rules ship as-is so the same prompt builder works for arbitrary select configs.
 
 ## Stage 2: Ontology Search
 
-Searches the ontology index for extracted values. At run start-up, two caches are prepared once per process so that per-batch work is kept to lookups only:
+Two caches are warmed once per process; per-batch work is then just lookups.
 
-- `build_index_map()` loads or rebuilds the word-combination `OntologyIndex` per ontology file (`ontology/index_cache/`)
-- `build_text2term_cache()` registers each OWL with text2term via `text2term.cache_ontology(acronym=...)` (`ontology/text2term_cache/`) so later `map_terms()` calls skip OWL parsing
+- `build_index_map()` -- loads or rebuilds an `OntologyIndex` (word-combination index) per `ontology_file` and persists it under `ontology/index_cache/`.
+- `build_text2term_cache()` -- registers each OWL with text2term via `text2term.cache_ontology()` so later `map_terms()` calls skip OWL parsing. Cache location: `ontology/text2term_cache/`.
 
-Per batch, Stage 2 then runs:
+Both cache directories are configurable via environment variables (see [Configuration](configuration.md#cache)).
 
-- **Stage 2a: Word-combination search (`ontology_search_sec`).** Indexes are built from **pre-subsetted** OWL files (via owlready2) or TSV/CSV files (term_id, prop_uri, value). The subsets are generated by [`scripts/build_subset_ontologies.sh`](../scripts/build_subset_ontologies.sh) (a thin wrapper around `sh-ikeda/ontology-constructor-for-bsllmner` SPARQL templates + ROBOT). Searches against `rdfs:label`, `skos:prefLabel`, and various synonym properties (`oboInOwl:hasExactSynonym`, etc.).
-- `obo:IAO_0000115` (textual definition) is collected per term and surfaced as `definitions` on each candidate (not used for search/matching, but passed to the Stage 3 LLM as context)
-- `rdfs:comment` is surfaced as `comments`. In the default subset OWLs only ChEBI populates it (with `has_role` info injected upstream as `"{role_type}: {role_label}"`); other ontologies leave it empty
-- All species / hierarchy filtering is encoded at ontology build time (per-species Cellosaurus OWLs plus CL / UBERON / MONDO / ChEBI subsets); no runtime filter is applied
-- Exact match with a single term_id is finalized immediately; ambiguous or missing matches proceed to Stage 3
-- **Stage 2b: text2term fallback (`text2term_sec`).** For OWL files only, `text2term.map_terms(..., target_ontology=<acronym>, use_cache=True, cache_folder=BSLLMNER2_TEXT2TERM_CACHE_DIR)` is used as a similarity-based fallback. The acronym is `{ontology_file_stem}_nofilter`, matching the cache key used by the word-combination index. When the text2term cache build fails (e.g. read-only cache dir), the call falls back to `target_ontology=<owl_path>` with `use_cache=False` and the run continues with a warning
+### Stage 2a: Word-Combination Search
+
+`OntologyIndex` builds from OWL (via `owlready2`) or TSV/CSV files. It indexes `rdfs:label`, `skos:prefLabel`, and the standard synonym properties (`oboInOwl:hasExactSynonym`, `hasRelatedSynonym`, `hasBroadSynonym`, `hasNarrowSynonym`, `skos:altLabel`, `skos:hiddenLabel`). Additional per-term metadata is collected but not used for matching:
+
+- `obo:IAO_0000115` (textual definition) -- surfaced to Stage 3 as `definitions`.
+- `rdfs:comment` -- surfaced to Stage 3 as `comments`. Populated mainly by ChEBI (`has_role` info is injected at build time).
+
+For each extracted value, `build_word_combinations()` generates lower-cased n-grams (NFKC normalised, CamelCase split, alpha/digit boundary split, joined by space and any of `-/_+` present in the query). Each candidate found in the index becomes a `SearchResult`. If exactly one term_id is an exact match, the field is resolved immediately and Stage 3 is skipped for that value.
+
+All species / hierarchy filtering happens at ontology build time -- per-species Cellosaurus OWLs and the CL / UBERON / MONDO / ChEBI subsets are pre-filtered. There is no runtime filter applied to the index.
+
+### Stage 2b: text2term Fallback
+
+For OWL-backed fields, ambiguous or unresolved values fall back to `text2term.map_terms(target_ontology=<acronym>, use_cache=True, cache_folder=BSLLMNER2_TEXT2TERM_CACHE_DIR)`. The acronym is `{ontology_file.stem}_nofilter` and matches the cache key used in Stage 2a. TSV/CSV ontologies are skipped (text2term operates only on OWL).
+
+Failed `text2term` calls are memoised as empty lists so repeated queries do not re-hit the failing call.
 
 ## Stage 3: LLM Selection
 
-For fields not resolved in Stage 2, candidates from ontology search and text2term are merged and presented to the LLM, which selects the best term_id. Runs in parallel with `asyncio.gather` + `Semaphore(256)`.
+For each `(field, value)` that Stage 2 did not exact-match, candidates from word-combination search and text2term are merged (deduplicated by `term_id`, preferring label-property hits). The LLM is asked to pick a single `term_id` from this list (or return `null`) under a strict JSON Schema. Calls are issued via `asyncio.gather` with a 256-way semaphore over the Ollama client.
 
-When `--no-reasoning` is specified, the `reasoning` field is omitted from the output schema.
+`--no-reasoning` removes the `reasoning` property from the schema and skips the reasoning instructions in the prompt.
 
-## Select Config Customization
+## SelectConfig Customization
 
-Select mode is configured via a JSON file (`--select-config`). Each field defines an extraction target with its ontology mapping. Pre-built configs are available in `scripts/` (`select-config-hg38.json`, `select-config-mm10.json`, `select-config-plants.json`).
+Pre-built configs live in `scripts/`:
 
-To create a custom config, define fields as follows:
+| File | Purpose |
+|---|---|
+| `scripts/select-config-hg38.json` | 8 fields: `cell_line`, `cell_type`, `tissue`, `disease`, `drug`, `knockout_gene`, `knockdown_gene`, `overexpressed_gene` (human ontologies). |
+| `scripts/select-config-mm10.json` | Same 8 fields with mouse-specific ontologies. `disease` reuses `mondo_human_subset.owl`. |
+| `scripts/select-config-plants.json` | 2 fields: `tissue`, `cell_type` (Plant Ontology). |
+
+To author a custom config:
 
 ```json
 {
   "fields": {
     "your_field_name": {
-      "ontology_file": "/path/to/ontology.owl",
-      "prompt_description": "Description of what to extract for NER prompt",
+      "ontology_file": "ontology/your_subset.owl",
+      "prompt_description": "Description used in the Stage 1 prompt.",
       "value_type": "string"
     }
   }
 }
 ```
 
-| Field | Type | Default | Description |
-|-------|------|---------|-------------|
-| `ontology_file` | `string \| null` | `null` | Ontology file path (.owl or .tsv/.csv). If null, uses the extracted value as-is without ontology mapping |
-| `prompt_description` | `string \| null` | `null` | Field description to include in the NER prompt |
-| `value_type` | `"string" \| "array"` | `"string"` | Extracted value type. `array` supports multiple values |
+| Property | Type | Default | Description |
+|---|---|---|---|
+| `ontology_file` | `string` or `null` | `null` | Path to an OWL or TSV/CSV ontology. If `null`, the extracted value is recorded as-is (no Stage 2/3 mapping). |
+| `prompt_description` | `string` or `null` | `null` | Per-field description injected into the Stage 1 prompt. |
+| `value_type` | `"string"` or `"array"` | `"string"` | `"array"` produces a list of values for the field. |
 
-## Resume
+See [Data Formats](data-formats.md#selectconfig) for the canonical schema.
 
-When `--resume` is specified, processing continues from the previous interruption. Resume files are automatically deleted after successful completion.
+## Output
 
-The same `--run-name` must be specified as the original run. If the original run used the auto-generated name (`{model}_{timestamp}`), you need to find it from the resume file in `bsllmner2-results/select/`.
-
-## Result Files
-
-See [Data Formats](data-formats.md) for the full result schema.
-
-| File | Description |
-|------|-------------|
-| `bsllmner2-results/select/select_{run_name}.json` | Select result (contains both extract and select entries) |
+Result file: `bsllmner2-results/select/select_{run_name}.json` (and per-batch resume files while running). For the full `SelectResult` schema, see [Data Formats](data-formats.md#selectresult).
