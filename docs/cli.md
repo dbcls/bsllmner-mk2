@@ -50,18 +50,18 @@ Same as [bsllmner2_extract](#common-options).
 
 `--resume` continues a prior run that ended with `status != "completed"`. The same `--run-name` must be supplied so the CLI can locate the existing resume files.
 
-Resume files (atomic-written per batch under `BSLLMNER2_RESULT_DIR`):
+Files written atomically per batch under `BSLLMNER2_RESULT_DIR`:
 
-| Mode | File | Contents |
+| File | Written by | Contents |
 |---|---|---|
-| `bsllmner2_extract` | `extract/{run_name}_resume.json` | `list[ExtractEntry]` of completed entries. |
-| `bsllmner2_select` | `extract/{run_name}_resume.json` and `select/select_{run_name}_resume.json` | Completed extract entries and completed select entries. |
+| `extract/{run_name}_resume.json` | `bsllmner2_extract`, `bsllmner2_select` | `list[ExtractEntry]` of completed extract entries. |
+| `select/select_{run_name}_resume.json` | `bsllmner2_select` | `list[SelectEntry]` of completed select entries. |
 
 Resume behaviour:
 
-- `bsllmner2_extract` -- accessions already in the extract resume file are skipped; remaining entries are processed.
-- `bsllmner2_select` -- the CLI cross-checks the two resume files:
-    - Entries present in both extract and select files are skipped.
+- `bsllmner2_extract` -- accessions present in the extract resume file are skipped; remaining entries are processed.
+- `bsllmner2_select` -- the CLI cross-checks both resume files:
+    - Accessions present in both files are skipped.
     - **Orphans** (in extract, missing in select) are re-run through the select stage before normal batch processing resumes.
     - If the select resume file references an accession the extract resume file does not contain, the run aborts with `ResumeDataError` to prevent silent data corruption.
 

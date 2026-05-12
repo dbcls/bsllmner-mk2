@@ -30,13 +30,13 @@ EBI-style entries (those whose `characteristics` is a dict mapping each key to a
 
 ## Mapping TSV (for evaluation)
 
-A TSV with the header row below. Only `mapping answer ID` (human-curated) is used as the gold standard by `bsllmner2_select --mapping`. The `extraction answer` column is informational and **not** used for evaluation.
+A TSV with the header row below. Only `mapping answer ID` (human-curated) is used as the gold standard by `bsllmner2_select --mapping`; the other columns are informational.
 
 | Column | Description |
 |---|---|
 | `BioSample ID` | BioSample accession. |
 | `Experiment type` | Experiment type. |
-| `extraction answer` | Auxiliary annotation; not used for evaluation. |
+| `extraction answer` | Auxiliary annotation. |
 | `mapping answer ID` | Ground-truth ontology term ID. |
 | `mapping answer label` | Ground-truth label. |
 
@@ -126,7 +126,7 @@ Written to `bsllmner2-results/select/select_{run_name}.json`.
         "accession": "SAMN00000001",
         "extracted": { "cell_line": "HeLa", "tissue": "cervix" },
         "raw_output": "{\"cell_line\": \"HeLa\", \"tissue\": \"cervix\"}",
-        "llm_timing": { "total_duration": 0, "load_duration": 0, "eval_count": 0, "eval_duration": 0, "prompt_eval_count": 0 }
+        "llm_timing": { "total_duration": 2000000000, "load_duration": 100000000, "eval_count": 80, "eval_duration": 1000000000, "prompt_eval_count": 250 }
       },
       "search_results": {
         "cell_line": {
@@ -178,16 +178,33 @@ Written to `bsllmner2-results/select/select_{run_name}.json`.
 | Path | Type | Description |
 |---|---|---|
 | `entries[].extract` | `ExtractEntry` | Embedded extract result for this entry. |
-| `entries[].search_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2a word-combination candidates. |
-| `entries[].text2term_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2b text2term candidates. |
-| `entries[].search_results.*.[].definitions` | `list[str] \| null` | `obo:IAO_0000115` definitions from the OWL. Surfaced to the Stage 3 LLM as context only. |
-| `entries[].search_results.*.[].comments` | `list[str] \| null` | `rdfs:comment` values. Populated mainly by ChEBI (`has_role` info). |
+| `entries[].search_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2a word-combination candidates. See [SearchResult](#searchresult). |
+| `entries[].text2term_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2b text2term candidates. See [SearchResult](#searchresult). |
 | `entries[].select_timings` | `dict[field, dict[value, LlmTimingFields]]` | Per `(field, value)` Stage 3 LLM call timing. |
-| `entries[].results` | `dict[field, list[ResolvedValue]]` | Final per-field selections. |
+| `entries[].results` | `dict[field, list[ResolvedValue]]` | Final per-field selections. See [ResolvedValue](#resolvedvalue). |
 | `evaluation` | `EvaluationMetrics \| null` | Set when `--mapping` is supplied. `accuracy`, `precision`, `recall`, `f1` are stored as 0-1 ratios (not percentages). |
 | `errors` | `list[ErrorLog]` | Captured errors. |
 
+### SearchResult
+
+One candidate returned by Stage 2 ontology search (Stage 2a word-combination index and Stage 2b text2term). Stored under `entries[].search_results[field][value][]` and `entries[].text2term_results[field][value][]`.
+
+| Field | Type | Description |
+|---|---|---|
+| `term_uri` | `string` | Ontology term URI. |
+| `term_id` | `string` | Normalised term ID (e.g. `CVCL:0030`). |
+| `prop_uri` | `string \| null` | URI of the property that matched the value (e.g. `http://www.w3.org/2000/01/rdf-schema#label`). |
+| `value` | `string` | Property value that produced the match. |
+| `label` | `string \| null` | Preferred label of the term (`rdfs:label` / `skos:prefLabel`). |
+| `exact_match` | `bool` | `true` when the query and `value` are equal after NFKC normalisation. |
+| `text2term_score` | `float \| null` | text2term similarity score. `null` for Stage 2a hits. |
+| `reasoning` | `string \| null` | Human-readable provenance: `"Exact match on <prop>"` for Stage 2a exact hits, `"text2term score: ..."` for Stage 2b hits, otherwise `null`. |
+| `definitions` | `list[str] \| null` | `obo:IAO_0000115` definitions from the OWL. Surfaced to the Stage 3 LLM as context only. |
+| `comments` | `list[str] \| null` | `rdfs:comment` values. Populated mainly by ChEBI; see [Ontology Preparation](ontology.md). |
+
 ### ResolvedValue
+
+One final per-field pick. Stored under `entries[].results[field][]`.
 
 | Field | Type | Description |
 |---|---|---|

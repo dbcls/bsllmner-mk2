@@ -6,33 +6,37 @@
 
 ```
 BioSample JSON/JSONL
-        |
-        v
-+------------------+
-| Filter keys      |  bsllmner2/biosample.py
-| (filter_keys.json)|
-+------------------+
-        |
-        v
-+------------------+
-| Build messages   |  Prompt YAML + entry JSON appended
-+------------------+
-        |
-        v
-+------------------+
-| Ollama chat()    |  optional JSON Schema via format=
-+------------------+
-        |
-        v
-+------------------+
-| Parse last JSON  |  extracted + raw_output captured
-+------------------+
-        |
-        v
+         |
+         v
++--------------------+
+| Filter keys        |  bsllmner2/biosample.py
+| (filter_keys.json) |
++--------------------+
+         |
+         v
++--------------------+
+| Build messages     |  Prompt YAML + entry JSON appended
++--------------------+
+         |
+         v
++--------------------+
+| Ollama chat()      |  optional JSON Schema via format=
++--------------------+
+         |
+         v
++--------------------+
+| Parse last JSON    |  extracted + raw_output captured
++--------------------+
+         |
+         v
    ExtractResult JSON
 ```
 
-Input is loaded as JSON (a list of objects) or JSONL (one object per line). Each entry is normalised with `construct_llm_input_json()` (dropping keys listed in `filter_keys.json` and flattening EBI-style `characteristics`) before being appended to the prompt's final user message.
+Input is loaded as JSON (a list of objects) or JSONL (one object per line). Each entry is normalised with `construct_llm_input_json()` before being appended to the prompt's final user message:
+
+- Keys listed in `bsllmner2/filter_keys.json` are dropped.
+- Non-EBI entries pass through unchanged (minus filtered keys).
+- EBI-style entries (top-level `characteristics: dict`) are flattened to `{key: characteristics[key][0]["text"]}`. Attributes whose value is **not** a non-empty list of objects containing a `text` key are silently dropped.
 
 ## CLI
 

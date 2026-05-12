@@ -23,7 +23,7 @@ Pytest is configured in `pyproject.toml` with `--cov=bsllmner2 --cov-report=term
 uv run mypy
 ```
 
-`mypy` runs in `strict` mode with the `pydantic.mypy` plugin against `bsllmner2/**/*.py` and `tests/**/*.py`. External modules without stubs (`ijson`, `owlready2`, `text2term`, `ollama`, `pandas`, `matplotlib`) have their missing-imports ignored in `pyproject.toml`.
+`mypy` runs in `strict` mode with the `pydantic.mypy` plugin against `bsllmner2/**/*.py` and `tests/**/*.py`. External modules without stubs have their missing-imports ignored via `[[tool.mypy.overrides]]` in `pyproject.toml`.
 
 ## Linting and Formatting
 

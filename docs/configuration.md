@@ -21,7 +21,7 @@ Reference for the environment variables bsllmner-mk2 reads and the Ollama tuning
 | Variable | Default | Description |
 |---|---|---|
 | `BSLLMNER2_RESULT_DIR` | `$PWD/bsllmner2-results` | Root for result and resume files. Subdirectories `extract/` and `select/` are created on demand. |
-| `BSLLMNER2_TMP_DIR` | `$TMPDIR/bsllmner2-$UID` | Temporary directory; holds the `progress/` subdirectory. |
+| `BSLLMNER2_TMP_DIR` | `<tempfile.gettempdir()>/bsllmner2-<uid>` | Scratch directory. Resolved via Python's `tempfile.gettempdir()` (typically `/tmp` on Linux) with the process UID appended. The CLI creates a `progress/` subdirectory here at startup; no files are written to it in the current implementation. |
 
 ### Cache
 

@@ -18,37 +18,37 @@ docker compose exec app bsllmner2_extract \
   --model llama3.1:70b --debug
 ```
 
-A complete walkthrough -- including ontology preparation and Select mode -- is in [Getting Started](docs/getting-started.md).
+A complete walkthrough -- including ontology preparation and Select mode -- is in [Getting Started](https://dbcls.github.io/bsllmner-mk2/getting-started/).
 
 ## Documentation
 
 **Basics**
 
-- [Getting Started](docs/getting-started.md) -- First-run walkthrough.
-- [Installation](docs/installation.md) -- Docker Compose, uv, host requirements.
+- [Getting Started](https://dbcls.github.io/bsllmner-mk2/getting-started/) -- First-run walkthrough.
+- [Installation](https://dbcls.github.io/bsllmner-mk2/installation/) -- Docker Compose, uv, host requirements.
 
 **Modes**
 
-- [Extract Mode](docs/extract-mode.md) -- NER pipeline.
-- [Select Mode](docs/select-mode.md) -- NER + ontology mapping pipeline.
+- [Extract Mode](https://dbcls.github.io/bsllmner-mk2/extract-mode/) -- NER pipeline.
+- [Select Mode](https://dbcls.github.io/bsllmner-mk2/select-mode/) -- NER + ontology mapping pipeline.
 
 **Reference**
 
-- [CLI](docs/cli.md) -- `bsllmner2_extract` / `bsllmner2_select` options.
-- [Data Formats](docs/data-formats.md) -- Input/output schemas.
-- [Configuration](docs/configuration.md) -- Environment variables and Ollama tuning.
+- [CLI](https://dbcls.github.io/bsllmner-mk2/cli/) -- `bsllmner2_extract` / `bsllmner2_select` options.
+- [Data Formats](https://dbcls.github.io/bsllmner-mk2/data-formats/) -- Input/output schemas.
+- [Configuration](https://dbcls.github.io/bsllmner-mk2/configuration/) -- Environment variables and Ollama tuning.
 
 **Operations**
 
-- [Ontology Preparation](docs/ontology.md) -- Building the OWL files Select mode consumes.
-- [ChIP-Atlas](docs/chip-atlas.md) -- Processing ChIP-Atlas data (hg38 / mm10).
-- [NIG Slurm](docs/nig-slurm.md) -- Running on the NIG Slurm environment.
+- [Ontology Preparation](https://dbcls.github.io/bsllmner-mk2/ontology/) -- Building the OWL files Select mode consumes.
+- [ChIP-Atlas](https://dbcls.github.io/bsllmner-mk2/chip-atlas/) -- Processing ChIP-Atlas data (hg38 / mm10).
+- [NIG Slurm](https://dbcls.github.io/bsllmner-mk2/nig-slurm/) -- Running on the NIG Slurm environment.
 
 **Contributing**
 
-- [Development](docs/development.md) -- Local development setup.
-- [Testing](docs/testing.md) -- pytest, mypy, ruff, mutmut, model evaluation.
-- [Benchmarking](docs/benchmarking.md) -- Reading performance and accuracy data.
+- [Development](https://dbcls.github.io/bsllmner-mk2/development/) -- Local development setup.
+- [Testing](https://dbcls.github.io/bsllmner-mk2/testing/) -- pytest, mypy, ruff, mutmut, model evaluation.
+- [Benchmarking](https://dbcls.github.io/bsllmner-mk2/benchmarking/) -- Reading performance and accuracy data.
 
 ## Related Resources
 
@@ -57,4 +57,4 @@ A complete walkthrough -- including ontology preparation and Select mode -- is i
 
 ## License
 
-Released under the MIT License. See [LICENSE](./LICENSE).
+Released under the MIT License. See [LICENSE](https://github.com/dbcls/bsllmner-mk2/blob/main/LICENSE).

@@ -61,8 +61,10 @@ bash scripts/build_subset_ontologies.sh --force   # regenerate everything
 The script clones [`sh-ikeda/ontology-constructor-for-bsllmner`](https://github.com/sh-ikeda/ontology-constructor-for-bsllmner) into `work/` and runs SPARQL CONSTRUCT queries through `obolibrary/robot:latest`. Notes:
 
 - `chebi_subset.owl` runs ROBOT with a 24 GB Java heap (`ROBOT_JAVA_ARGS="-Xmx24g"`); ensure the host has that much RAM available to Docker.
+- The ChEBI build (`build_chebi_subset` in `scripts/build_subset_ontologies.sh`) folds each term's `has_role` chain into `rdfs:comment` via the `chebi_update.rq` / `chebi_construct.rq` SPARQL queries in `ontology-constructor-for-bsllmner/chebi/`. [Select Mode](select-mode.md#stage-2a-word-combination-search) surfaces this comment text to the Stage 3 LLM as additional context.
 - The Plant Ontology preprocess uses GNU awk's `gensub()` and is run on the host (`gawk -f work/ontology-constructor-for-bsllmner/po/po_edit.awk`). The ROBOT image ships only `mawk`, which lacks `gensub()`.
 - `mondo_human_subset.owl` is reused for the mm10 select config; there is no `mondo_mouse_subset.owl`.
+- `po_tissue_subset.owl` is consumed by the `tissue` field and `po_cell_subset.owl` by `cell_type` in `select-config-plants.json`.
 
 ## 4. Generate NCBI Gene OWL
 

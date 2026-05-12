@@ -8,7 +8,7 @@ For setup details (Docker Compose, uv, host requirements, GPU configuration), se
 
 - Docker / docker compose with the NVIDIA Container Toolkit. Verify GPU visibility with `docker compose exec ollama nvidia-smi`.
 - A writable `ontology/` directory at the repo root (bind-mounted into both containers; created automatically).
-- The host packages and Docker images listed in [Installation](installation.md#system-requirements) (notably `gawk` and the `obolibrary/robot` image used by the ontology pipeline).
+- Additional host packages and Docker images required by the ontology pipeline; see [Installation](installation.md#system-requirements).
 - An LLM model. Pre-pull or rely on Ollama's auto-pull at first use; see [Step 3](#3-optional-pre-pull-llm-model).
 
 ## 1. Start the Service

@@ -79,10 +79,10 @@ Field definitions live in [Data Formats](data-formats.md#performancesummary); th
 
 ## Multi-Model Bench Script
 
-`scripts/run_model_bench.sh` runs Select mode against `tests/data/eval_biosample.json` (600 entries) with `tests/data/eval_gold_standard.tsv` as the gold standard, sweeping a fixed list of Ollama models under `--no-reasoning --batch-size 128`. Outputs:
+`scripts/run_model_bench.sh` runs Select mode against `tests/data/eval_biosample.json` (600 entries) with `tests/data/eval_gold_standard.tsv` as the gold standard, sweeping a fixed list of Ollama models under `--no-reasoning --batch-size 128`. The model list is defined inline at the top of the script; edit it there to add or remove models. Outputs:
 
 - `bench-logs/{run_name}.log` / `.err` per model.
-- `bench-logs/summary.tsv` -- `model`, `run_name`, `wall_sec`, `result_json`, `status`.
+- `bench-logs/summary.tsv` -- `model`, `run_name`, `wall_sec`, `result_json`, `status` (`ok`, `pull_failed`, `run_failed`, or `*_slow` when wall time exceeds 5 h).
 - `bsllmner2-results/select/select_{run_name}.json` per model.
 
-The script intentionally does not set `set -e`; one model failing does not abort the sweep.
+The script intentionally does not set `set -e`; one model failing (including `ollama pull` errors for unreleased tags) does not abort the sweep.

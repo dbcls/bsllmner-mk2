@@ -92,6 +92,8 @@ tail -f slurm-logs/bsllmner2-ollama-<job-id>.out     # stdout
 tail -f slurm-logs/bsllmner2-ollama-<job-id>.err     # stderr
 ```
 
+Log file names follow `slurm-logs/<job-name>-<job-id>.{out,err}`. The job name `bsllmner2-ollama` is hard-coded in `slurm.sh.template` via `#SBATCH -J bsllmner2-ollama`; if you change it, update the `tail` paths accordingly.
+
 `slurm.sh` reads `SLURM_JOB_GPUS`, rewrites the `__DEVICE_IDS__` placeholder in `compose.slurm.yml.template` into a JSON array, and brings up `bsllmner-mk2-app` + `bsllmner-mk2-ollama` via `docker compose -f compose.slurm.yml up -d --force-recreate`. The job stays alive (`tail -f /dev/null`) so subsequent `docker exec` calls can run `bsllmner2_extract` / `bsllmner2_select` inside the container. On exit the trap runs `docker compose -f compose.slurm.yml down`.
 
 ## Running the Application

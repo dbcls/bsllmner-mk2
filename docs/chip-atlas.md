@@ -94,7 +94,7 @@ docker compose exec app bsllmner2_select \
 - **Resume**: keep the same `--run-name` and add `--resume`. See [CLI Reference](cli.md#resume).
 - **Batch size**: lower `--batch-size` (default 1024) if VRAM is tight.
 
-Approximate data volumes:
+Approximate data volumes (as observed at the time of writing; ChIP-Atlas keeps growing):
 
 | Assembly | Experiments | BioSample entries |
 |---|---|---|

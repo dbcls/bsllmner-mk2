@@ -97,7 +97,7 @@ Failed `text2term` calls are memoised as empty lists so repeated queries do not 
 
 ## Stage 3: LLM Selection
 
-For each `(field, value)` that Stage 2 did not exact-match, candidates from word-combination search and text2term are merged (deduplicated by `term_id`, preferring label-property hits). The LLM is asked to pick a single `term_id` from this list (or return `null`) under a strict JSON Schema. Calls are issued via `asyncio.gather` with a 256-way semaphore over the Ollama client.
+For each `(field, value)` that Stage 2 did not exact-match, candidates from word-combination search and text2term are merged (deduplicated by `term_id`, preferring label-property hits). The LLM is asked to pick a single `term_id` from this list (or return `null`) under a strict JSON Schema. Calls are issued via `asyncio.gather` with a 256-way semaphore over the Ollama client (the limit is hard-coded as `OllamaBackend(semaphore_limit=256)` and is not exposed as a CLI flag).
 
 `--no-reasoning` removes the `reasoning` property from the schema and skips the reasoning instructions in the prompt.
 
