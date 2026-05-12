@@ -9,6 +9,7 @@ Reference for the environment variables bsllmner-mk2 reads and the Ollama tuning
 | Variable | Default | Description |
 |---|---|---|
 | `OLLAMA_HOST` | `http://localhost:11434` | Ollama server URL. Inside `compose.yml`, `app` sets this to `http://bsllmner-mk2-ollama:11434`. Can also be overridden by `--ollama-host`. |
+| `BSLLMNER2_OLLAMA_CONCURRENCY` | `256` | Maximum number of concurrent in-flight LLM calls from `OllamaBackend` to the Ollama server. Tune downwards (e.g. `8`) when the server is the bottleneck or to reduce queueing during debugging. Invalid or non-positive values fall back to `256` with a WARNING. |
 
 ### CLI / Runtime
 
@@ -21,7 +22,7 @@ Reference for the environment variables bsllmner-mk2 reads and the Ollama tuning
 | Variable | Default | Description |
 |---|---|---|
 | `BSLLMNER2_RESULT_DIR` | `$PWD/bsllmner2-results` | Root for result and resume files. Subdirectories `extract/` and `select/` are created on demand. |
-| `BSLLMNER2_TMP_DIR` | `<tempfile.gettempdir()>/bsllmner2-<uid>` | Scratch directory. Resolved via Python's `tempfile.gettempdir()` (typically `/tmp` on Linux) with the process UID appended. The CLI creates a `progress/` subdirectory here at startup; no files are written to it in the current implementation. |
+| `BSLLMNER2_TMP_DIR` | `<tempfile.gettempdir()>/bsllmner2-<uid>` | Scratch directory. Resolved via Python's `tempfile.gettempdir()` (typically `/tmp` on Linux) with the process UID appended. Reserved for future use; the current implementation does not write anything inside it. |
 
 ### Cache
 

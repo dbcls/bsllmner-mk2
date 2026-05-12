@@ -4,7 +4,7 @@
 
 ## Overview
 
-The pipeline produces the OWLs listed below. All commands assume the project root as the working directory and run inside the `app` container (`docker compose exec app ...`). Subset ontologies are built once and reused across runs.
+The pipeline produces the OWLs listed below. Most commands assume the project root as the working directory; those that run inside the `app` container are shown with the `docker compose exec app ...` prefix. Steps that must run on the host (ROBOT Docker invocation, `bash scripts/build_subset_ontologies.sh`, and the `curl`/`gunzip` download steps) are explicitly labelled below. Subset ontologies are built once and reused across runs.
 
 | Output | Source | Generator |
 |---|---|---|
@@ -42,7 +42,7 @@ docker compose exec app python3 scripts/preprocess_cellosaurus.py --taxid 10090 
 
 Output: `ontology/cellosaurus_{human,mouse}.mod.obo`.
 
-Convert OBO to OWL with the ROBOT Docker image:
+Convert OBO to OWL with the ROBOT Docker image. **Run on the host** (Docker-in-Docker is not used):
 
 ```bash
 docker run --rm -v $PWD/ontology:/work -w /work obolibrary/robot \
@@ -52,6 +52,8 @@ docker run --rm -v $PWD/ontology:/work -w /work obolibrary/robot \
 ```
 
 ## 3. Build Subset Ontologies (CL / UBERON / MONDO / ChEBI / PO)
+
+**Run on the host** (the script launches ROBOT via `docker run`):
 
 ```bash
 bash scripts/build_subset_ontologies.sh           # build only what is missing
@@ -68,12 +70,17 @@ The script clones [`sh-ikeda/ontology-constructor-for-bsllmner`](https://github.
 
 ## 4. Generate NCBI Gene OWL
 
+**Run the download on the host:**
+
 ```bash
 # Fetch gene_info (one-time)
 curl -L -o ontology/gene_info.gz https://ftp.ncbi.nlm.nih.gov/gene/DATA/gene_info.gz
 gunzip ontology/gene_info.gz
+```
 
-# Build per-species OWL
+Build the per-species OWL inside the app container:
+
+```bash
 docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 9606    # ncbi_gene_human.owl
 docker compose exec app python3 scripts/ncbi_gene_to_owl.py --taxid 10090   # ncbi_gene_mouse.owl
 ```

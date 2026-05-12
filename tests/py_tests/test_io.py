@@ -19,14 +19,12 @@ from bsllmner2.io import (
     dump_extract_resume_file,
     dump_select_result,
     dump_select_resume_file,
-    list_run_names,
     load_bs_entries,
     load_extract_result,
     load_extract_resume_file,
     load_format_schema,
     load_mapping,
     load_prompt_file,
-    load_run_metadata,
     load_select_config,
     load_select_result,
     load_select_resume_file,
@@ -79,6 +77,68 @@ class TestLoadBsEntries:
         file_path.write_text("")
         with pytest.raises(ValueError, match="no valid JSON objects"):
             load_bs_entries(file_path)
+
+    def test_empty_jsonl_suppresses_json_decode_context(self, temp_dir: Path) -> None:
+        """Critical-3: the displayed cause is *not* the irrelevant outer JSON parse.
+
+        The previous chain ``raise ValueError(...) from outer_e`` made it look
+        like the failure was "could not parse JSON" when in fact the file
+        contained no entries at all. The fix is ``from None`` so the
+        ``__suppress_context__`` flag hides the misleading chain.
+        """
+        file_path = temp_dir / "empty.jsonl"
+        file_path.write_text("   \n  \t\n")
+        with pytest.raises(ValueError) as exc_info:
+            load_bs_entries(file_path)
+        # Chained exceptions are suppressed so tracebacks no longer mislead.
+        assert exc_info.value.__suppress_context__ is True
+        assert exc_info.value.__cause__ is None
+
+    def test_jsonl_decode_error_suppresses_outer_chain(self, temp_dir: Path) -> None:
+        """Critical-3: per-line decode failure should not blame the file-level decode error."""
+        # First line forces ``json.load`` to fail (so we reach the JSONL branch),
+        # then ``json.loads`` on the same line raises again. The displayed cause
+        # should be the per-line error, not the misleading file-level one.
+        file_path = temp_dir / "bad_jsonl.jsonl"
+        file_path.write_text("not valid json line\n")
+        with pytest.raises(ValueError, match="Invalid JSON format") as exc_info:
+            load_bs_entries(file_path)
+        # ``raise ... from inner_e`` is intentional here — the per-line error is
+        # the *real* cause and is informative. The outer JSON parse failure must
+        # NOT show up as ``__context__``.
+        outer = exc_info.value.__context__
+        assert not isinstance(outer, json.JSONDecodeError) or exc_info.value.__suppress_context__
+
+
+class TestReplaceSurrogatesLogging:
+    """Critical-2: surrogate replacement is no longer silent.
+
+    The function still drops information, but the count and (optional)
+    context now surface as a WARNING so the data loss is observable in logs.
+    """
+
+    def test_no_warning_when_no_surrogates(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+            result = _replace_surrogates("plain unicode: こんにちは")
+        assert result == "plain unicode: こんにちは"
+        warnings = [r for r in caplog.records if r.levelno == logging.WARNING]
+        assert warnings == []
+
+    def test_warning_emitted_with_count_on_replace(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+            # Two lone surrogates that cannot survive ensure_ascii=False JSON output.
+            _replace_surrogates("a\ud800b\udc00c")
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Replaced 2" in m for m in messages)
+
+    def test_warning_includes_context_when_provided(self, caplog: pytest.LogCaptureFixture) -> None:
+        with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+            _replace_surrogates("a\ud800b", context="/tmp/result.json")
+        messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("/tmp/result.json" in m for m in messages)
+
+    def test_replacement_character_inserted(self) -> None:
+        assert _replace_surrogates("a\ud800b") == "a�b"
 
 
 class TestLoadPromptFile:
@@ -581,63 +641,6 @@ class TestLoadSelectResult:
     def test_load_file_not_found(self) -> None:
         with pytest.raises(FileNotFoundError):
             load_select_result(Path("/nonexistent/result.json"))
-
-
-# === TestLoadRunMetadata ===
-
-
-class TestLoadRunMetadata:
-    def test_load_existing_metadata(self, temp_dir: Path) -> None:
-        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            dump_extract_result(_make_extract_result("meta-run"), "meta-run")
-        metadata = load_run_metadata(temp_dir / "meta-run.json")
-        assert metadata.run_name == "meta-run"
-        assert metadata.model == "test-model"
-
-    def test_load_file_not_found(self) -> None:
-        with pytest.raises(FileNotFoundError):
-            load_run_metadata(Path("/nonexistent/result.json"))
-
-    def test_load_missing_run_metadata_key(self, temp_dir: Path) -> None:
-        path = temp_dir / "no_metadata.json"
-        path.write_text(json.dumps({"output": []}))
-        with pytest.raises(ValueError, match="No run metadata"):
-            load_run_metadata(path)
-
-    def test_load_empty_json_object(self, temp_dir: Path) -> None:
-        path = temp_dir / "empty.json"
-        path.write_text("{}")
-        with pytest.raises(ValueError, match="No run metadata"):
-            load_run_metadata(path)
-
-
-# === TestListRunNames ===
-
-
-class TestListRunNames:
-    def test_list_existing_runs(self, temp_dir: Path) -> None:
-        for name in ["run1", "run2", "run3"]:
-            (temp_dir / f"{name}.json").write_text("{}")
-        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            names = list_run_names()
-        assert sorted(names) == ["run1", "run2", "run3"]
-
-    def test_empty_directory(self, temp_dir: Path) -> None:
-        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            assert list_run_names() == []
-
-    def test_directory_not_exists(self, temp_dir: Path) -> None:
-        missing = temp_dir / "nonexistent"
-        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", missing):
-            assert list_run_names() == []
-
-    def test_non_json_files_excluded(self, temp_dir: Path) -> None:
-        (temp_dir / "run1.json").write_text("{}")
-        (temp_dir / "notes.txt").write_text("hello")
-        (temp_dir / "data.csv").write_text("a,b")
-        with patch("bsllmner2.io.EXTRACT_RESULT_DIR", temp_dir):
-            names = list_run_names()
-        assert names == ["run1"]
 
 
 # === TestRemoveResumeFiles ===

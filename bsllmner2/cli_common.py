@@ -4,7 +4,7 @@ import argparse
 import contextlib
 import math
 from collections.abc import AsyncIterator, Awaitable, Callable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 from typing import Any, TypeVar
@@ -12,8 +12,9 @@ from typing import Any, TypeVar
 from bsllmner2.config import DEFAULT_NUM_CTX, LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
 from bsllmner2.errors import Bsllmner2Error
 from bsllmner2.io import load_bs_entries
-from bsllmner2.models import BsEntries, RunMetadata, RunStatus
-from bsllmner2.pipeline import get_now
+from bsllmner2.models import BsEntries, ErrorLog, RunMetadata, RunStatus
+from bsllmner2.pipeline import build_error_log
+from bsllmner2.utils import get_now, parse_bool
 
 T = TypeVar("T")
 
@@ -25,12 +26,16 @@ def str_to_bool(v: str) -> bool:
         argparse.ArgumentTypeError: If the value is not a valid boolean string.
 
     """
-    lower = v.strip().lower()
-    if lower in ("true", "1", "yes", "on"):
-        return True
-    if lower in ("false", "0", "no", "off"):
-        return False
-    raise argparse.ArgumentTypeError(f"Invalid boolean value: '{v}'. Use 'true' or 'false'.")
+    try:
+        return parse_bool(v, strict=True)
+    except ValueError as e:
+        raise argparse.ArgumentTypeError(str(e)) from e
+
+
+def _max_entries_type(value: str) -> int | None:
+    """Parse ``--max-entries`` accepting ``-1`` (or any negative) as the "all" sentinel."""
+    parsed = int(value)
+    return None if parsed < 0 else parsed
 
 
 def add_common_arguments(parser: argparse.ArgumentParser) -> None:
@@ -56,9 +61,9 @@ def add_common_arguments(parser: argparse.ArgumentParser) -> None:
     )
     parser.add_argument(
         "--max-entries",
-        type=int,
-        default=-1,
-        help="Process only the first N entries. Default is -1 (all entries).",
+        type=_max_entries_type,
+        default=None,
+        help="Process only the first N entries. Omit or pass -1 to process all entries.",
     )
     parser.add_argument(
         "--ollama-host",
@@ -229,21 +234,39 @@ class _RunState:
     end_time: datetime | None = None
     status: RunStatus = "running"
     error_count: int = 0
+    errors: list[ErrorLog] = field(default_factory=list)
 
 
 @contextlib.asynccontextmanager
 async def run_with_lifecycle() -> AsyncIterator[_RunState]:
-    """Shared try/except/finally lifecycle for CLI commands."""
+    """Shared try/except/finally lifecycle for CLI commands.
+
+    Captures known errors as :class:`ErrorLog` entries on ``state.errors`` so
+    they surface in the final result JSON. KeyboardInterrupt is swallowed and
+    marked as ``interrupted`` so resume / cleanup still runs. **Unknown**
+    exceptions are logged and re-raised after status is marked ``failed`` —
+    this is the bug fix for previously silent failures.
+    """
     state = _RunState()
     try:
         yield state
         state.end_time = get_now()
         state.status = "completed"
+    except KeyboardInterrupt:
+        LOGGER.warning("Processing interrupted by user.")
+        state.end_time = get_now()
+        state.status = "interrupted"
+        # Swallow KeyboardInterrupt: the caller's `finally` block needs to run
+        # to dump the final result file with the partial work captured so far.
     except Bsllmner2Error as e:
         LOGGER.error("Processing failed: %s", e)
-        state.status = "failed"
         state.end_time = get_now()
-    except Exception as e:
-        LOGGER.error("Unexpected error during processing: %s", e, exc_info=True)
         state.status = "failed"
+        state.errors.append(build_error_log(e))
+    except Exception:
+        # Mark status before re-raising so the caller's `finally` still sees
+        # a populated ``state`` even when traceback propagates upward.
         state.end_time = get_now()
+        state.status = "failed"
+        LOGGER.exception("Unexpected error during processing")
+        raise

@@ -1,6 +1,6 @@
 import contextlib
 import traceback
-from datetime import datetime, timezone
+from datetime import datetime
 
 from pydantic.json_schema import JsonSchemaValue
 
@@ -17,6 +17,7 @@ from bsllmner2.models import (
     SelectConfig,
     SelectEntry,
 )
+from bsllmner2.utils import get_now
 
 
 def extract_predicted_term_id(select_entry: SelectEntry, field_name: str) -> str | None:
@@ -117,11 +118,6 @@ def build_extract_result(
         performance=performance,
         errors=errors or [],
     )
-
-
-def get_now() -> datetime:
-    """Return current UTC time as a timezone-aware datetime."""
-    return datetime.now(timezone.utc)
 
 
 def compute_processing_time(start_time: datetime, end_time: datetime) -> float:

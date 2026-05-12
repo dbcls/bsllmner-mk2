@@ -24,31 +24,9 @@ from bsllmner2.pipeline import (
     compute_processing_time,
     evaluate_select_output,
     extract_predicted_term_id,
-    get_now,
     populate_run_metadata,
 )
 from tests.py_tests.conftest import make_extract_entry
-
-
-class TestGetNow:
-    """Test cases for get_now function."""
-
-    def test_returns_datetime(self) -> None:
-        """Test that get_now returns a datetime instance."""
-        result = get_now()
-        assert isinstance(result, datetime)
-
-    def test_returns_utc_timezone(self) -> None:
-        """Test that get_now returns a UTC-aware datetime."""
-        result = get_now()
-        assert result.tzinfo == timezone.utc
-
-    def test_returns_current_time(self) -> None:
-        """Test that get_now returns a time between before and after snapshots."""
-        before = datetime.now(timezone.utc)
-        result = get_now()
-        after = datetime.now(timezone.utc)
-        assert before <= result <= after
 
 
 class TestBuildExtractSchemaForSelect:

@@ -20,7 +20,6 @@ readme = { file = "README.md", content-type = "text/markdown" }
 requires-python = ">=3.10"
 license = { text = "MIT" }
 dependencies = [
-  "ijson",
   "ollama",
   "owlready2",
   "pydantic",
@@ -76,7 +75,6 @@ mypy_path = "."
 
 [[tool.mypy.overrides]]
 module = [
-    "ijson.*",
     "matplotlib.*",
     "owlready2.*",
     "text2term.*",

@@ -72,9 +72,9 @@ ls bsllmner2-results/select/
 # Run-wide summary (mapping rate, NOT_FOUND, LLM timing)
 docker compose exec app python3 scripts/inspect_select_result.py summary bsllmner2-results/select/select_<run-name>.json
 
-# Per-entry detail
+# Per-entry detail (SAMD00123367 is the first entry in tests/data/example_biosample.json)
 docker compose exec app python3 scripts/inspect_select_result.py show \
-  bsllmner2-results/select/select_<run-name>.json --accession SAMD00000001
+  bsllmner2-results/select/select_<run-name>.json --accession SAMD00123367
 ```
 
 Result schemas are defined in [Data Formats](data-formats.md). See [Development](development.md#inspect_select_resultpy) for additional `inspect_select_result.py` subcommands.

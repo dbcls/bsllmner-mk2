@@ -3,9 +3,9 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ollama import ChatResponse
-from pydantic import BaseModel, Field, computed_field
+from pydantic import BaseModel, Field, computed_field, model_validator
 
-RunStatus = Literal["running", "completed", "failed"]
+RunStatus = Literal["running", "completed", "failed", "interrupted"]
 
 # === Ontology search models (moved from ontology_search.py) ===
 
@@ -185,9 +185,19 @@ def llm_timing_from_chat_response(resp: ChatResponse) -> LlmTimingFields:
 
 class ExtractEntry(BaseModel):
     accession: str
-    extracted: dict[str, Any] | list[Any] | None = None
+    extracted: dict[str, Any] | None = None
     raw_output: str | None = None
     llm_timing: LlmTimingFields = Field(default_factory=LlmTimingFields)
+
+    @model_validator(mode="before")
+    @classmethod
+    def _coerce_list_extracted_to_none(cls, data: Any) -> Any:
+        # Older result files may contain `extracted: [...]` from when the LLM
+        # boundary still accepted arrays. Coerce to None for forward compatibility;
+        # the live boundary in llm.py warns when it discards a list response.
+        if isinstance(data, dict) and isinstance(data.get("extracted"), list):
+            return {**data, "extracted": None}
+        return data
 
 
 class ResolvedValue(BaseModel):
@@ -285,7 +295,7 @@ class ExtractResult(BaseModel):
     entries: list[ExtractEntry]
     run_metadata: RunMetadata
     performance: PerformanceSummary | None = None
-    errors: list[ErrorLog] = []
+    errors: list[ErrorLog] = Field(default_factory=list)
 
 
 class SelectResult(BaseModel):
@@ -293,4 +303,4 @@ class SelectResult(BaseModel):
     run_metadata: RunMetadata
     evaluation: EvaluationMetrics | None = None
     performance: PerformanceSummary | None = None
-    errors: list[ErrorLog] = []
+    errors: list[ErrorLog] = Field(default_factory=list)

@@ -12,6 +12,7 @@ from hypothesis import strategies as st
 
 from bsllmner2.cli_common import (
     BatchInfo,
+    add_common_arguments,
     build_config,
     build_run_metadata,
     generate_run_name,
@@ -78,6 +79,42 @@ class TestStrToBool:
         """Error message includes the invalid value for debugging."""
         with pytest.raises(argparse.ArgumentTypeError, match="banana"):
             str_to_bool("banana")
+
+
+class TestMaxEntriesArgparse:
+    """Tests for ``--max-entries`` argparse handling.
+
+    The CLI accepts ``-1`` (or any negative integer) as the "process all entries"
+    sentinel and maps it to ``None`` so downstream code does not have to know
+    about the magic value.
+    """
+
+    @staticmethod
+    def _parse(extra: list[str]) -> argparse.Namespace:
+        parser = argparse.ArgumentParser()
+        add_common_arguments(parser)
+        return parser.parse_args(["--bs-entries", "/tmp/dummy.json", *extra])
+
+    def test_omitted_is_none(self) -> None:
+        assert self._parse([]).max_entries is None
+
+    def test_negative_one_becomes_none(self) -> None:
+        assert self._parse(["--max-entries", "-1"]).max_entries is None
+
+    def test_large_negative_becomes_none(self) -> None:
+        # Any negative value is treated as the "all entries" sentinel.
+        assert self._parse(["--max-entries", "-99"]).max_entries is None
+
+    def test_zero_passes_through(self) -> None:
+        # 0 is a valid (empty) batch size, distinct from "all entries".
+        assert self._parse(["--max-entries", "0"]).max_entries == 0
+
+    def test_positive_passes_through(self) -> None:
+        assert self._parse(["--max-entries", "5"]).max_entries == 5
+
+    def test_non_integer_rejected(self) -> None:
+        with pytest.raises(SystemExit):
+            self._parse(["--max-entries", "all"])
 
 
 class TestBatchInfo:
@@ -490,28 +527,79 @@ class TestBuildConfig:
 
 
 class TestRunWithLifecycle:
-    """Tests for run_with_lifecycle async context manager."""
+    """Tests for run_with_lifecycle async context manager.
+
+    The lifecycle wrapper is the single place where the CLI commits to a
+    ``status`` for each run. Critical invariants verified here:
+
+    * Bsllmner2Error is captured as an :class:`ErrorLog` so it surfaces in the
+      result JSON's ``errors`` array.
+    * Unknown exceptions are *re-raised* (previously they were silently
+      swallowed, which made every uncaught bug look like a clean completion).
+    * KeyboardInterrupt is swallowed but marked ``interrupted`` so the
+      caller's ``finally`` still dumps the partial result.
+    * ``state.errors`` does not leak between invocations.
+    """
 
     @pytest.mark.asyncio
-    async def test_completed_status(self) -> None:
-        """Normal flow sets status='completed' and end_time is set."""
+    async def test_completed_status_when_no_exception(self) -> None:
         async with run_with_lifecycle() as state:
             pass
         assert state.status == "completed"
         assert state.end_time is not None
+        assert state.errors == []
 
     @pytest.mark.asyncio
-    async def test_bsllmner2_error_sets_failed(self) -> None:
-        """Raising Bsllmner2Error sets status='failed'."""
+    async def test_bsllmner2error_records_error_log_and_failed_status(self) -> None:
         async with run_with_lifecycle() as state:
             raise Bsllmner2Error("test error")
         assert state.status == "failed"
         assert state.end_time is not None
+        assert len(state.errors) == 1
+        log = state.errors[0]
+        assert log.error.type == "Bsllmner2Error"
+        assert "test error" in log.error.message
+        assert "Bsllmner2Error" in log.error.traceback
+        assert log.timestamp.tzinfo is not None
 
     @pytest.mark.asyncio
-    async def test_generic_exception_sets_failed(self) -> None:
-        """Raising a generic Exception sets status='failed'."""
+    async def test_unknown_exception_is_reraised_after_marking_failed(self) -> None:
+        state_holder: list[Any] = []
+
+        async def run() -> None:
+            async with run_with_lifecycle() as state:
+                state_holder.append(state)
+                raise RuntimeError("boom")
+
+        with pytest.raises(RuntimeError, match="boom"):
+            await run()
+        assert state_holder, "context did not yield state before raising"
+        captured = state_holder[0]
+        # status is committed before re-raise so the caller's `finally` block
+        # observes a real status (the bug we're guarding against was the
+        # previous behaviour of marking ``failed`` and *not* re-raising).
+        assert captured.status == "failed"
+        assert captured.end_time is not None
+        # Unknown exceptions are not captured as ErrorLog (the caller decides
+        # how to surface them); only Bsllmner2Error contributes to ``errors``.
+        assert captured.errors == []
+
+    @pytest.mark.asyncio
+    async def test_keyboard_interrupt_marks_interrupted(self) -> None:
         async with run_with_lifecycle() as state:
-            raise Exception("unexpected")
-        assert state.status == "failed"
+            raise KeyboardInterrupt
+        assert state.status == "interrupted"
         assert state.end_time is not None
+        assert state.errors == []
+
+    @pytest.mark.asyncio
+    async def test_errors_isolated_between_invocations(self) -> None:
+        async with run_with_lifecycle() as first:
+            raise Bsllmner2Error("first")
+        assert len(first.errors) == 1
+        async with run_with_lifecycle() as second:
+            pass
+        # Defaults are re-created per invocation (default_factory=list), not shared.
+        assert second.errors == []
+        # And the first state's errors are not mutated retroactively.
+        assert len(first.errors) == 1

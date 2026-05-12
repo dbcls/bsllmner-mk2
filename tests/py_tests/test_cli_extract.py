@@ -269,6 +269,7 @@ class TestRunCliExtractAsync:
                     [ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"})],
                     [make_chat_response('{"cell_line": "HEK293"}')],
                     0,
+                    [],
                 ),
             ) as mock_ner,
         ):
@@ -339,7 +340,6 @@ class TestCliExtractIntegration:
     ) -> None:
         """End-to-end: real files are written, output structure is valid, status is 'completed'."""
         result_dir = tmp_path / "results" / "extract"
-        progress_dir = tmp_path / "progress"
 
         cli_args = [
             "--bs-entries",
@@ -360,7 +360,6 @@ class TestCliExtractIntegration:
                 ),
             ),
             patch("bsllmner2.io.EXTRACT_RESULT_DIR", result_dir),
-            patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
             patch("bsllmner2.cli_extract.remove_resume_files"),
         ):
             mock_sys.argv = ["bsllmner2-extract", *cli_args]

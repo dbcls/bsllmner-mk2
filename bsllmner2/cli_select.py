@@ -22,7 +22,7 @@ from bsllmner2.cli_common import (
     run_with_lifecycle,
     validate_common_args,
 )
-from bsllmner2.config import LOGGER, PROGRESS_DIR, Config, set_logging_config, set_logging_level
+from bsllmner2.config import LOGGER, Config, set_logging_config, set_logging_level
 from bsllmner2.io import (
     dump_extract_resume_file,
     dump_select_result,
@@ -35,7 +35,15 @@ from bsllmner2.io import (
     validate_resume_consistency,
 )
 from bsllmner2.llm import OllamaBackend, ner
-from bsllmner2.models import CliSelectArgs, ExtractEntry, PerformanceSummary, SelectEntry, SelectResult, StageTimings
+from bsllmner2.models import (
+    CliSelectArgs,
+    ErrorLog,
+    ExtractEntry,
+    PerformanceSummary,
+    SelectEntry,
+    SelectResult,
+    StageTimings,
+)
 from bsllmner2.pipeline import (
     build_extract_prompt_for_select,
     build_extract_schema_for_select,
@@ -101,7 +109,7 @@ def parse_args(args: list[str]) -> tuple[Config, CliSelectArgs]:
         mapping=parsed_args.mapping.resolve() if parsed_args.mapping else None,
         model=parsed_args.model,
         thinking=parsed_args.thinking,
-        max_entries=parsed_args.max_entries if parsed_args.max_entries >= 0 else None,
+        max_entries=parsed_args.max_entries,
         run_name=parsed_args.run_name,
         num_ctx=parsed_args.num_ctx,
         resume=parsed_args.resume,
@@ -177,89 +185,36 @@ async def run_cli_select_async() -> None:
     search_memo: SearchMemo = {}
     t2t_memo: SearchMemo = {}
 
-    async with run_with_lifecycle() as run_state:
-        # Re-run select for orphan entries (extract already completed)
-        if args.resume and orphan_ids:
-            orphan_entries = [e for e in all_bs_entries if e.get("accession") in orphan_ids]
-            orphan_extract = [o for o in extract_outputs if o.accession in orphan_ids]
-            LOGGER.info("Running select for %d orphan entries...", len(orphan_ids))
-            orphan_select, orphan_select_responses, _ = await select(
-                backend,
-                orphan_entries,
-                args.model,
-                orphan_extract,
-                select_config,
-                args.thinking,
-                include_reasoning=args.include_reasoning,
-                index_map=select_index_map,
-                text2term_cache_folder=TEXT2TERM_CACHE_DIR,
-                num_ctx=args.num_ctx,
-                search_memo=search_memo,
-                t2t_memo=t2t_memo,
-            )
-            select_results.extend(orphan_select)
-            all_select_chat_responses.extend(orphan_select_responses)
-            dump_extract_resume_file(extract_outputs, run_name)
-            dump_select_resume_file(select_results, run_name)
-
-        async def process_select_batch(
-            batch_info: BatchInfo,
-        ) -> tuple[
-            list[ExtractEntry],
-            list[SelectEntry],
-            list[ChatResponse],
-            list[ChatResponse],
-            float,
-            SelectStageTimings,
-            int,
-        ]:
-            LOGGER.info("Extracting entities...")
-            with stage_timer("ner") as t_ner:
-                batch_extract_outputs, batch_ner_responses, batch_errors = await ner(
+    try:
+        async with run_with_lifecycle() as run_state:
+            # Re-run select for orphan entries (extract already completed)
+            if args.resume and orphan_ids:
+                orphan_entries = [e for e in all_bs_entries if e.get("accession") in orphan_ids]
+                orphan_extract = [o for o in extract_outputs if o.accession in orphan_ids]
+                LOGGER.info("Running select for %d orphan entries...", len(orphan_ids))
+                orphan_select, orphan_select_responses, _, orphan_errors = await select(
                     backend,
-                    batch_info.entries,
-                    prompt,
-                    format_,
+                    orphan_entries,
                     args.model,
+                    orphan_extract,
+                    select_config,
                     args.thinking,
+                    include_reasoning=args.include_reasoning,
+                    index_map=select_index_map,
+                    text2term_cache_folder=TEXT2TERM_CACHE_DIR,
                     num_ctx=args.num_ctx,
+                    search_memo=search_memo,
+                    t2t_memo=t2t_memo,
                 )
-            if len(batch_extract_outputs) < len(batch_info.entries):
-                LOGGER.error(
-                    "Batch returned %d extract outputs for %d entries (%d lost)",
-                    len(batch_extract_outputs),
-                    len(batch_info.entries),
-                    len(batch_info.entries) - len(batch_extract_outputs),
-                )
-            LOGGER.info("Selecting entities...")
-            batch_select_results, batch_select_responses, select_timings = await select(
-                backend,
-                batch_info.entries,
-                args.model,
-                batch_extract_outputs,
-                select_config,
-                args.thinking,
-                include_reasoning=args.include_reasoning,
-                index_map=select_index_map,
-                text2term_cache_folder=TEXT2TERM_CACHE_DIR,
-                num_ctx=args.num_ctx,
-                search_memo=search_memo,
-                t2t_memo=t2t_memo,
-            )
+                select_results.extend(orphan_select)
+                all_select_chat_responses.extend(orphan_select_responses)
+                run_state.errors.extend(orphan_errors)
+                dump_extract_resume_file(extract_outputs, run_name)
+                dump_select_resume_file(select_results, run_name)
 
-            return (
-                batch_extract_outputs,
-                batch_select_results,
-                batch_ner_responses,
-                batch_select_responses,
-                t_ner.elapsed_sec,
-                select_timings,
-                batch_errors,
-            )
-
-        def on_select_batch_complete(
-            batch_idx: int,
-            batch_result: tuple[
+            async def process_select_batch(
+                batch_info: BatchInfo,
+            ) -> tuple[
                 list[ExtractEntry],
                 list[SelectEntry],
                 list[ChatResponse],
@@ -267,81 +222,142 @@ async def run_cli_select_async() -> None:
                 float,
                 SelectStageTimings,
                 int,
-            ],
-        ) -> None:
-            (
-                batch_extract_outputs,
-                batch_select_results,
-                batch_ner_responses,
-                batch_select_responses,
-                ner_sec,
-                select_timings,
-                batch_errors,
-            ) = batch_result
-            run_state.error_count += batch_errors
-            with stage_timer("resume_write") as t_resume:
-                extract_outputs.extend(batch_extract_outputs)
-                select_results.extend(batch_select_results)
-                all_ner_chat_responses.extend(batch_ner_responses)
-                all_select_chat_responses.extend(batch_select_responses)
-                # Dump both files atomically to ensure consistency
-                dump_extract_resume_file(extract_outputs, run_name)
-                dump_select_resume_file(select_results, run_name)
-            stage_timings_list.append(
-                StageTimings(
-                    batch_idx=batch_idx,
-                    batch_size=len(batch_extract_outputs),
-                    ner_sec=ner_sec,
-                    ontology_search_sec=select_timings["ontology_search_sec"],
-                    text2term_sec=select_timings["text2term_sec"],
-                    llm_select_sec=select_timings["llm_select_sec"],
-                    resume_write_sec=t_resume.elapsed_sec,
-                ),
-            )
+                list[ErrorLog],
+            ]:
+                LOGGER.info("Extracting entities...")
+                with stage_timer("ner") as t_ner:
+                    batch_extract_outputs, batch_ner_responses, batch_errors, ner_errors_log = await ner(
+                        backend,
+                        batch_info.entries,
+                        prompt,
+                        format_,
+                        args.model,
+                        args.thinking,
+                        num_ctx=args.num_ctx,
+                    )
+                if len(batch_extract_outputs) < len(batch_info.entries):
+                    LOGGER.error(
+                        "Batch returned %d extract outputs for %d entries (%d lost)",
+                        len(batch_extract_outputs),
+                        len(batch_info.entries),
+                        len(batch_info.entries) - len(batch_extract_outputs),
+                    )
+                LOGGER.info("Selecting entities...")
+                batch_select_results, batch_select_responses, select_timings, select_errors_log = await select(
+                    backend,
+                    batch_info.entries,
+                    args.model,
+                    batch_extract_outputs,
+                    select_config,
+                    args.thinking,
+                    include_reasoning=args.include_reasoning,
+                    index_map=select_index_map,
+                    text2term_cache_folder=TEXT2TERM_CACHE_DIR,
+                    num_ctx=args.num_ctx,
+                    search_memo=search_memo,
+                    t2t_memo=t2t_memo,
+                )
 
-        await process_batches(
-            entries=bs_entries,
-            batch_size=args.batch_size,
-            process_fn=process_select_batch,
-            on_batch_complete=on_select_batch_complete,
-            log_prefix="Processing",
+                return (
+                    batch_extract_outputs,
+                    batch_select_results,
+                    batch_ner_responses,
+                    batch_select_responses,
+                    t_ner.elapsed_sec,
+                    select_timings,
+                    batch_errors,
+                    [*ner_errors_log, *select_errors_log],
+                )
+
+            def on_select_batch_complete(
+                batch_idx: int,
+                batch_result: tuple[
+                    list[ExtractEntry],
+                    list[SelectEntry],
+                    list[ChatResponse],
+                    list[ChatResponse],
+                    float,
+                    SelectStageTimings,
+                    int,
+                    list[ErrorLog],
+                ],
+            ) -> None:
+                (
+                    batch_extract_outputs,
+                    batch_select_results,
+                    batch_ner_responses,
+                    batch_select_responses,
+                    ner_sec,
+                    select_timings,
+                    batch_errors,
+                    batch_errors_log,
+                ) = batch_result
+                run_state.error_count += batch_errors
+                run_state.errors.extend(batch_errors_log)
+                with stage_timer("resume_write") as t_resume:
+                    extract_outputs.extend(batch_extract_outputs)
+                    select_results.extend(batch_select_results)
+                    all_ner_chat_responses.extend(batch_ner_responses)
+                    all_select_chat_responses.extend(batch_select_responses)
+                    # Dump both files atomically to ensure consistency
+                    dump_extract_resume_file(extract_outputs, run_name)
+                    dump_select_resume_file(select_results, run_name)
+                stage_timings_list.append(
+                    StageTimings(
+                        batch_idx=batch_idx,
+                        batch_size=len(batch_extract_outputs),
+                        ner_sec=ner_sec,
+                        ontology_search_sec=select_timings["ontology_search_sec"],
+                        text2term_sec=select_timings["text2term_sec"],
+                        llm_select_sec=select_timings["llm_select_sec"],
+                        resume_write_sec=t_resume.elapsed_sec,
+                    ),
+                )
+
+            await process_batches(
+                entries=bs_entries,
+                batch_size=args.batch_size,
+                process_fn=process_select_batch,
+                on_batch_complete=on_select_batch_complete,
+                log_prefix="Processing",
+            )
+    finally:
+        total_wall_sec = time.perf_counter() - wall_start
+        status = run_state.status
+        end_time = run_state.end_time
+
+        select_metrics = evaluate_select_output(select_results, mapping) if mapping is not None else None
+
+        run_metadata = build_run_metadata(run_name, args.model, args.thinking, start_time, end_time, status)
+        run_metadata_populated = populate_run_metadata(run_metadata, extract_outputs)
+
+        # Build performance summary
+        ner_timing = aggregate_llm_timings(all_ner_chat_responses)
+        select_timing = aggregate_llm_timings(all_select_chat_responses)
+
+        performance = PerformanceSummary(
+            total_input_entries=len(all_bs_entries),
+            completed_count=len(extract_outputs),
+            total_wall_sec=total_wall_sec,
+            stage_timings=stage_timings_list,
+            ner_llm_timing=ner_timing if ner_timing.call_count > 0 else None,
+            select_llm_timing=select_timing if select_timing.call_count > 0 else None,
+            disk_io=disk_io_timings,
         )
 
-    total_wall_sec = time.perf_counter() - wall_start
-    status = run_state.status
-    end_time = run_state.end_time
+        select_result = SelectResult(
+            entries=select_results,
+            run_metadata=run_metadata_populated,
+            evaluation=select_metrics,
+            performance=performance,
+            errors=run_state.errors,
+        )
 
-    select_metrics = evaluate_select_output(select_results, mapping) if mapping is not None else None
-
-    run_metadata = build_run_metadata(run_name, args.model, args.thinking, start_time, end_time, status)
-    run_metadata_populated = populate_run_metadata(run_metadata, extract_outputs)
-
-    # Build performance summary
-    ner_timing = aggregate_llm_timings(all_ner_chat_responses)
-    select_timing = aggregate_llm_timings(all_select_chat_responses)
-
-    performance = PerformanceSummary(
-        total_input_entries=len(all_bs_entries),
-        completed_count=len(extract_outputs),
-        total_wall_sec=total_wall_sec,
-        stage_timings=stage_timings_list,
-        ner_llm_timing=ner_timing if ner_timing.call_count > 0 else None,
-        select_llm_timing=select_timing if select_timing.call_count > 0 else None,
-        disk_io=disk_io_timings,
-    )
-
-    select_result = SelectResult(
-        entries=select_results,
-        run_metadata=run_metadata_populated,
-        evaluation=select_metrics,
-        performance=performance,
-    )
-
-    select_result_file = dump_select_result(select_result, run_name)
-    if status == "completed":
-        remove_resume_files(run_name)
-    LOGGER.info("Processing %s. Result saved to %s", status, select_result_file)
-    log_performance_summary(performance, select_metrics)
+        select_result_file = dump_select_result(select_result, run_name)
+        if status == "completed":
+            remove_resume_files(run_name)
+        LOGGER.info("Processing %s. Result saved to %s", status, select_result_file)
+        log_performance_summary(performance, select_metrics)
 
     if status != "completed" or run_state.error_count > 0:
         sys.exit(1)
@@ -350,7 +366,6 @@ async def run_cli_select_async() -> None:
 def run_cli_select() -> None:
     """Run the CLI for bsllmner2 select mode in an event loop."""
     set_logging_config()
-    PROGRESS_DIR.mkdir(parents=True, exist_ok=True)
     asyncio.run(run_cli_select_async())
 
 

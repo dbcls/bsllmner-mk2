@@ -7,12 +7,11 @@ from collections.abc import Sequence
 from pathlib import Path
 from typing import Any, TypeVar, cast
 
-import ijson
 import yaml
 from pydantic import BaseModel, TypeAdapter
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, PROGRESS_DIR, SELECT_RESULT_DIR
+from bsllmner2.config import EXTRACT_RESULT_DIR, LOGGER, SELECT_RESULT_DIR
 from bsllmner2.errors import ResumeDataError
 from bsllmner2.models import (
     BsEntries,
@@ -21,7 +20,6 @@ from bsllmner2.models import (
     Mapping,
     MappingValue,
     Prompt,
-    RunMetadata,
     SelectConfig,
     SelectEntry,
     SelectResult,
@@ -30,9 +28,24 @@ from bsllmner2.models import (
 _SURROGATE_RE = re.compile("[\ud800-\udfff]")
 
 
-def _replace_surrogates(s: str) -> str:
-    """Replace lone surrogate characters with U+FFFD replacement character."""
-    return _SURROGATE_RE.sub("\ufffd", s)
+def _replace_surrogates(s: str, *, context: str | None = None) -> str:
+    """Replace lone surrogate characters with U+FFFD replacement character.
+
+    When the replacement actually changes the string we emit a WARNING so that
+    the lossy substitution is observable in logs (otherwise the data drop is
+    completely silent and only visible by diffing the output JSON).
+    """
+    new, count = _SURROGATE_RE.subn("\ufffd", s)
+    if count > 0:
+        if context:
+            LOGGER.warning(
+                "Replaced %d lone surrogate codepoint(s) with U+FFFD while writing %s.",
+                count,
+                context,
+            )
+        else:
+            LOGGER.warning("Replaced %d lone surrogate codepoint(s) with U+FFFD.", count)
+    return new
 
 
 def load_bs_entries(path: Path) -> BsEntries:
@@ -59,8 +72,10 @@ def load_bs_entries(path: Path) -> BsEntries:
                 f"  JSON file must contain a list of dictionaries.\n"
                 f'  Expected: [{{"accession": "SAMD00000001", "title": "...", ...}}]',
             )
-        except json.JSONDecodeError as outer_e:
-            # If JSON fails, try to load as JSONL
+        except json.JSONDecodeError:
+            # If JSON fails, try to load as JSONL.
+            # The decode error is intentionally not chained onto downstream
+            # raises (`from None`) so the displayed cause is not misleading.
             f.seek(0)
             jl_data: list[dict[str, Any]] = []
             for line_no, raw in enumerate(f, start=1):
@@ -79,20 +94,24 @@ def load_bs_entries(path: Path) -> BsEntries:
                         f"    - JSONL: one JSON object per line",
                     ) from inner_e
                 if not isinstance(entry, dict):
+                    # `outer_e` is the file-level JSON decode failure, which is
+                    # unrelated to a per-line type mismatch. Suppress the chain
+                    # so the displayed cause does not mislead the reader.
                     raise ValueError(
                         f"Invalid entry in {path} at line {line_no}:\n"
                         f"  Each line in JSONL file must be a JSON object (dictionary).\n"
                         f"  Got: {type(entry).__name__}",
-                    ) from outer_e
+                    ) from None
                 jl_data.append(entry)
             if not jl_data:
+                # Empty file is "no entries", not "JSON parse failed".
                 raise ValueError(
                     f"No valid entries in {path}:\n"
                     f"  File contains no valid JSON objects.\n"
                     f"  Expected formats:\n"
                     f'    - JSON array: [{{"accession": "SAMD00000001", ...}}]\n'
                     f"    - JSONL: one JSON object per line",
-                ) from outer_e
+                ) from None
 
             return jl_data
 
@@ -189,7 +208,7 @@ def _dump_result(result: BaseModel, result_dir: Path, filename: str) -> Path:
     result_file = result_dir.joinpath(filename)
     with result_file.open("w", encoding="utf-8") as f:
         json_str = json.dumps(result.model_dump(mode="json"), ensure_ascii=False, indent=2)
-        f.write(_replace_surrogates(json_str))
+        f.write(_replace_surrogates(json_str, context=str(result_file)))
 
     return result_file
 
@@ -221,65 +240,6 @@ def load_extract_result(path: Path) -> ExtractResult:
 
 def load_select_result(path: Path) -> SelectResult:
     return _load_result(path, SelectResult)
-
-
-def load_run_metadata(path: Path) -> RunMetadata:
-    if not path.exists():
-        raise FileNotFoundError(f"Run metadata file {path} does not exist.")
-
-    with path.open("rb") as f:
-        iterator = ijson.items(f, "run_metadata")
-        try:
-            data: Any = next(iterator)
-        except StopIteration as exc:
-            raise ValueError(f"No run metadata found in file {path}") from exc
-
-    return RunMetadata.model_validate(data)
-
-
-def list_run_metadata() -> list[RunMetadata]:
-    if not EXTRACT_RESULT_DIR.exists():
-        return []
-
-    run_metadata_list = []
-    for file in EXTRACT_RESULT_DIR.glob("*.json"):
-        try:
-            run_metadata = load_run_metadata(file)
-            run_metadata_list.append(run_metadata)
-        except (FileNotFoundError, ValueError) as e:
-            LOGGER.warning("Skipping file %s: %s", file, e)
-
-    return run_metadata_list
-
-
-def list_run_names() -> list[str]:
-    """List all run names from the result directory.
-
-    Returns:
-        A list of run names (without file extensions).
-
-    """
-    if not EXTRACT_RESULT_DIR.exists():
-        return []
-
-    return [file.name.removesuffix(".json") for file in EXTRACT_RESULT_DIR.glob("*.json") if file.is_file()]
-
-
-def load_progress_count(run_name: str) -> int | None:
-    """Load the progress count from a file in the PROGRESS_DIR.
-
-    The file is named after the run_name and contains one accession per line.
-
-    Returns:
-        The number of processed entries.
-
-    """
-    progress_file = PROGRESS_DIR.joinpath(f"{run_name}.txt")
-    if not progress_file.exists():
-        return None
-
-    with progress_file.open("r", encoding="utf-8") as f:
-        return sum(1 for _ in f)
 
 
 _EXTRACT_ENTRY_LIST_ADAPTER = TypeAdapter(list[ExtractEntry])
@@ -344,7 +304,7 @@ def _atomic_dump_json(
     try:
         with os.fdopen(fd, "w", encoding="utf-8") as f:
             json_str = json.dumps([item.model_dump(mode="json") for item in data], ensure_ascii=False, indent=2)
-            f.write(_replace_surrogates(json_str))
+            f.write(_replace_surrogates(json_str, context=str(resume_file)))
         shutil.move(tmp_path, resume_file)
     except Exception:
         if Path(tmp_path).exists():

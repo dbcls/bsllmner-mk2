@@ -2,7 +2,6 @@
 
 import json
 import logging
-from pathlib import Path
 from typing import Any, ClassVar
 
 import pytest
@@ -11,11 +10,14 @@ from hypothesis import strategies as st
 
 from bsllmner2.errors import OllamaConnectionError
 from bsllmner2.llm import (
+    OllamaBackend,
     _construct_messages,
     _construct_output,
     _extract_last_json,
+    _extract_last_json_match,
     _extract_last_json_str,
     _normalize_null_strings,
+    build_ollama_options,
     ner,
 )
 from bsllmner2.models import Prompt
@@ -165,11 +167,18 @@ class TestConstructOutput:
         out = _construct_output(self._BS_ENTRY, resp)
         assert out.extracted == {"outer": {"inner": None}, "list": [None, "ok"]}
 
-    def test_array_json_preserved(self) -> None:
+    def test_array_json_discarded_with_warning(self, caplog: pytest.LogCaptureFixture) -> None:
+        # ExtractEntry.extracted is narrowed to ``dict | None`` so that downstream
+        # code in select.py does not need defensive type-checking. List-shaped LLM
+        # output is therefore discarded at the construction boundary with a WARN.
         resp = make_chat_response('[{"cell_line": "HeLa"}]')
-        out = _construct_output(self._BS_ENTRY, resp)
-        assert out.extracted == [{"cell_line": "HeLa"}]
-        assert out.raw_output is not None
+        with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+            out = _construct_output(self._BS_ENTRY, resp)
+        assert out.extracted is None
+        # raw_output preserves the substring so the operator can audit what was dropped.
+        assert out.raw_output == '[{"cell_line": "HeLa"}]'
+        warning_messages = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Discarding list-shaped LLM output" in m and "SAMN00000001" in m for m in warning_messages)
 
     def test_no_json_in_response(self) -> None:
         resp = make_chat_response("no json here")
@@ -208,7 +217,7 @@ class TestNerMessageMutation:
         prompt = [Prompt(role="system", content="test"), Prompt(role="user", content="")]
 
         backend = FakeLlmBackend(['{"cell_line": "HeLa"}'])
-        outputs, _, _ = await ner(backend, entries, prompt, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, prompt, None, "test-model")
         assert len(outputs) == 1
 
 
@@ -230,20 +239,20 @@ class TestNer:
                 '{"cell_line": "HEK293"}',
             ]
         )
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 2
         accessions = {o.accession for o in outputs}
         assert accessions == {"SAMN001", "SAMN002"}
 
     async def test_empty_entries(self) -> None:
         backend = FakeLlmBackend([])
-        outputs, _, _ = await ner(backend, [], _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, [], _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_entry_without_accession(self) -> None:
         entries = [{"title": "No accession"}]
         backend = FakeLlmBackend([])
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_connection_error_first_entry(self) -> None:
@@ -264,48 +273,25 @@ class TestNer:
                 ConnectionError("connection lost"),
             ]
         )
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 1
         assert outputs[0].accession == "SAMN001"
 
     async def test_general_exception_not_connection_error(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([RuntimeError("unexpected")])
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
-    async def test_progress_file_tracking(self, tmp_path: Path) -> None:
-        entries = [
-            {"accession": "SAMN001", "title": "Sample 1"},
-            {"accession": "SAMN002", "title": "Sample 2"},
-        ]
-        backend = FakeLlmBackend(
-            [
-                '{"cell_line": "HeLa"}',
-                '{"cell_line": "HEK293"}',
-            ]
-        )
-        progress_file = tmp_path / "progress.txt"
-        await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model", progress_file_path=progress_file)
-        content = progress_file.read_text()
-        lines = content.strip().split("\n")
-        assert set(lines) == {"SAMN001", "SAMN002"}
-
-    async def test_progress_file_closed_on_error(self, tmp_path: Path) -> None:
-        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
-        backend = FakeLlmBackend([ConnectionError("fail")])
-        progress_file = tmp_path / "progress.txt"
-        with pytest.raises(OllamaConnectionError):
-            await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model", progress_file_path=progress_file)
-        assert progress_file.exists()
-
-    async def test_array_json_output_preserved(self) -> None:
+    async def test_array_json_output_normalised_to_none(self) -> None:
+        # ``extracted`` is narrowed to ``dict | None``. A list response is logged
+        # and dropped; the raw substring is preserved for post-hoc inspection.
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend(['[{"cell_line": "HeLa"}]'])
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 1
-        assert outputs[0].extracted == [{"cell_line": "HeLa"}]
-        assert outputs[0].raw_output is not None
+        assert outputs[0].extracted is None
+        assert outputs[0].raw_output == '[{"cell_line": "HeLa"}]'
 
     async def test_error_summary_logged_at_error_level(
         self,
@@ -327,7 +313,7 @@ class TestNer:
         try:
             logger.propagate = True
             with caplog.at_level(logging.ERROR, logger="bsllmner2"):
-                outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+                outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         finally:
             logger.propagate = original_propagate
 
@@ -358,7 +344,7 @@ class TestNerErrorPaths:
                 '{"cell_line": "K562"}',
             ]
         )
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         accessions = {o.accession for o in outputs}
         assert "SAMN001" in accessions
         assert "SAMN003" in accessions
@@ -379,7 +365,7 @@ class TestNerErrorPaths:
                 RuntimeError("fail 2"),
             ]
         )
-        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
 
@@ -453,3 +439,207 @@ class TestConstructOutputPBT:
         assert isinstance(out.extracted, dict)
         for v in out.extracted.values():
             assert v is None
+
+
+# === TestBuildOllamaOptions (Critical-5 / num_predict fix) ===
+
+
+class TestBuildOllamaOptions:
+    """Verify the post-Critical-5 contract for ``build_ollama_options``.
+
+    The old implementation forced ``num_predict = num_ctx`` which made Ollama
+    pre-allocate buffers for the full context window even for short responses,
+    hurting throughput. The new contract leaves ``num_predict`` unset by default
+    and exposes it (plus ``seed``/``temperature``) as opt-in kwargs.
+    """
+
+    def test_seed_and_temperature_defaults(self) -> None:
+        opts = build_ollama_options()
+        assert opts["seed"] == 0
+        assert opts["temperature"] == 0.0
+
+    def test_num_predict_not_set_by_default(self) -> None:
+        opts = build_ollama_options(num_ctx=8192)
+        # Absent => Ollama's own default (-1 = unlimited) applies.
+        assert "num_predict" not in opts
+        assert opts["num_ctx"] == 8192
+
+    def test_num_predict_can_be_overridden(self) -> None:
+        opts = build_ollama_options(num_ctx=4096, num_predict=512)
+        assert opts["num_predict"] == 512
+
+    def test_seed_temperature_overridable(self) -> None:
+        opts = build_ollama_options(seed=42, temperature=0.7)
+        assert opts["seed"] == 42
+        assert opts["temperature"] == 0.7
+
+    def test_num_ctx_omitted_when_none(self) -> None:
+        opts = build_ollama_options(num_ctx=None)
+        assert "num_ctx" not in opts
+
+
+# === TestExtractLastJsonMatch (Critical-6 / dedup of the two extractors) ===
+
+
+class TestExtractLastJsonMatch:
+    """Shared engine used by both ``_extract_last_json`` and ``_extract_last_json_str``.
+
+    The two public helpers used to walk the string twice; ``_extract_last_json_match``
+    collapses them into a single pass so the regression we want to lock in is
+    "both helpers agree on the same span".
+    """
+
+    @pytest.mark.parametrize(
+        ("text", "expected_obj"),
+        [
+            ('{"a": 1}', {"a": 1}),
+            ('garbage {"a": 1} more', {"a": 1}),
+            ('{"first": 1} {"second": 2}', {"second": 2}),
+            ("[1, 2, 3]", [1, 2, 3]),
+        ],
+    )
+    def test_match_returns_parsed_obj(self, text: str, expected_obj: Any) -> None:
+        match = _extract_last_json_match(text)
+        assert match is not None
+        obj, _start, _end = match
+        assert obj == expected_obj
+
+    def test_no_match_returns_none(self) -> None:
+        assert _extract_last_json_match("no json at all") is None
+        assert _extract_last_json_match("") is None
+
+    def test_both_extractors_consistent(self) -> None:
+        text = 'prefix {"a": 1} junk {"b": [2, 3]} suffix'
+        as_obj = _extract_last_json(text)
+        as_str = _extract_last_json_str(text)
+        assert as_obj == {"b": [2, 3]}
+        assert as_str == '{"b": [2, 3]}'
+        # Round-trip: the substring parsed by json.loads must equal the obj.
+        assert as_str is not None
+        assert json.loads(as_str) == as_obj
+
+
+# === TestNerCollectsErrorLogs (Critical-1 / per-entry errors_log wiring) ===
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestNerCollectsErrorLogs:
+    """``ner()`` now returns a 4-tuple whose last element is the per-entry :class:`ErrorLog` list.
+
+    The wiring used to be a bare ``error_count: int`` which made the failure
+    invisible in the final result JSON (Critical-1). These tests lock in the
+    new contract.
+    """
+
+    async def test_partial_failures_appended_to_errors_log(self) -> None:
+        entries = [
+            {"accession": "SAMN001", "title": "Sample 1"},
+            {"accession": "SAMN002", "title": "Sample 2"},
+            {"accession": "SAMN003", "title": "Sample 3"},
+        ]
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',  # SAMN001 succeeds
+                RuntimeError("LLM blew up"),  # SAMN002 fails
+                '{"cell_line": "HEK293"}',  # SAMN003 succeeds
+            ],
+        )
+        outputs, _, error_count, errors_log = await ner(
+            backend,
+            entries,
+            _SIMPLE_PROMPT,
+            None,
+            "test-model",
+        )
+        assert len(outputs) == 2
+        assert error_count == 1
+        assert len(errors_log) == 1
+        log = errors_log[0]
+        # OllamaProcessingError wraps the original exception with the accession.
+        assert log.error.type == "OllamaProcessingError"
+        assert "SAMN002" in log.error.message
+        assert "LLM blew up" in log.error.message
+        assert log.timestamp.tzinfo is not None
+
+    async def test_all_success_yields_empty_errors_log(self) -> None:
+        entries = [{"accession": "SAMN001", "title": "Sample 1"}]
+        backend = FakeLlmBackend(['{"cell_line": "HeLa"}'])
+        outputs, _, error_count, errors_log = await ner(
+            backend,
+            entries,
+            _SIMPLE_PROMPT,
+            None,
+            "test-model",
+        )
+        assert len(outputs) == 1
+        assert error_count == 0
+        assert errors_log == []
+
+    async def test_error_count_matches_errors_log_length(self) -> None:
+        entries = [{"accession": f"SAMN00{i}", "title": f"Sample {i}"} for i in range(1, 4)]
+        # First success, then two failures.
+        backend = FakeLlmBackend(
+            [
+                '{"cell_line": "HeLa"}',
+                RuntimeError("boom1"),
+                RuntimeError("boom2"),
+            ],
+        )
+        _outputs, _resp, error_count, errors_log = await ner(
+            backend,
+            entries,
+            _SIMPLE_PROMPT,
+            None,
+            "test-model",
+        )
+        # error_count is now derived from len(errors_log); the two stay in sync.
+        assert error_count == len(errors_log) == 2
+
+
+# === TestOllamaBackendSemaphore (Critical-4 / env-driven concurrency) ===
+
+
+class TestOllamaBackendSemaphore:
+    """``OllamaBackend`` now reads ``BSLLMNER2_OLLAMA_CONCURRENCY`` lazily.
+
+    The previous hard-coded ``256`` was undocumented and required a code edit
+    to tune. The default is still ``256`` but the env var lets operators
+    throttle without redeploying.
+    """
+
+    def test_default_concurrency_when_env_unset(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.delenv("BSLLMNER2_OLLAMA_CONCURRENCY", raising=False)
+        backend = OllamaBackend("http://example:11434")
+        assert backend.semaphore_limit == 256
+
+    def test_env_overrides_default(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BSLLMNER2_OLLAMA_CONCURRENCY", "8")
+        backend = OllamaBackend("http://example:11434")
+        assert backend.semaphore_limit == 8
+
+    def test_explicit_arg_overrides_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("BSLLMNER2_OLLAMA_CONCURRENCY", "8")
+        backend = OllamaBackend("http://example:11434", semaphore_limit=2)
+        assert backend.semaphore_limit == 2
+
+    def test_invalid_env_falls_back_to_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("BSLLMNER2_OLLAMA_CONCURRENCY", "not_a_number")
+        with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+            backend = OllamaBackend("http://example:11434")
+        assert backend.semaphore_limit == 256
+        warnings = [r.getMessage() for r in caplog.records if r.levelno == logging.WARNING]
+        assert any("Invalid BSLLMNER2_OLLAMA_CONCURRENCY" in m for m in warnings)
+
+    def test_negative_env_falls_back_to_default(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        monkeypatch.setenv("BSLLMNER2_OLLAMA_CONCURRENCY", "0")
+        with caplog.at_level(logging.WARNING, logger="bsllmner2"):
+            backend = OllamaBackend("http://example:11434")
+        assert backend.semaphore_limit == 256

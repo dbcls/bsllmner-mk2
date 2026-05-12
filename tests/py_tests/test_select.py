@@ -16,24 +16,26 @@ from bsllmner2.models import (
     SelectConfigField,
     SelectEntry,
 )
-from bsllmner2.select import (
-    SearchMemo,
+from bsllmner2.prompts.select import (
     _build_select_schema,
     _build_select_system_message,
     _collect_candidates_for_field,
+    _serialize_candidates_for_llm,
+)
+from bsllmner2.select import (
+    SearchMemo,
     _collect_queries,
     _distribute_results,
     _ontology_search_wrapper,
     _parse_output_object,
     _pick_exact_match_search_result,
     _pick_search_result_by_id,
-    _serialize_candidates_for_llm,
-    _text2term_acronym,
     _text2term_wrapper,
     build_index_map,
     build_text2term_cache,
     select,
 )
+from bsllmner2.select_index_cache import _text2term_acronym
 from tests.py_tests.conftest import FakeLlmBackend, make_chat_response
 
 # === helpers ===
@@ -396,26 +398,19 @@ class TestCollectQueries:
         queries = _collect_queries([sr], "diseases")
         assert queries == {"cancer", "diabetes"}
 
-    def test_non_dict_non_none_extract_output_warns(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Non-dict, non-None extracted logs a WARNING."""
+    def test_legacy_list_extracted_is_coerced_to_none(self) -> None:
+        """Legacy list payload becomes None via the model validator.
+
+        See :class:`ExtractEntry`; ``_collect_queries`` simply sees None.
+        """
+        # The list payload is silently normalised to None at validation time —
+        # this is the post-Critical-7 contract.
         sr = SelectEntry(
-            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),  # pyright: ignore[reportArgumentType]
             results={},
         )
-        logger = logging.getLogger("bsllmner2")
-        original_propagate = logger.propagate
-        try:
-            logger.propagate = True
-            with caplog.at_level(logging.WARNING, logger="bsllmner2"):
-                _collect_queries([sr], "cell_line")
-        finally:
-            logger.propagate = original_propagate
-
-        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
-        assert len(warning_records) >= 1
+        assert sr.extract.extracted is None
+        assert _collect_queries([sr], "cell_line") == set()
 
 
 # === TestDistributeResults (NEW) ===
@@ -486,27 +481,21 @@ class TestDistributeResults:
         )
         _distribute_results([sr], "cell_line", {}, "search_results")
 
-    def test_non_dict_non_none_extract_output_warns(
-        self,
-        caplog: pytest.LogCaptureFixture,
-    ) -> None:
-        """Non-dict, non-None extracted logs a WARNING in _distribute_results."""
+    def test_legacy_list_extracted_distributes_no_results(self) -> None:
+        """Legacy list payload is upstream-coerced to None.
+
+        ``_distribute_results`` therefore finds nothing to attach for that entry.
+        """
         sr = SelectEntry(
-            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
-            search_results={},
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),  # pyright: ignore[reportArgumentType]
+            search_results={"cell_line": {}},
             results={},
         )
-        logger = logging.getLogger("bsllmner2")
-        original_propagate = logger.propagate
-        try:
-            logger.propagate = True
-            with caplog.at_level(logging.WARNING, logger="bsllmner2"):
-                _distribute_results([sr], "cell_line", {}, "search_results")
-        finally:
-            logger.propagate = original_propagate
-
-        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
-        assert len(warning_records) >= 1
+        # No warning is emitted because the validator already normalised
+        # ``extracted`` to None before _distribute_results runs.
+        _distribute_results([sr], "cell_line", {"HeLa": []}, "search_results")
+        assert sr.extract.extracted is None
+        assert sr.search_results["cell_line"] == {}
 
     def test_no_exact_match_sets_empty_resolved_list(self) -> None:
         sr = SelectEntry(
@@ -619,7 +608,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _responses, timings = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _responses, timings, _errors = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         cell_line_results = results[0].results["cell_line"]
         assert isinstance(cell_line_results, list)
@@ -639,7 +628,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         assert "cell_line" not in results[0].results
 
@@ -662,7 +651,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _, _ = await select(backend, bs_entries, "test-model", extract_outputs, config)
+        results, _, _, _ = await select(backend, bs_entries, "test-model", extract_outputs, config)
 
         result_map = {r.extract.accession: r for r in results}
         k562_results = result_map["SAMN003"].results["cell_line"]
@@ -676,37 +665,36 @@ class TestSelect:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _, _ = await select(backend, entries, "test-model", [], config)
+        results, _, _, _ = await select(backend, entries, "test-model", [], config)
         assert results == []
 
     async def test_non_dict_output_warns_in_no_select_fields(
         self,
         caplog: pytest.LogCaptureFixture,
     ) -> None:
-        """Non-dict output for no_select_fields logs a WARNING and treats as None."""
+        """Legacy list-shaped ``extracted`` propagates through ``select()`` as None.
+
+        The boundary used to live in ``select.py`` (warning + nullification).
+        After Critical-7 the boundary moved earlier — to
+        :class:`ExtractEntry`'s model validator — so by the time ``select()``
+        receives the entry the field is already ``None`` and no additional
+        warning is needed.
+        """
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         extract_outputs = [
             ExtractEntry(
                 accession="SAMN001",
-                extracted=["not", "a", "dict"],
+                extracted=["not", "a", "dict"],  # pyright: ignore[reportArgumentType]
             ),
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        logger = logging.getLogger("bsllmner2")
-        original_propagate = logger.propagate
-        try:
-            logger.propagate = True
-            with caplog.at_level(logging.WARNING, logger="bsllmner2"):
-                results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
-        finally:
-            logger.propagate = original_propagate
+        results, _, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
 
         assert len(results) == 1
-        # Step 6: extracted should be nullified
         assert results[0].extract.extracted is None
-        warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
-        assert len(warning_records) >= 1
+        # No data is propagated to results because there is nothing to map.
+        assert results[0].results == {}
 
     async def test_extracted_none_field_gets_empty_results(self) -> None:
         """Step 7: extracted={"cell_line": None} → results["cell_line"] == []."""
@@ -719,7 +707,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         assert results[0].results["cell_line"] == []
 
@@ -734,7 +722,7 @@ class TestSelect:
         ]
         backend = FakeLlmBackend([])
         config = _make_select_config_no_ontology()
-        results, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
+        results, _, _, _ = await select(backend, entries, "test-model", extract_outputs, config)
         assert len(results) == 1
         assert "cell_line" not in results[0].results
 
@@ -763,7 +751,7 @@ class TestBuildIndexMap:
                 ),
             },
         )
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", tmp_path):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", tmp_path):
             result, _disk_io = build_index_map(config)
         assert result == {}
 
@@ -780,7 +768,7 @@ class TestBuildIndexMap:
             },
         )
         cache_dir = tmp_path / "cache"
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir):
             result, _disk_io = build_index_map(config)
         assert tsv in result
         assert isinstance(result[tsv], OntologyIndex)
@@ -798,7 +786,7 @@ class TestBuildIndexMap:
             },
         )
         cache_dir = tmp_path / "cache"
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir):
             build_index_map(config)
         pkl_files = list(cache_dir.glob("*.pkl"))
         assert len(pkl_files) == 1
@@ -816,10 +804,10 @@ class TestBuildIndexMap:
             },
         )
         cache_dir = tmp_path / "cache"
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir):
             result1, _ = build_index_map(config)
         tsv.unlink()
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir):
             result2, _ = build_index_map(config)
         assert tsv in result2
         pkl_files = list(cache_dir.glob("*.pkl"))
@@ -846,7 +834,7 @@ class TestBuildIndexMap:
             },
         )
         cache_dir = tmp_path / "cache"
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir):
             result, _ = build_index_map(config)
         assert len(result) == 1
         assert tsv in result
@@ -864,7 +852,10 @@ class TestBuildIndexMap:
             },
         )
         cache_dir = tmp_path / "cache"
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir), pytest.raises(ValueError, match="Unsupported"):
+        with (
+            patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir),
+            pytest.raises(ValueError, match="Unsupported"),
+        ):
             build_index_map(config)
 
     def test_corrupted_cache_falls_back_to_rebuild(self, tmp_path: Path) -> None:
@@ -885,7 +876,7 @@ class TestBuildIndexMap:
         corrupted_pkl = cache_dir / "cells.tsv_nofilter.pkl"
         corrupted_pkl.write_bytes(b"not a valid pickle")
 
-        with patch("bsllmner2.select.INDEX_CACHE_DIR", cache_dir):
+        with patch("bsllmner2.select_index_cache.INDEX_CACHE_DIR", cache_dir):
             result, _disk_io = build_index_map(config)
         assert tsv in result
         assert isinstance(result[tsv], OntologyIndex)
@@ -923,9 +914,9 @@ class TestBuildText2termCache:
         )
         cache_dir = tmp_path / "text2term_cache"
         with (
-            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
-            patch("bsllmner2.select.text2term_cache_exists") as mock_exists,
-            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+            patch("bsllmner2.select_index_cache.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select_index_cache.text2term_cache_exists") as mock_exists,
+            patch("bsllmner2.select_index_cache.build_text2term_cache_for_owl") as mock_build,
         ):
             disk_io = build_text2term_cache(config)
         mock_exists.assert_not_called()
@@ -939,9 +930,9 @@ class TestBuildText2termCache:
         config = self._make_owl_config(owl)
         cache_dir = tmp_path / "text2term_cache"
         with (
-            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
-            patch("bsllmner2.select.text2term_cache_exists", return_value=True) as mock_exists,
-            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+            patch("bsllmner2.select_index_cache.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select_index_cache.text2term_cache_exists", return_value=True) as mock_exists,
+            patch("bsllmner2.select_index_cache.build_text2term_cache_for_owl") as mock_build,
         ):
             disk_io = build_text2term_cache(config)
         mock_exists.assert_called_once()
@@ -956,9 +947,9 @@ class TestBuildText2termCache:
         cache_dir = tmp_path / "text2term_cache"
         expected_acronym = "ont_nofilter"
         with (
-            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
-            patch("bsllmner2.select.text2term_cache_exists", return_value=False),
-            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+            patch("bsllmner2.select_index_cache.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select_index_cache.text2term_cache_exists", return_value=False),
+            patch("bsllmner2.select_index_cache.build_text2term_cache_for_owl") as mock_build,
         ):
             disk_io = build_text2term_cache(config)
         mock_build.assert_called_once_with(owl, expected_acronym, cache_dir)
@@ -983,9 +974,9 @@ class TestBuildText2termCache:
         )
         cache_dir = tmp_path / "text2term_cache"
         with (
-            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
-            patch("bsllmner2.select.text2term_cache_exists", return_value=False),
-            patch("bsllmner2.select.build_text2term_cache_for_owl") as mock_build,
+            patch("bsllmner2.select_index_cache.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select_index_cache.text2term_cache_exists", return_value=False),
+            patch("bsllmner2.select_index_cache.build_text2term_cache_for_owl") as mock_build,
         ):
             build_text2term_cache(config)
         assert mock_build.call_count == 1
@@ -1009,10 +1000,10 @@ class TestBuildText2termCache:
         config = self._make_owl_config(owl)
         cache_dir = tmp_path / "text2term_cache"
         with (
-            patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
-            patch("bsllmner2.select.text2term_cache_exists", return_value=False),
+            patch("bsllmner2.select_index_cache.TEXT2TERM_CACHE_DIR", cache_dir),
+            patch("bsllmner2.select_index_cache.text2term_cache_exists", return_value=False),
             patch(
-                "bsllmner2.select.build_text2term_cache_for_owl",
+                "bsllmner2.select_index_cache.build_text2term_cache_for_owl",
                 side_effect=OSError("disk full"),
             ),
             caplog.at_level(logging.WARNING),

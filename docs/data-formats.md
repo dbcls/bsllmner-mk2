@@ -88,7 +88,7 @@ Written to `bsllmner2-results/extract/{run_name}.json`.
 | Path | Type | Description |
 |---|---|---|
 | `entries[].accession` | `string` | BioSample accession. |
-| `entries[].extracted` | `dict \| list \| null` | Parsed JSON value from the LLM. |
+| `entries[].extracted` | `dict \| null` | Parsed JSON value from the LLM. List-shaped responses are normalised to `null` at the LLM boundary (a WARNING is logged with the accession, and `raw_output` preserves the original substring for inspection). Legacy result files containing `extracted: [...]` are coerced to `null` on load for backward compatibility. |
 | `entries[].raw_output` | `string \| null` | The last JSON substring extracted from the raw response text. |
 | `entries[].llm_timing` | `LlmTimingFields` | Per-call timing (nanoseconds). See below. |
 | `run_metadata.run_name` | `string` | Run identifier. |
@@ -96,7 +96,7 @@ Written to `bsllmner2-results/extract/{run_name}.json`.
 | `run_metadata.thinking` | `bool` | Whether thinking mode was on. |
 | `run_metadata.start_time` | `datetime` | ISO 8601 UTC. |
 | `run_metadata.end_time` | `datetime \| null` | ISO 8601 UTC. |
-| `run_metadata.status` | `"running" \| "completed" \| "failed"` | Run status. |
+| `run_metadata.status` | `"running" \| "completed" \| "failed" \| "interrupted"` | Run status. `interrupted` is emitted when the run was cancelled via Ctrl-C (KeyboardInterrupt); the partial result file is still dumped so resume works on the next invocation. |
 | `run_metadata.processing_time_sec` | `float \| null` | `end_time - start_time` in seconds. |
 | `run_metadata.total_entries` | `int \| null` | Number of entries in the result. |
 | `performance` | `PerformanceSummary \| null` | See [PerformanceSummary](#performancesummary). |
@@ -139,9 +139,9 @@ Written to `bsllmner2-results/select/select_{run_name}.json`.
               "label": "HeLa",
               "exact_match": true,
               "text2term_score": null,
-              "reasoning": null,
-              "definitions": null,
-              "comments": ["Disease: Cervical adenocarcinoma"]
+              "reasoning": "Exact match on rdfs:label",
+              "comments": ["Disease: Cervical adenocarcinoma"],
+              "definitions": null
             }
           ]
         }
@@ -178,12 +178,14 @@ Written to `bsllmner2-results/select/select_{run_name}.json`.
 | Path | Type | Description |
 |---|---|---|
 | `entries[].extract` | `ExtractEntry` | Embedded extract result for this entry. |
-| `entries[].search_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2a word-combination candidates. See [SearchResult](#searchresult). |
-| `entries[].text2term_results` | `dict[field, dict[value, list[SearchResult]]]` | Stage 2b text2term candidates. See [SearchResult](#searchresult). |
-| `entries[].select_timings` | `dict[field, dict[value, LlmTimingFields]]` | Per `(field, value)` Stage 3 LLM call timing. |
-| `entries[].results` | `dict[field, list[ResolvedValue]]` | Final per-field selections. See [ResolvedValue](#resolvedvalue). |
+| `entries[].search_results` | `dict[str, dict[str, list[SearchResult]]]` | Stage 2a word-combination candidates, keyed by field name then by extracted value. See [SearchResult](#searchresult). |
+| `entries[].text2term_results` | `dict[str, dict[str, list[SearchResult]]]` | Stage 2b text2term candidates, keyed by field name then by extracted value. See [SearchResult](#searchresult). |
+| `entries[].select_timings` | `dict[str, dict[str, LlmTimingFields]]` | Per `(field, value)` Stage 3 LLM call timing. |
+| `entries[].results` | `dict[str, list[ResolvedValue]]` | Final per-field selections. See [ResolvedValue](#resolvedvalue). |
+| `run_metadata` | `RunMetadata` | Run identification and status. See [ExtractResult](#extractresult). |
 | `evaluation` | `EvaluationMetrics \| null` | Set when `--mapping` is supplied. `accuracy`, `precision`, `recall`, `f1` are stored as 0-1 ratios (not percentages). |
-| `errors` | `list[ErrorLog]` | Captured errors. |
+| `performance` | `PerformanceSummary \| null` | Per-batch timing summary. Always populated in normal runs; only `null` when the run aborted before any batch executed. |
+| `errors` | `list[ErrorLog]` | Captured errors (Bsllmner2Error / per-entry LLM failures). Empty list when no errors occurred. |
 
 ### SearchResult
 

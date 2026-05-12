@@ -334,6 +334,7 @@ class TestRunCliSelectAsync:
                     [ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"})],
                     [make_chat_response('{"cell_line": "HEK293"}')],
                     0,
+                    [],
                 ),
             ) as mock_ner,
             patch(
@@ -343,6 +344,7 @@ class TestRunCliSelectAsync:
                     [SelectEntry(extract=ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"}))],
                     [],
                     _EMPTY_SELECT_TIMINGS,
+                    [],
                 ),
             ),
         ):
@@ -420,7 +422,7 @@ class TestRunCliSelectAsync:
             patch(
                 "bsllmner2.cli_select.ner",
                 new_callable=AsyncMock,
-                return_value=([], []),
+                return_value=([], [], 0, []),
             ) as mock_ner,
             patch(
                 "bsllmner2.cli_select.select",
@@ -429,6 +431,7 @@ class TestRunCliSelectAsync:
                     [SelectEntry(extract=ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"}))],
                     [],
                     _EMPTY_SELECT_TIMINGS,
+                    [],
                 ),
             ) as mock_select,
         ):
@@ -513,7 +516,6 @@ class TestCliSelectIntegration:
     ) -> None:
         """End-to-end: real files are written, output structure is valid, status is 'completed'."""
         select_dir = tmp_path / "results" / "select"
-        progress_dir = tmp_path / "progress"
 
         cli_args = [
             "--bs-entries",
@@ -535,7 +537,6 @@ class TestCliSelectIntegration:
             ),
             patch("bsllmner2.cli_select.build_index_map", return_value=_EMPTY_INDEX_MAP_RESULT),
             patch("bsllmner2.io.SELECT_RESULT_DIR", select_dir),
-            patch("bsllmner2.io.PROGRESS_DIR", progress_dir),
             patch("bsllmner2.cli_select.remove_resume_files"),
         ):
             mock_sys.argv = ["bsllmner2-select", *cli_args]

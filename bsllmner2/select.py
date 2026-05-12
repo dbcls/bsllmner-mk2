@@ -1,9 +1,14 @@
-"""Select mode: ontology search, text2term mapping, and LLM-based selection."""
+"""Select mode coordinator.
+
+Stage 3 (LLM selection) lives here together with the helpers that distribute
+ontology-search results across :class:`SelectEntry` instances. Pure prompt /
+JSON-schema construction lives in :mod:`bsllmner2.prompts.select`, while
+filesystem-bound cache I/O lives in :mod:`bsllmner2.select_index_cache`. The
+public surface of those modules is re-exported below so existing tests that
+patch attributes on ``bsllmner2.select`` continue to work unchanged.
+"""
 
 import asyncio
-import json
-import os
-import pickle
 from pathlib import Path
 from typing import Any, TypedDict
 
@@ -12,10 +17,11 @@ from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.benchmark import stage_timer
 from bsllmner2.config import LOGGER
+from bsllmner2.errors import OllamaProcessingError
 from bsllmner2.llm import LlmBackend, build_ollama_options, parse_response_json
 from bsllmner2.models import (
     BsEntries,
-    DiskIoTimings,
+    ErrorLog,
     ExtractEntry,
     OntologyIndex,
     ResolvedValue,
@@ -26,11 +32,25 @@ from bsllmner2.models import (
 )
 from bsllmner2.ontology_search import (
     build_index_from_file,
-    build_text2term_cache_for_owl,
     is_label_prop,
     search_terms,
     search_terms_with_text2term,
-    text2term_cache_exists,
+)
+from bsllmner2.pipeline import build_error_log
+from bsllmner2.prompts.select import (
+    _build_select_prompt_and_schema,
+    _build_select_schema,  # noqa: F401  re-exported for tests
+    _build_select_system_message,  # noqa: F401  re-exported for tests
+    _collect_candidates_for_field,
+    _serialize_candidates_for_llm,  # noqa: F401  re-exported for tests
+)
+from bsllmner2.select_index_cache import (
+    _CACHE_KEY_SUFFIX,  # noqa: F401  re-exported for tests
+    INDEX_CACHE_DIR,
+    TEXT2TERM_CACHE_DIR,
+    _text2term_acronym,
+    build_index_map,
+    build_text2term_cache,
 )
 
 
@@ -46,8 +66,15 @@ class SelectStageTimings(TypedDict):
 SearchMemo = dict[tuple[str, str], list[SearchResult]]
 
 
-INDEX_CACHE_DIR = Path(os.environ.get("BSLLMNER2_INDEX_CACHE_DIR", "ontology/index_cache"))
-TEXT2TERM_CACHE_DIR = Path(os.environ.get("BSLLMNER2_TEXT2TERM_CACHE_DIR", "ontology/text2term_cache"))
+__all__ = [
+    "INDEX_CACHE_DIR",
+    "TEXT2TERM_CACHE_DIR",
+    "SearchMemo",
+    "SelectStageTimings",
+    "build_index_map",
+    "build_text2term_cache",
+    "select",
+]
 
 
 def _resolved_from_search_result(
@@ -87,142 +114,6 @@ def _pick_exact_match_search_result(
     return exact_matches[0]
 
 
-# Stable cache-key suffix kept so on-disk cache file names remain consistent with past runs.
-_CACHE_KEY_SUFFIX = "nofilter"
-
-
-def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyIndex], DiskIoTimings]:
-    INDEX_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-    mapping: dict[Path, OntologyIndex] = {}
-    disk_io = DiskIoTimings()
-
-    for field_config in select_config.fields.values():
-        ontology_file_path = field_config.ontology_file
-        if ontology_file_path is None:
-            continue
-        if ontology_file_path in mapping:
-            continue
-
-        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{_CACHE_KEY_SUFFIX}_v2.pkl")
-        if cache_file_path.exists():
-            try:
-                with stage_timer("cache_load") as t, cache_file_path.open("rb") as f:
-                    index = pickle.load(f)
-                disk_io.index_cache_load_sec.append(t.elapsed_sec)
-                mapping[ontology_file_path] = index
-                continue
-            except (OSError, EOFError, AttributeError, ModuleNotFoundError, pickle.UnpicklingError):
-                LOGGER.warning("Failed to load cache %s", cache_file_path, exc_info=True)
-
-        with stage_timer("index_build") as t:
-            index = build_index_from_file(ontology_file_path)
-        disk_io.index_build_from_file_sec.append(t.elapsed_sec)
-        mapping[ontology_file_path] = index
-
-        try:
-            with stage_timer("cache_save") as t, cache_file_path.open("wb") as f:
-                pickle.dump(index, f)
-            disk_io.index_cache_save_sec.append(t.elapsed_sec)
-        except OSError:
-            LOGGER.warning("Failed to save cache %s", cache_file_path, exc_info=True)
-
-    return mapping, disk_io
-
-
-def _text2term_acronym(ontology_file: Path) -> str:
-    """Stable text2term acronym that invalidates alongside the word-combination index cache."""
-    return f"{ontology_file.stem}_{_CACHE_KEY_SUFFIX}"
-
-
-def build_text2term_cache(select_config: SelectConfig) -> DiskIoTimings:
-    """Ensure each OWL ontology is preregistered with text2term under its stable acronym.
-
-    Called once per run before batch processing. Populates the shared cache folder so per-batch
-    ``text2term.map_terms(..., use_cache=True)`` avoids OWL parsing. Non-OWL ontology files are
-    skipped. Failures are logged and the acronym is simply not preregistered, in which case the
-    per-batch wrapper will fall back to the uncached path (``target_ontology=<owl_path>``).
-    """
-    try:
-        TEXT2TERM_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-    except OSError:
-        LOGGER.warning(
-            "Failed to create text2term cache directory %s; text2term will run without cache",
-            TEXT2TERM_CACHE_DIR,
-            exc_info=True,
-        )
-        return DiskIoTimings()
-
-    disk_io = DiskIoTimings()
-    seen: set[Path] = set()
-
-    for field_config in select_config.fields.values():
-        ontology_file_path = field_config.ontology_file
-        if ontology_file_path is None:
-            continue
-        if ontology_file_path.suffix != ".owl":
-            continue
-        if ontology_file_path in seen:
-            continue
-        seen.add(ontology_file_path)
-
-        acronym = _text2term_acronym(ontology_file_path)
-
-        try:
-            with stage_timer("text2term_cache_load") as t:
-                exists = text2term_cache_exists(acronym, TEXT2TERM_CACHE_DIR)
-            disk_io.text2term_cache_load_sec.append(t.elapsed_sec)
-        except (OSError, AttributeError, RuntimeError):
-            LOGGER.warning(
-                "text2term cache_exists failed for %s (acronym=%s); skipping preregistration",
-                ontology_file_path,
-                acronym,
-                exc_info=True,
-            )
-            continue
-
-        if exists:
-            LOGGER.info("text2term cache hit for %s (acronym=%s)", ontology_file_path, acronym)
-            continue
-
-        try:
-            with stage_timer("text2term_cache_build") as t:
-                build_text2term_cache_for_owl(ontology_file_path, acronym, TEXT2TERM_CACHE_DIR)
-            disk_io.text2term_cache_build_sec.append(t.elapsed_sec)
-            LOGGER.info("text2term cache built for %s (acronym=%s)", ontology_file_path, acronym)
-        except (OSError, AttributeError, RuntimeError):
-            LOGGER.warning(
-                "text2term cache_ontology failed for %s (acronym=%s); falling back to per-call OWL parse",
-                ontology_file_path,
-                acronym,
-                exc_info=True,
-            )
-
-    return disk_io
-
-
-def _extracted_as_dict(
-    extracted: dict[str, Any] | list[Any] | None,
-    *,
-    accession: str | None,
-    log_context: str,
-) -> dict[str, Any] | None:
-    """Return ``extracted`` if it's a dict, else None.
-
-    Logs a warning when ``extracted`` is non-None and not a dict so the
-    caller can simply skip without duplicating the diagnostic.
-    """
-    if extracted is None or isinstance(extracted, dict):
-        return extracted
-    LOGGER.warning(
-        "Skipping non-dict extracted for accession %s in %s: got %s",
-        accession,
-        log_context,
-        type(extracted).__name__,
-    )
-    return None
-
-
 def _string_values(value: Any) -> list[str]:
     """Coerce a string or list-of-strings field value into a plain list of strings."""
     if isinstance(value, str):
@@ -242,11 +133,7 @@ def _collect_queries(
     """
     queries: set[str] = set()
     for entry in select_entries:
-        extracted = _extracted_as_dict(
-            entry.extract.extracted,
-            accession=entry.extract.accession,
-            log_context="_collect_queries",
-        )
+        extracted = entry.extract.extracted
         if extracted is None or field_name not in extracted:
             continue
         if entry.results.get(field_name):
@@ -269,11 +156,7 @@ def _distribute_results(
     and sets exact-match results into ``results`` as ``list[ResolvedValue]``.
     """
     for entry in select_entries:
-        extracted = _extracted_as_dict(
-            entry.extract.extracted,
-            accession=entry.extract.accession,
-            log_context="_distribute_results",
-        )
+        extracted = entry.extract.extracted
         if extracted is None or field_name not in extracted:
             continue
         if entry.results.get(field_name):
@@ -297,7 +180,8 @@ def _distribute_results(
                 resolved.append(_resolved_from_search_result(value, exact_match_result))
 
         # Always set the key so downstream code can rely on its presence.
-        # Empty list still allows the next stage to retry (see line 260 truthiness check).
+        # An empty list still allows the next stage to retry — `_collect_queries`
+        # treats the value as "no resolved entries yet" via its truthiness check.
         entry.results[field_name] = resolved
 
 
@@ -407,66 +291,6 @@ def _text2term_wrapper(
     return select_entries
 
 
-def _build_select_schema(
-    candidates: list[SearchResult],
-    reasoning: bool = True,
-) -> JsonSchemaValue:
-    enum = [res.term_id for res in candidates]
-
-    properties: dict[str, Any] = {
-        "id": {
-            "anyOf": [
-                {"type": "string", "enum": enum},
-                {"type": "null"},
-            ],
-        },
-    }
-    required = ["id"]
-
-    if reasoning:
-        properties["reasoning"] = {
-            "anyOf": [
-                {"type": "string"},
-                {"type": "null"},
-            ],
-        }
-        required.append("reasoning")
-
-    schema: JsonSchemaValue = {
-        "type": "object",
-        "properties": properties,
-        "required": required,
-        "additionalProperties": False,
-    }
-
-    return schema
-
-
-def _serialize_candidates_for_llm(candidates: list[SearchResult]) -> list[dict[str, Any]]:
-    return [
-        c.model_dump(exclude={"exact_match", "text2term_score", "reasoning"}, exclude_none=True) for c in candidates
-    ]
-
-
-def _collect_candidates_for_field(
-    field_name: str,
-    value: str,
-    select_entry: SelectEntry,
-) -> list[SearchResult]:
-    merged: list[SearchResult] = []
-    merged.extend(select_entry.search_results.get(field_name, {}).get(value, []))
-    merged.extend(select_entry.text2term_results.get(field_name, {}).get(value, []))
-
-    # Remove duplicates based on term_id.
-    by_term_id: dict[str, SearchResult] = {}
-    for result in merged:
-        prev = by_term_id.get(result.term_id)
-        if prev is None or (is_label_prop(result.prop_uri) and not is_label_prop(prev.prop_uri)):
-            by_term_id[result.term_id] = result
-
-    return list(by_term_id.values())
-
-
 def _pick_search_result_by_id(
     select_entry: SelectEntry,
     field_name: str,
@@ -482,101 +306,6 @@ def _pick_search_result_by_id(
             return candidate
 
     return None
-
-
-def _build_select_system_message(reasoning: bool) -> Message:
-    base = (
-        "You are a smart curator of biological metadata.\n"
-        "Pick the best ontology term ID from the provided candidates, or return null if uncertain.\n"
-        "Rules:\n"
-        "- Prefer exact string matches or canonical labels present in the metadata.\n"
-        "- Prefer widely recognized and specific terms.\n"
-        "- Do NOT invent IDs. Choose only from the provided candidates.\n"
-        "- Do NOT use outside knowledge; decide only from the provided context.\n"
-        "- Output ONLY valid JSON matching the schema. No extra text.\n"
-    )
-    if reasoning:
-        base += (
-            "- Also return a 'reasoning' that describes your decision process step by step: "
-            "cite the exact evidence from the provided text, compare the top candidates, "
-            "and state why others were rejected do not use outside knowledge."
-        )
-
-    return Message(role="system", content=base)
-
-
-def _build_select_prompt_and_schema(
-    bs_entry: dict[str, Any],
-    select_entry: SelectEntry,
-    select_config: SelectConfig,
-    reasoning: bool,
-) -> dict[tuple[str, str], tuple[list[Message], JsonSchemaValue]]:
-    """Build per-field (messages, schema) for LLM selection (choose term_id).
-
-    Only includes fields that still need a selection.
-    """
-    results: dict[tuple[str, str], tuple[list[Message], JsonSchemaValue]] = {}
-    bs_ctx_json = json.dumps(bs_entry, ensure_ascii=False)
-    system_msg = _build_select_system_message(reasoning)
-
-    extracted = _extracted_as_dict(
-        select_entry.extract.extracted,
-        accession=select_entry.extract.accession,
-        log_context="_build_select_prompt_and_schema",
-    )
-
-    for field_name, field_config in select_config.fields.items():
-        if extracted is None:
-            continue
-        values = _string_values(extracted.get(field_name))
-        if not values:
-            continue
-
-        for value in values:
-            existing = select_entry.results.get(field_name)
-            if isinstance(existing, list) and any(rv.value == value for rv in existing):
-                continue
-
-            candidates = _collect_candidates_for_field(field_name, value, select_entry)
-            if not candidates:
-                continue
-
-            schema = _build_select_schema(candidates, reasoning=reasoning)
-
-            reasoning_instr = ""
-            if reasoning:
-                reasoning_instr = (
-                    "For 'reasoning', provide: "
-                    "(1) exact evidence text, "
-                    "(2) a brief comparison of the top 2-3 candidates, "
-                    "(3) explicit rejection reasons for the others."
-                )
-
-            user_msg = Message(
-                role="user",
-                content=(
-                    f"Field: {field_name}\n"
-                    f"Value: {value}\n\n"
-                    f"Description: {(field_config.prompt_description or field_name)}\n\n"
-                    "Provenance:\n"
-                    "- The 'value' below was produced by an earlier NER step and may be noisy.\n"
-                    "- The 'ontology candidates' were assembled by ontology search (and possibly text2term) and are the ONLY allowed choices.\n"
-                    "- Decide strictly from the provided metadata and candidates; do not use outside knowledge.\n\n"
-                    f"Original extracted value: {value}\n\n"
-                    f"BioSample metadata (context):\n{bs_ctx_json}\n\n"
-                    f"Ontology candidates (JSON array):\n"
-                    f"{json.dumps(_serialize_candidates_for_llm(candidates), ensure_ascii=False, indent=2)}\n\n"
-                    "Return ONLY JSON that matches the schema.\n"
-                    f"{reasoning_instr}"
-                ),
-            )
-
-            results[(field_name, value)] = (
-                [system_msg, user_msg],
-                schema,
-            )
-
-    return results
 
 
 def _parse_output_object(chat_response: ChatResponse) -> dict[str, Any] | None:
@@ -604,7 +333,7 @@ async def select(
     num_ctx: int | None = None,
     search_memo: SearchMemo | None = None,
     t2t_memo: SearchMemo | None = None,
-) -> tuple[list[SelectEntry], list[ChatResponse], SelectStageTimings]:
+) -> tuple[list[SelectEntry], list[ChatResponse], SelectStageTimings, list[ErrorLog]]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
 
@@ -621,16 +350,9 @@ async def select(
             results={},
         )
 
-        # Boundary validation — non-dict, non-None extracted is normalized to None
-        extract = obj
-        extracted_dict = _extracted_as_dict(
-            extract.extracted,
-            accession=extract.accession,
-            log_context="select boundary",
-        )
-        if extract.extracted is not None and extracted_dict is None:
-            extract = extract.model_copy(update={"extracted": None})
-            se = se.model_copy(update={"extract": extract})
+        # ``ExtractEntry.extracted`` is now ``dict | None`` (see model_validator),
+        # so we can use it directly.
+        extracted_dict = obj.extracted
 
         if extracted_dict is not None:
             for field in no_select_fields:
@@ -666,6 +388,7 @@ async def select(
     # 3. For fields that still have multiple matches or no matches, use the LLM to select the best match.
 
     all_select_chat_responses: list[ChatResponse] = []
+    select_errors: list[ErrorLog] = []
     ollama_options = build_ollama_options(num_ctx)
 
     async def _process_field_selection(
@@ -674,7 +397,7 @@ async def select(
         value: str,
         messages: list[Message],
         schema: JsonSchemaValue,
-    ) -> tuple[str, str, str, ChatResponse | None]:
+    ) -> tuple[str, str, str, ChatResponse | None, ErrorLog | None]:
         try:
             LOGGER.debug("[Select] Processing entry: %s, field: %s", accession, field_name)
             response: ChatResponse | None = await backend.chat(
@@ -685,10 +408,19 @@ async def select(
                 format_=schema,
             )
         except Exception as e:
-            LOGGER.error("Error during select step: %s", e)
-            response = None
+            LOGGER.exception(
+                "Error during select step for %s/%s/%r",
+                accession,
+                field_name,
+                value,
+            )
+            wrapped = OllamaProcessingError(
+                f"{accession} [select:{field_name}={value!r}]",
+                e,
+            )
+            return (accession, field_name, value, None, build_error_log(wrapped))
 
-        return (accession, field_name, value, response)
+        return (accession, field_name, value, response, None)
 
     coros = []
     bs_entry_map = {e.get("accession"): e for e in bs_entries if e.get("accession") is not None}
@@ -716,7 +448,9 @@ async def select(
             acc_to_entry_map = {e.extract.accession: e for e in intermediate_entries}
             llm_results = await asyncio.gather(*coros)
 
-            for accession, field_name, value, chat_response in llm_results:
+            for accession, field_name, value, chat_response, err in llm_results:
+                if err is not None:
+                    select_errors.append(err)
                 select_entry = acc_to_entry_map[accession]
                 if select_entry is None or chat_response is None:
                     continue
@@ -752,4 +486,4 @@ async def select(
         llm_select_sec=t_llm_select.elapsed_sec,
     )
 
-    return intermediate_entries, all_select_chat_responses, timings
+    return intermediate_entries, all_select_chat_responses, timings, select_errors

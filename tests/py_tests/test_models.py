@@ -325,10 +325,19 @@ class TestExtractEntry:
         assert e.extracted is None
         assert e.raw_output is None
 
-    def test_extracted_accepts_dict_list_none(self) -> None:
+    def test_extracted_accepts_dict_or_none(self) -> None:
         assert ExtractEntry(accession="a", extracted={"k": "v"}).extracted == {"k": "v"}
-        assert ExtractEntry(accession="a", extracted=[1, 2]).extracted == [1, 2]
         assert ExtractEntry(accession="a", extracted=None).extracted is None
+
+    def test_extracted_legacy_list_coerced_to_none(self) -> None:
+        # Older result files may contain ``extracted: [...]`` (now disallowed by
+        # the schema). The ``@model_validator(mode="before")`` hook coerces such
+        # payloads to None so legacy resume files remain loadable in both the
+        # model_validate path and the direct-constructor path.
+        from_validate = ExtractEntry.model_validate({"accession": "a", "extracted": [1, 2]})
+        from_ctor = ExtractEntry(accession="a", extracted=[1, 2])  # pyright: ignore[reportArgumentType]
+        assert from_validate.extracted is None
+        assert from_ctor.extracted is None
 
     def test_accession_required(self) -> None:
         with pytest.raises(ValidationError):

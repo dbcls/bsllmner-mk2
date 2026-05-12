@@ -13,7 +13,7 @@ The `extraction answer` column in the mapping TSV is an auxiliary annotation (or
 
 ## Why tokens/sec, not GPU utilization
 
-`nvidia-smi` reports SM (Streaming Multiprocessor) occupancy. LLM inference is memory-bandwidth-bound, so a GPU can show 5% SM utilisation while being completely saturated on memory bandwidth. `tokens_per_sec = eval_count / eval_duration` directly measures generation rate and is the right metric for:
+`nvidia-smi` reports SM (Streaming Multiprocessor) occupancy. LLM inference is memory-bandwidth-bound, so a GPU can show 5% SM utilisation while being completely saturated on memory bandwidth. `tokens_per_sec = eval_count / (eval_duration / 1e9)` (Ollama reports `eval_duration` in nanoseconds) directly measures generation rate and is the right metric for:
 
 - Comparing pipeline configurations (parallelism, batch size).
 - Detecting GPU saturation.

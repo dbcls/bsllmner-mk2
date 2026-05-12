@@ -6,6 +6,8 @@ from pathlib import Path
 
 from pydantic import BaseModel
 
+from bsllmner2.utils import parse_bool
+
 MODULE_ROOT = Path(__file__).parent.resolve()
 FILTER_KEYS_PATH = MODULE_ROOT.joinpath("filter_keys.json")
 PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
@@ -16,10 +18,41 @@ SELECT_RESULT_DIR = RESULT_DIR.joinpath("select")
 TMP_DIR = Path(
     os.environ.get("BSLLMNER2_TMP_DIR", str(Path(tempfile.gettempdir()).joinpath(f"bsllmner2-{os.getuid()}")))
 )
-PROGRESS_DIR = TMP_DIR.joinpath("progress")
 
 RESUME_BATCH_SIZE = 1024
 DEFAULT_NUM_CTX = 4096
+DEFAULT_OLLAMA_CONCURRENCY = 256
+OLLAMA_CONCURRENCY_ENV = "BSLLMNER2_OLLAMA_CONCURRENCY"
+
+
+def resolve_default_ollama_concurrency() -> int:
+    """Read ``BSLLMNER2_OLLAMA_CONCURRENCY`` from the environment at call time.
+
+    Resolving lazily (rather than at import) is required for tests that use
+    ``monkeypatch.setenv`` to override the concurrency limit after import.
+    """
+    raw = os.environ.get(OLLAMA_CONCURRENCY_ENV)
+    if raw is None:
+        return DEFAULT_OLLAMA_CONCURRENCY
+    try:
+        value = int(raw)
+    except ValueError:
+        LOGGER.warning(
+            "Invalid %s=%r; falling back to default %d.",
+            OLLAMA_CONCURRENCY_ENV,
+            raw,
+            DEFAULT_OLLAMA_CONCURRENCY,
+        )
+        return DEFAULT_OLLAMA_CONCURRENCY
+    if value < 1:
+        LOGGER.warning(
+            "%s must be >= 1 (got %d); falling back to default %d.",
+            OLLAMA_CONCURRENCY_ENV,
+            value,
+            DEFAULT_OLLAMA_CONCURRENCY,
+        )
+        return DEFAULT_OLLAMA_CONCURRENCY
+    return value
 
 
 class Config(BaseModel):
@@ -34,10 +67,8 @@ ENV_PREFIX = "BSLLMNER2_"
 
 
 def _parse_bool_env(value: str | bool) -> bool:
-    """Parse environment variable value as boolean."""
-    if isinstance(value, bool):
-        return value
-    return value.lower() in ("true", "1", "yes", "on")
+    """Parse environment variable value as boolean (non-strict)."""
+    return parse_bool(value, strict=False)
 
 
 def get_config() -> Config:

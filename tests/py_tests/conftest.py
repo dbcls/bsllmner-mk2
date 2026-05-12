@@ -22,11 +22,19 @@ def _isolated_index_cache_dir(
 
     Prevents tests from writing into the developer's real ontology/ tree and
     keeps parallel test runners (pytest-xdist) from sharing cache state.
+    The runtime constant lives in ``bsllmner2.select_index_cache`` (split
+    out of ``bsllmner2.select`` during the Phase D refactor); the ``select``
+    module re-exports it so any pre-split patches that still target
+    ``bsllmner2.select.INDEX_CACHE_DIR`` can be migrated incrementally.
     """
     cache_dir = tmp_path_factory.mktemp("bsllmner2_index_cache")
     monkeypatch.setenv("BSLLMNER2_INDEX_CACHE_DIR", str(cache_dir))
     import bsllmner2.select as _select
+    import bsllmner2.select_index_cache as _select_cache
 
+    monkeypatch.setattr(_select_cache, "INDEX_CACHE_DIR", cache_dir)
+    # Mirror onto the re-export attribute so any test that still references
+    # ``bsllmner2.select.INDEX_CACHE_DIR`` sees a consistent value.
     monkeypatch.setattr(_select, "INDEX_CACHE_DIR", cache_dir)
     return cache_dir
 
