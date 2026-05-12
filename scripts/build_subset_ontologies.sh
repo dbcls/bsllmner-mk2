@@ -71,12 +71,12 @@ robot() {
     robot "$@"
 }
 
-add_class_type() {
-  # Apply scripts/add_class_type.rq to add rdf:type owl:Class triples so
+declare_owl_class() {
+  # Apply scripts/declare_owl_class.rq to add rdf:type owl:Class triples so
   # owlready2 can recognize subjects as classes.
   local infile="$1"
   local outfile="$2"
-  robot "-Xmx8g" query --input "${infile}" --update /scripts/add_class_type.rq --output "${outfile}"
+  robot "-Xmx8g" query --input "${infile}" --update /scripts/declare_owl_class.rq --output "${outfile}"
 }
 
 skip_if_exists() {
@@ -108,7 +108,7 @@ build_cl_variant() {
   fi
   cat "${ONTOLOGY_DIR}/${cl_ttl}" "${ONTOLOGY_DIR}/_efo_cell.ttl" > "${ONTOLOGY_DIR}/${merged_ttl}"
   robot "-Xmx8g" convert --input "${merged_ttl}" --format owl --output "${merged_owl}"
-  add_class_type "${merged_owl}" "${out}"
+  declare_owl_class "${merged_owl}" "${out}"
   cleanup "${cl_ttl}" "${merged_ttl}" "${merged_owl}"
 }
 
@@ -123,7 +123,7 @@ build_simple_subset() {
 
   robot "-Xmx8g" query --input "${src}" --query "${query}" "${tmp_ttl}"
   robot "-Xmx8g" convert --input "${tmp_ttl}" --format owl --output "${tmp_owl}"
-  add_class_type "${tmp_owl}" "${out}"
+  declare_owl_class "${tmp_owl}" "${out}"
   cleanup "${tmp_ttl}" "${tmp_owl}"
 }
 
@@ -131,7 +131,7 @@ build_chebi_subset() {
   robot "-Xmx24g" query --input chebi.owl --update /queries/chebi/chebi_update.rq --output _chebi_role.owl
   robot "-Xmx24g" query --input _chebi_role.owl --query /queries/chebi/chebi_construct.rq _chebi_mod.ttl
   robot "-Xmx8g" convert --input _chebi_mod.ttl --format owl --output _chebi_pre.owl
-  add_class_type _chebi_pre.owl chebi_subset.owl
+  declare_owl_class _chebi_pre.owl chebi_subset.owl
   cleanup _chebi_role.owl _chebi_mod.ttl _chebi_pre.owl
 }
 
@@ -155,7 +155,7 @@ build_po_subset() {
 
   robot "-Xmx8g" query --input _po_mod.owl --query "/queries/po/po_construct_${variant}.rq" "${tmp_ttl}"
   robot "-Xmx8g" convert --input "${tmp_ttl}" --format owl --output "${tmp_owl}"
-  add_class_type "${tmp_owl}" "${out}"
+  declare_owl_class "${tmp_owl}" "${out}"
   cleanup "${tmp_ttl}" "${tmp_owl}"
 }
 

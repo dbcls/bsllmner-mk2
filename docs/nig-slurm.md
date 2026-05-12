@@ -76,7 +76,7 @@ Prepare ChIP-Atlas BioSample entries (see [ChIP-Atlas](chip-atlas.md)) before su
 
 ```bash
 docker compose -f compose.yml up app -d --build
-docker compose -f compose.yml exec app python3 scripts/prepare_bs_entries.py --genome-assembly hg38
+docker compose -f compose.yml exec app python3 scripts/prepare_chipatlas_bs_entries.py --genome-assembly hg38
 docker compose -f compose.yml down
 ```
 

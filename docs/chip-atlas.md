@@ -13,10 +13,10 @@ How to fetch ChIP-Atlas experiments and run Select mode against them for human (
 
 ## Data Preparation
 
-`scripts/prepare_bs_entries.py` downloads ChIP-Atlas `experimentList.tab`, builds an SRX-to-BioSample mapping from NCBI `SRA_Accessions.tab`, and fetches the corresponding BioSample entries through the DDBJ Search Bulk API.
+`scripts/prepare_chipatlas_bs_entries.py` downloads ChIP-Atlas `experimentList.tab`, builds an SRX-to-BioSample mapping from NCBI `SRA_Accessions.tab`, and fetches the corresponding BioSample entries through the DDBJ Search Bulk API.
 
 ```bash
-docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly <GENOME>
+docker compose exec app python3 scripts/prepare_chipatlas_bs_entries.py --genome-assembly <GENOME>
 ```
 
 | Option | Description |
@@ -60,7 +60,7 @@ For the SelectConfig schema itself, see [Select Mode](select-mode.md#selectconfi
 ## Processing hg38
 
 ```bash
-docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly hg38
+docker compose exec app python3 scripts/prepare_chipatlas_bs_entries.py --genome-assembly hg38
 
 docker compose exec app bsllmner2_select \
   --bs-entries ./chip-atlas-data/bs_entries.jsonl \
@@ -75,7 +75,7 @@ Result: `bsllmner2-results/select/select_hg38-full.json`.
 ## Processing mm10
 
 ```bash
-docker compose exec app python3 scripts/prepare_bs_entries.py --genome-assembly mm10
+docker compose exec app python3 scripts/prepare_chipatlas_bs_entries.py --genome-assembly mm10
 
 docker compose exec app bsllmner2_select \
   --bs-entries ./chip-atlas-data/bs_entries.jsonl \
@@ -85,7 +85,7 @@ docker compose exec app bsllmner2_select \
   --debug
 ```
 
-`prepare_bs_entries.py` overwrites `chip-atlas-data/bs_entries.jsonl` and the related JSON files. To keep the previous assembly's output, rename the files before the second run (e.g. `mv chip-atlas-data/bs_entries.jsonl chip-atlas-data/bs_entries_hg38.jsonl`).
+`prepare_chipatlas_bs_entries.py` overwrites `chip-atlas-data/bs_entries.jsonl` and the related JSON files. To keep the previous assembly's output, rename the files before the second run (e.g. `mv chip-atlas-data/bs_entries.jsonl chip-atlas-data/bs_entries_hg38.jsonl`).
 
 ## Tips for Large-Scale Runs
 

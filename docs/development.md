@@ -31,7 +31,7 @@ For test commands, lint, type check, and mutation testing, see [Testing](testing
 | `preprocess_cellosaurus.py` | Filter Cellosaurus OBO per NCBI taxonomy ID and synthesise `def:` lines. |
 | `ncbi_gene_to_owl.py` | Convert NCBI `gene_info` TSV into per-taxon OWL. |
 | `build_subset_ontologies.sh` | Build CL / UBERON / MONDO / ChEBI / PO subset OWLs via SPARQL + ROBOT. |
-| `prepare_bs_entries.py` | Build ChIP-Atlas `bs_entries.jsonl` from `experimentList.tab` + DDBJ Bulk API. |
+| `prepare_chipatlas_bs_entries.py` | Build ChIP-Atlas `bs_entries.jsonl` from `experimentList.tab` + DDBJ Bulk API. |
 | `collect_rnaseq_biosample.py` | Collect RNA-Seq BioSample entries via the DDBJ Search API. |
 | `inspect_select_result.py` | Debug tool for SelectResult JSON files (`summary` / `show` / `find`). |
 | `run_model_bench.sh` | Run Select mode against the 600-entry evaluation set across a fixed list of Ollama models (defined inline in the script). Pull failures are recorded as `pull_failed` in `summary.tsv` and the sweep continues. |
