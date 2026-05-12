@@ -269,7 +269,7 @@ def parse_sra_accessions_file(
 
 # === Prepare BP Entries and Mapping (for bsllmner2) ===
 
-DDBJ_SEARCH_BASE_URL = "https://ddbj.nig.ac.jp/search/api/entries/biosample"
+DDBJ_SEARCH_BASE_URL = "https://ddbj-staging.nig.ac.jp/search/api/entries/biosample"
 DDBJ_SEARCH_BULK_URL = f"{DDBJ_SEARCH_BASE_URL}/bulk"
 BULK_BATCH_SIZE = 1000
 BULK_MAX_RETRIES = 3

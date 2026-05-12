@@ -21,7 +21,7 @@ import httpx
 
 print = functools.partial(print, flush=True)  # noqa: A001
 
-BASE_API = "https://ddbj.nig.ac.jp/search/api"
+BASE_API = "https://ddbj-staging.nig.ac.jp/search/api"
 
 PER_PAGE = 100
 BULK_BATCH_SIZE = 1000
