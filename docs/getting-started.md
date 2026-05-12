@@ -4,6 +4,17 @@ This guide walks you through running bsllmner-mk2 for the first time.
 
 For installation details (Docker Compose, uv, GPU configuration), see [Installation](installation.md).
 
+## Prerequisites
+
+Before running the steps below, make sure the following are in place:
+
+- **Docker / docker compose** with the NVIDIA Container Toolkit installed and at least one GPU visible inside the container (`docker compose exec ollama nvidia-smi`).
+- The `ontology/` directory at the repo root, which is bind-mounted into the `app` and `ollama` containers and stores every OWL / OBO / cache file produced by the steps below. It is created automatically on first run; just make sure it lives on a writable host path.
+- The [`obolibrary/robot`](https://github.com/ontodev/robot) Docker image, required to convert preprocessed Cellosaurus and Plant Ontology subsets to OWL. The first time you run §2.2 or `scripts/build_subset_ontologies.sh`, Docker will pull it on demand.
+- **GNU awk (`gawk`)** on the host, used by the Plant Ontology preprocessor in `scripts/build_subset_ontologies.sh` (the robot image lacks `gensub()`).
+- `gene_info.gz` from NCBI, fetched as part of §2.4 (`scripts/ncbi_gene_to_owl.py` downloads it directly). No manual download is required.
+- An LLM model pulled into the Ollama service. §3 walks through this; you can also pre-pull a model with `docker compose exec ollama ollama pull qwen3:32b`.
+
 ## 1. Start the Service
 
 ```bash

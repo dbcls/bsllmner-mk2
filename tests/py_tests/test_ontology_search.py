@@ -3,7 +3,7 @@
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 
-import pandas as pd  # type: ignore[import-untyped]
+import pandas as pd
 import pytest
 from hypothesis import given, settings
 from hypothesis import strategies as st
@@ -1148,9 +1148,7 @@ class TestSearchTermsWithText2term:
         assert "cache_folder" not in kwargs
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_acronym_and_cache_folder_enable_use_cache(
-        self, mock_map_terms: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_acronym_and_cache_folder_enable_use_cache(self, mock_map_terms: MagicMock, tmp_path: Path) -> None:
         """When both acronym and cache_folder are given, map_terms uses use_cache=True."""
         mock_map_terms.return_value = self._make_text2term_df()
         index = build_index_from_owl(TEST_OWL_FILE)
@@ -1168,9 +1166,7 @@ class TestSearchTermsWithText2term:
         assert kwargs["cache_folder"] == str(cache_dir)
 
     @patch("bsllmner2.ontology_search.text2term.map_terms")
-    def test_cache_folder_without_acronym_falls_back(
-        self, mock_map_terms: MagicMock, tmp_path: Path
-    ) -> None:
+    def test_cache_folder_without_acronym_falls_back(self, mock_map_terms: MagicMock, tmp_path: Path) -> None:
         """When only cache_folder is given (no acronym), map_terms falls back to OWL path."""
         mock_map_terms.return_value = self._make_text2term_df()
         index = build_index_from_owl(TEST_OWL_FILE)

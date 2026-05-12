@@ -22,7 +22,6 @@ from bsllmner2.select import (
     _build_select_system_message,
     _collect_candidates_for_field,
     _collect_queries,
-    _compute_filter_hash,
     _distribute_results,
     _ontology_search_wrapper,
     _parse_output_object,
@@ -121,19 +120,6 @@ class TestPickExactMatchSearchResult:
         label = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="v3")
         result = _pick_exact_match_search_result([a, b, label])
         assert result is label
-
-
-# === TestComputeFilterHash ===
-
-
-class TestComputeFilterHash:
-    """The runtime ontology_filter feature is removed; the helper now returns a stable constant."""
-
-    def test_returns_nofilter_constant(self) -> None:
-        assert _compute_filter_hash() == "nofilter"
-
-    def test_idempotent(self) -> None:
-        assert _compute_filter_hash() == _compute_filter_hash()
 
 
 # === TestParseOutputObject ===
@@ -522,7 +508,7 @@ class TestDistributeResults:
         warning_records = [r for r in caplog.records if r.levelno == logging.WARNING and "SAMN001" in r.message]
         assert len(warning_records) >= 1
 
-    def test_no_exact_match_does_not_set_result(self) -> None:
+    def test_no_exact_match_sets_empty_resolved_list(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             search_results={"cell_line": {}},
@@ -530,7 +516,9 @@ class TestDistributeResults:
         )
         non_exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")
         _distribute_results([sr], "cell_line", {"HeLa": [non_exact]}, "search_results")
-        assert sr.results.get("cell_line") is None
+        # Key is always set so downstream code can rely on its presence;
+        # the empty list keeps falsy semantics for the "needs retry" check at line 260.
+        assert sr.results["cell_line"] == []
 
 
 # === TestBuildSelectSystemMessage (NEW) ===
@@ -966,7 +954,7 @@ class TestBuildText2termCache:
         owl.write_bytes(b"<rdf:RDF/>")
         config = self._make_owl_config(owl)
         cache_dir = tmp_path / "text2term_cache"
-        expected_acronym = f"ont_{_compute_filter_hash()}"
+        expected_acronym = "ont_nofilter"
         with (
             patch("bsllmner2.select.TEXT2TERM_CACHE_DIR", cache_dir),
             patch("bsllmner2.select.text2term_cache_exists", return_value=False),
@@ -1004,7 +992,7 @@ class TestBuildText2termCache:
 
     def test_acronym_embeds_stem_and_nofilter_suffix(self, tmp_path: Path) -> None:
         owl = tmp_path / "cells.owl"
-        assert _text2term_acronym(owl) == f"cells_{_compute_filter_hash()}"
+        assert _text2term_acronym(owl) == "cells_nofilter"
 
     def test_acronym_differs_per_ontology_file(self, tmp_path: Path) -> None:
         a = _text2term_acronym(tmp_path / "cells.owl")
@@ -1233,8 +1221,8 @@ class TestText2termWrapperMemo:
         assert len(cands) == 1
         assert cands[0].term_id == "UBERON:0002048"
 
-    def test_exception_does_not_poison_memo(self, tmp_path: Path) -> None:
-        """Failed calls must not memoize queries, so the next batch can retry."""
+    def test_exception_memoizes_empty_so_next_batch_skips(self, tmp_path: Path) -> None:
+        """Failed calls memoize an empty list to avoid hammering text2term on repeat queries."""
         owl_path = tmp_path / "fake_cell_line.owl"
         owl_path.write_bytes(b"")
         config = _make_single_field_config("cell_line", owl_path)
@@ -1243,27 +1231,17 @@ class TestText2termWrapperMemo:
         batch1 = [_make_entry_with_value("SAM001", "cell_line", "lung")]
         batch2 = [_make_entry_with_value("SAM002", "cell_line", "lung")]
 
-        # First call raises; second call succeeds.
-        outputs: list[Exception | dict[str, list[SearchResult]]] = [
-            RuntimeError("transient text2term error"),
-            {"lung": [self._t2t_result("lung", "UBERON:0002048")]},
-        ]
-
         def fake_t2t(*_args: object, **_kwargs: object) -> dict[str, list[SearchResult]]:
-            item = outputs.pop(0)
-            if isinstance(item, Exception):
-                raise item
-            return item
+            raise RuntimeError("transient text2term error")
 
         with patch("bsllmner2.select.search_terms_with_text2term", side_effect=fake_t2t) as mock_t2t:
             _text2term_wrapper(batch1, config, t2t_memo=memo)
             _text2term_wrapper(batch2, config, t2t_memo=memo)
 
-        # Both batches forwarded "lung" (no negative memo from the failure).
-        assert mock_t2t.call_count == 2
-        # Second batch's entries received the recovered result.
-        cands = batch2[0].text2term_results["cell_line"]["lung"]
-        assert len(cands) == 1
-        assert cands[0].term_id == "UBERON:0002048"
-        # Failed queries are not in the memo.
-        assert memo[("cell_line", "lung")][0].term_id == "UBERON:0002048"
+        # Second batch reuses the negative memo and does not call text2term again.
+        assert mock_t2t.call_count == 1
+        # Both entries see an empty candidate list rather than missing data.
+        assert batch1[0].text2term_results["cell_line"]["lung"] == []
+        assert batch2[0].text2term_results["cell_line"]["lung"] == []
+        # Memo records the failure as an empty list.
+        assert memo[("cell_line", "lung")] == []

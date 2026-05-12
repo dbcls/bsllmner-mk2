@@ -1,4 +1,3 @@
-import atexit
 import json
 import os
 import tempfile
@@ -11,19 +10,25 @@ import yaml
 from ollama import ChatResponse, Message, Options
 from pydantic.json_schema import JsonSchemaValue
 
-# Patch INDEX_CACHE_DIR before any bsllmner2 module is imported.
-# client/ollama.py runs INDEX_CACHE_DIR.mkdir() at import time, which fails
-# outside Docker where /app/ontology does not exist.
-# conftest.py is evaluated before test modules are collected, so setting
-# the env var here ensures the module-level side effect uses a temp dir.
-# atexit is used because conftest.py module-level code runs outside the
-# pytest fixture lifecycle.
-_INDEX_CACHE_TMPDIR_OBJ = tempfile.TemporaryDirectory()
-_INDEX_CACHE_TMPDIR = _INDEX_CACHE_TMPDIR_OBJ.name
-atexit.register(_INDEX_CACHE_TMPDIR_OBJ.cleanup)
-os.environ.setdefault("BSLLMNER2_INDEX_CACHE_DIR", _INDEX_CACHE_TMPDIR)
+from bsllmner2.models import ExtractEntry
 
-from bsllmner2.models import ExtractEntry  # noqa: E402  # must be after env var setup
+
+@pytest.fixture(autouse=True)
+def _isolated_index_cache_dir(
+    tmp_path_factory: pytest.TempPathFactory,
+    monkeypatch: pytest.MonkeyPatch,
+) -> Path:
+    """Point BSLLMNER2_INDEX_CACHE_DIR at a per-test temp dir.
+
+    Prevents tests from writing into the developer's real ontology/ tree and
+    keeps parallel test runners (pytest-xdist) from sharing cache state.
+    """
+    cache_dir = tmp_path_factory.mktemp("bsllmner2_index_cache")
+    monkeypatch.setenv("BSLLMNER2_INDEX_CACHE_DIR", str(cache_dir))
+    import bsllmner2.select as _select
+
+    monkeypatch.setattr(_select, "INDEX_CACHE_DIR", cache_dir)
+    return cache_dir
 
 
 def make_chat_response(content: str) -> ChatResponse:

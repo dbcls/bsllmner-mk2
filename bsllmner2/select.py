@@ -87,13 +87,8 @@ def _pick_exact_match_search_result(
     return exact_matches[0]
 
 
-def _compute_filter_hash() -> str:
-    """Return the stable cache-key suffix used when no ontology filter is applied.
-
-    The runtime filter feature has been retired, but the ``_nofilter`` suffix
-    is kept so on-disk cache file names stay consistent with past runs.
-    """
-    return "nofilter"
+# Stable cache-key suffix kept so on-disk cache file names remain consistent with past runs.
+_CACHE_KEY_SUFFIX = "nofilter"
 
 
 def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyIndex], DiskIoTimings]:
@@ -109,8 +104,7 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
         if ontology_file_path in mapping:
             continue
 
-        filter_hash = _compute_filter_hash()
-        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{filter_hash}_v2.pkl")
+        cache_file_path = INDEX_CACHE_DIR.joinpath(f"{ontology_file_path.name}_{_CACHE_KEY_SUFFIX}_v2.pkl")
         if cache_file_path.exists():
             try:
                 with stage_timer("cache_load") as t, cache_file_path.open("rb") as f:
@@ -138,7 +132,7 @@ def build_index_map(select_config: SelectConfig) -> tuple[dict[Path, OntologyInd
 
 def _text2term_acronym(ontology_file: Path) -> str:
     """Stable text2term acronym that invalidates alongside the word-combination index cache."""
-    return f"{ontology_file.stem}_{_compute_filter_hash()}"
+    return f"{ontology_file.stem}_{_CACHE_KEY_SUFFIX}"
 
 
 def build_text2term_cache(select_config: SelectConfig) -> DiskIoTimings:
@@ -207,6 +201,37 @@ def build_text2term_cache(select_config: SelectConfig) -> DiskIoTimings:
     return disk_io
 
 
+def _extracted_as_dict(
+    extracted: dict[str, Any] | list[Any] | None,
+    *,
+    accession: str | None,
+    log_context: str,
+) -> dict[str, Any] | None:
+    """Return ``extracted`` if it's a dict, else None.
+
+    Logs a warning when ``extracted`` is non-None and not a dict so the
+    caller can simply skip without duplicating the diagnostic.
+    """
+    if extracted is None or isinstance(extracted, dict):
+        return extracted
+    LOGGER.warning(
+        "Skipping non-dict extracted for accession %s in %s: got %s",
+        accession,
+        log_context,
+        type(extracted).__name__,
+    )
+    return None
+
+
+def _string_values(value: Any) -> list[str]:
+    """Coerce a string or list-of-strings field value into a plain list of strings."""
+    if isinstance(value, str):
+        return [value]
+    if isinstance(value, list):
+        return [v for v in value if isinstance(v, str)]
+    return []
+
+
 def _collect_queries(
     select_entries: list[SelectEntry],
     field_name: str,
@@ -217,24 +242,16 @@ def _collect_queries(
     """
     queries: set[str] = set()
     for entry in select_entries:
-        extracted = entry.extract.extracted
-        if not isinstance(extracted, dict):
-            if extracted is not None:
-                LOGGER.warning(
-                    "Skipping non-dict extracted for accession %s in _collect_queries: got %s",
-                    entry.extract.accession,
-                    type(extracted).__name__,
-                )
-            continue
-        if field_name not in extracted:
+        extracted = _extracted_as_dict(
+            entry.extract.extracted,
+            accession=entry.extract.accession,
+            log_context="_collect_queries",
+        )
+        if extracted is None or field_name not in extracted:
             continue
         if entry.results.get(field_name):
             continue
-        query_value = extracted[field_name]
-        if isinstance(query_value, str):
-            queries.add(query_value)
-        elif isinstance(query_value, list):
-            queries.update(v for v in query_value if isinstance(v, str))
+        queries.update(_string_values(extracted[field_name]))
 
     return queries
 
@@ -252,32 +269,24 @@ def _distribute_results(
     and sets exact-match results into ``results`` as ``list[ResolvedValue]``.
     """
     for entry in select_entries:
-        extracted = entry.extract.extracted
-        if not isinstance(extracted, dict):
-            if extracted is not None:
-                LOGGER.warning(
-                    "Skipping non-dict extracted for accession %s in _distribute_results: got %s",
-                    entry.extract.accession,
-                    type(extracted).__name__,
-                )
-            continue
-        if field_name not in extracted:
+        extracted = _extracted_as_dict(
+            entry.extract.extracted,
+            accession=entry.extract.accession,
+            log_context="_distribute_results",
+        )
+        if extracted is None or field_name not in extracted:
             continue
         if entry.results.get(field_name):
             continue
 
-        query_value = extracted[field_name]
-        if isinstance(query_value, str):
-            values = [query_value]
-        elif isinstance(query_value, list):
-            values = [v for v in query_value if isinstance(v, str)]
-        else:
+        values = _string_values(extracted[field_name])
+        if not values:
             continue
 
         per_query_store: dict[str, Any] = getattr(entry, result_attr)
         field_specific = per_query_store.setdefault(field_name, {})
 
-        existing_resolved = entry.results.get(field_name, [])
+        resolved = entry.results.get(field_name, [])
 
         for value in values:
             candidates = all_results.get(value, [])
@@ -285,10 +294,11 @@ def _distribute_results(
 
             exact_match_result = _pick_exact_match_search_result(candidates)
             if exact_match_result is not None:
-                existing_resolved.append(_resolved_from_search_result(value, exact_match_result))
+                resolved.append(_resolved_from_search_result(value, exact_match_result))
 
-        if existing_resolved:
-            entry.results[field_name] = existing_resolved
+        # Always set the key so downstream code can rely on its presence.
+        # Empty list still allows the next stage to retry (see line 260 truthiness check).
+        entry.results[field_name] = resolved
 
 
 def _ontology_search_wrapper(
@@ -344,7 +354,8 @@ def _text2term_wrapper(
 
     When ``t2t_memo`` is provided, previously seen ``(field, value)`` pairs
     reuse their cached candidates instead of re-invoking text2term. Failed
-    batches are not memoized so transient errors can retry on the next batch.
+    queries are memoized as empty lists so the same inputs do not repeatedly
+    hammer text2term across batches sharing the memo.
     """
     memo = t2t_memo if t2t_memo is not None else {}
     for field_name, field_config in select_config.fields.items():
@@ -384,6 +395,8 @@ def _text2term_wrapper(
                     field_name,
                     e,
                 )
+                for q in uncached:
+                    memo[(field_name, q)] = []
             else:
                 for q in uncached:
                     memo[(field_name, q)] = new_results.get(q, [])
@@ -506,16 +519,17 @@ def _build_select_prompt_and_schema(
     bs_ctx_json = json.dumps(bs_entry, ensure_ascii=False)
     system_msg = _build_select_system_message(reasoning)
 
-    extracted = select_entry.extract.extracted
+    extracted = _extracted_as_dict(
+        select_entry.extract.extracted,
+        accession=select_entry.extract.accession,
+        log_context="_build_select_prompt_and_schema",
+    )
 
     for field_name, field_config in select_config.fields.items():
-        raw = extracted.get(field_name) if isinstance(extracted, dict) else None
-
-        if isinstance(raw, str):
-            values = [raw]
-        elif isinstance(raw, list):
-            values = [v for v in raw if isinstance(v, str)]
-        else:
+        if extracted is None:
+            continue
+        values = _string_values(extracted.get(field_name))
+        if not values:
             continue
 
         for value in values:
@@ -607,30 +621,25 @@ async def select(
             results={},
         )
 
-        # Step 6: Boundary validation — non-dict, non-None extracted gets warning + None
+        # Boundary validation — non-dict, non-None extracted is normalized to None
         extract = obj
-        if extract.extracted is not None and not isinstance(extract.extracted, dict):
-            LOGGER.warning(
-                "Non-dict extracted for accession %s: got %s, treating as None",
-                extract.accession,
-                type(extract.extracted).__name__,
-            )
+        extracted_dict = _extracted_as_dict(
+            extract.extracted,
+            accession=extract.accession,
+            log_context="select boundary",
+        )
+        if extract.extracted is not None and extracted_dict is None:
             extract = extract.model_copy(update={"extracted": None})
             se = se.model_copy(update={"extract": extract})
 
-        for field in no_select_fields:
-            if isinstance(extract.extracted, dict):
-                raw_val = extract.extracted.get(field)
-                if raw_val is not None:
-                    if isinstance(raw_val, str):
-                        se.results[field] = [ResolvedValue(value=raw_val)]
-                    elif isinstance(raw_val, list):
-                        se.results[field] = [ResolvedValue(value=v) for v in raw_val if isinstance(v, str)]
-
-        # Step 7: Explicitly set empty list for fields with None value in extracted
-        if isinstance(extract.extracted, dict):
+        if extracted_dict is not None:
+            for field in no_select_fields:
+                values = _string_values(extracted_dict.get(field))
+                if values:
+                    se.results[field] = [ResolvedValue(value=v) for v in values]
+            # Explicitly set empty list for fields with None value in extracted
             for field in fields:
-                if field not in se.results and extract.extracted.get(field) is None and field in extract.extracted:
+                if field not in se.results and field in extracted_dict and extracted_dict[field] is None:
                     se.results[field] = []
 
         intermediate_entries.append(se)

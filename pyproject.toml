@@ -81,6 +81,7 @@ module = [
     "owlready2.*",
     "text2term.*",
     "ollama.*",
+    "pandas.*",
 ]
 ignore_missing_imports = true
 

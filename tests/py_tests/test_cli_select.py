@@ -333,6 +333,7 @@ class TestRunCliSelectAsync:
                 return_value=(
                     [ExtractEntry(accession="SAMN00000002", extracted={"cell_line": "HEK293"})],
                     [make_chat_response('{"cell_line": "HEK293"}')],
+                    0,
                 ),
             ) as mock_ner,
             patch(

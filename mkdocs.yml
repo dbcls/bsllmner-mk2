@@ -45,6 +45,7 @@ nav:
   - NIG Slurm: nig-slurm.md
   - Development: development.md
   - Testing: testing.md
+  - Benchmarking: benchmarking.md
 
 extra:
   social:

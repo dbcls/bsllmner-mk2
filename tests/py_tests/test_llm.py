@@ -208,7 +208,7 @@ class TestNerMessageMutation:
         prompt = [Prompt(role="system", content="test"), Prompt(role="user", content="")]
 
         backend = FakeLlmBackend(['{"cell_line": "HeLa"}'])
-        outputs, _ = await ner(backend, entries, prompt, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, prompt, None, "test-model")
         assert len(outputs) == 1
 
 
@@ -230,20 +230,20 @@ class TestNer:
                 '{"cell_line": "HEK293"}',
             ]
         )
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 2
         accessions = {o.accession for o in outputs}
         assert accessions == {"SAMN001", "SAMN002"}
 
     async def test_empty_entries(self) -> None:
         backend = FakeLlmBackend([])
-        outputs, _ = await ner(backend, [], _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, [], _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_entry_without_accession(self) -> None:
         entries = [{"title": "No accession"}]
         backend = FakeLlmBackend([])
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_connection_error_first_entry(self) -> None:
@@ -264,14 +264,14 @@ class TestNer:
                 ConnectionError("connection lost"),
             ]
         )
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 1
         assert outputs[0].accession == "SAMN001"
 
     async def test_general_exception_not_connection_error(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend([RuntimeError("unexpected")])
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
     async def test_progress_file_tracking(self, tmp_path: Path) -> None:
@@ -302,7 +302,7 @@ class TestNer:
     async def test_array_json_output_preserved(self) -> None:
         entries = [{"accession": "SAMN001", "title": "Sample 1"}]
         backend = FakeLlmBackend(['[{"cell_line": "HeLa"}]'])
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert len(outputs) == 1
         assert outputs[0].extracted == [{"cell_line": "HeLa"}]
         assert outputs[0].raw_output is not None
@@ -327,7 +327,7 @@ class TestNer:
         try:
             logger.propagate = True
             with caplog.at_level(logging.ERROR, logger="bsllmner2"):
-                outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+                outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         finally:
             logger.propagate = original_propagate
 
@@ -358,7 +358,7 @@ class TestNerErrorPaths:
                 '{"cell_line": "K562"}',
             ]
         )
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         accessions = {o.accession for o in outputs}
         assert "SAMN001" in accessions
         assert "SAMN003" in accessions
@@ -379,7 +379,7 @@ class TestNerErrorPaths:
                 RuntimeError("fail 2"),
             ]
         )
-        outputs, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
+        outputs, _, _ = await ner(backend, entries, _SIMPLE_PROMPT, None, "test-model")
         assert outputs == []
 
 

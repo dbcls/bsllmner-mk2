@@ -51,10 +51,6 @@ Full documentation is available at **<https://dbcls.github.io/bsllmner-mk2>**.
 - Original repository: [sh-ikeda/bsllmner](https://github.com/sh-ikeda/bsllmner)
 - Related paper: [https://doi.org/10.1101/2025.02.17.638570](https://doi.org/10.1101/2025.02.17.638570)
 
-## Other Interfaces
-
-bsllmner-mk2 also includes a FastAPI server (`bsllmner2_api`) and a React-based web UI, but these are not actively maintained and their operation is unverified.
-
 ## License
 
 This repository is released under the MIT License.

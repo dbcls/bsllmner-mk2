@@ -4,10 +4,6 @@ on:
   push:
     branches:
       - main
-    paths:
-      - "bsllmner2/**"
-      - "tests/**"
-      - "pyproject.toml"
   workflow_dispatch: {}
   pull_request:
     types:

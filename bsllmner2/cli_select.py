@@ -205,11 +205,17 @@ async def run_cli_select_async() -> None:
         async def process_select_batch(
             batch_info: BatchInfo,
         ) -> tuple[
-            list[ExtractEntry], list[SelectEntry], list[ChatResponse], list[ChatResponse], float, SelectStageTimings
+            list[ExtractEntry],
+            list[SelectEntry],
+            list[ChatResponse],
+            list[ChatResponse],
+            float,
+            SelectStageTimings,
+            int,
         ]:
             LOGGER.info("Extracting entities...")
             with stage_timer("ner") as t_ner:
-                batch_extract_outputs, batch_ner_responses = await ner(
+                batch_extract_outputs, batch_ner_responses, batch_errors = await ner(
                     backend,
                     batch_info.entries,
                     prompt,
@@ -248,12 +254,19 @@ async def run_cli_select_async() -> None:
                 batch_select_responses,
                 t_ner.elapsed_sec,
                 select_timings,
+                batch_errors,
             )
 
         def on_select_batch_complete(
             batch_idx: int,
             batch_result: tuple[
-                list[ExtractEntry], list[SelectEntry], list[ChatResponse], list[ChatResponse], float, SelectStageTimings
+                list[ExtractEntry],
+                list[SelectEntry],
+                list[ChatResponse],
+                list[ChatResponse],
+                float,
+                SelectStageTimings,
+                int,
             ],
         ) -> None:
             (
@@ -263,7 +276,9 @@ async def run_cli_select_async() -> None:
                 batch_select_responses,
                 ner_sec,
                 select_timings,
+                batch_errors,
             ) = batch_result
+            run_state.error_count += batch_errors
             with stage_timer("resume_write") as t_resume:
                 extract_outputs.extend(batch_extract_outputs)
                 select_results.extend(batch_select_results)
@@ -327,6 +342,9 @@ async def run_cli_select_async() -> None:
         remove_resume_files(run_name)
     LOGGER.info("Processing %s. Result saved to %s", status, select_result_file)
     log_performance_summary(performance, select_metrics)
+
+    if status != "completed" or run_state.error_count > 0:
+        sys.exit(1)
 
 
 def run_cli_select() -> None:

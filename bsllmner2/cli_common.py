@@ -228,6 +228,7 @@ class _RunState:
 
     end_time: datetime | None = None
     status: RunStatus = "running"
+    error_count: int = 0
 
 
 @contextlib.asynccontextmanager

@@ -135,9 +135,9 @@ async def run_cli_extract_async() -> None:
 
         async def process_extract_batch(
             batch_info: BatchInfo,
-        ) -> tuple[list[ExtractEntry], list[ChatResponse], float]:
+        ) -> tuple[list[ExtractEntry], list[ChatResponse], float, int]:
             with stage_timer("ner") as t_ner:
-                batch_outputs, batch_chat_responses = await ner(
+                batch_outputs, batch_chat_responses, batch_errors = await ner(
                     backend,
                     batch_info.entries,
                     prompt,
@@ -154,13 +154,14 @@ async def run_cli_extract_async() -> None:
                     len(batch_info.entries) - len(batch_outputs),
                 )
 
-            return batch_outputs, batch_chat_responses, t_ner.elapsed_sec
+            return batch_outputs, batch_chat_responses, t_ner.elapsed_sec, batch_errors
 
         def on_extract_batch_complete(
             batch_idx: int,
-            batch_result: tuple[list[ExtractEntry], list[ChatResponse], float],
+            batch_result: tuple[list[ExtractEntry], list[ChatResponse], float, int],
         ) -> None:
-            batch_outputs, batch_chat_responses, ner_sec = batch_result
+            batch_outputs, batch_chat_responses, ner_sec, batch_errors = batch_result
+            run_state.error_count += batch_errors
             with stage_timer("resume_write") as t_resume:
                 extract_outputs.extend(batch_outputs)
                 all_chat_responses.extend(batch_chat_responses)
@@ -210,6 +211,9 @@ async def run_cli_extract_async() -> None:
         remove_resume_files(run_name)
     LOGGER.info("Processing %s. Result saved to %s", status, extract_result_file)
     log_performance_summary(performance)
+
+    if status != "completed" or run_state.error_count > 0:
+        sys.exit(1)
 
 
 def run_cli_extract() -> None:

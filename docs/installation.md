@@ -20,13 +20,15 @@ docker compose up -d --build
 
 ### GPU Configuration
 
-The `compose.yml` reserves all available NVIDIA GPUs by default. To restrict which GPUs are used, edit the `CUDA_VISIBLE_DEVICES` environment variable:
+`compose.yml` reserves every visible NVIDIA GPU on the host (`deploy.resources.reservations.devices.count: all`) and the ollama service narrows the active set via `CUDA_VISIBLE_DEVICES`. The committed default (`0,1`) targets the DBCLS GPU server (`dbcls-ai01`, RTX 6000 Ada × 2). On a single-GPU host you should edit `compose.yml`:
 
 ```yaml
 # compose.yml (ollama service)
 environment:
-  - CUDA_VISIBLE_DEVICES=0,1  # Use GPU 0 and 1
+  - CUDA_VISIBLE_DEVICES=0  # use only GPU 0
 ```
+
+If you need to run on a host with a different topology, change both the `count` field under `deploy` and the `CUDA_VISIBLE_DEVICES` value to match.
 
 For Ollama performance tuning options, see [Configuration - Ollama Performance Tuning](configuration.md#ollama-performance-tuning-docker-compose).
 

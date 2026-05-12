@@ -42,7 +42,7 @@ Cache layout and invalidation are described in [getting-started.md#25-optional-c
 
 ## Ollama Performance Tuning (Docker Compose)
 
-Configured in the ollama service of `compose.yml` / `compose.front.yml`.
+Configured in the ollama service of `compose.yml`.
 
 | Environment Variable | Value | Description |
 |---------------------|-------|-------------|
@@ -78,39 +78,3 @@ References:
 ## Slurm Configuration
 
 `init-slurm.sh` generates a Slurm job script. For details, see [NIG Slurm - Generate slurm.sh](nig-slurm.md#2-generate-slurmsh).
-
-## Deprecated
-
-> The Backend API and Frontend are not actively maintained. The environment variables below are kept for reference only and may be removed in a future release.
-
-### Backend API Environment Variables
-
-Loaded by `get_config()` in `bsllmner2/config.py`.
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BSLLMNER2_API_HOST` | `127.0.0.1` | API server bind address |
-| `BSLLMNER2_API_PORT` | `8000` | API server port |
-| `BSLLMNER2_API_URL_PREFIX` | `""` (empty) | FastAPI `root_path` (for reverse proxy) |
-
-### Frontend Environment Variables
-
-Referenced in `front/vite.config.ts`. Embedded at build time via Vite's `define`.
-
-| Environment Variable | Default | Description |
-|---------------------|---------|-------------|
-| `BSLLMNER2_FRONT_HOST` | `0.0.0.0` | Dev server bind address |
-| `BSLLMNER2_FRONT_PORT` | `3000` | Dev server port |
-| `BSLLMNER2_FRONT_EXTERNAL_URL` | `http://localhost:3000` | Frontend URL as seen by the browser |
-| `BSLLMNER2_API_INTERNAL_URL` | `http://bsllmner-mk2-api:8000` | Inter-container API URL (for Vite proxy) |
-| `BSLLMNER2_OLLAMA_URL` | `http://bsllmner-mk2-ollama:11434` | Inter-container Ollama URL (for Vite proxy) |
-| `BSLLMNER2_FRONT_BASE` | `/` | Vite base path |
-
-#### Vite Proxy Configuration
-
-The dev server proxies the following paths to internal URLs:
-
-| Path | Forwarded To |
-|------|-------------|
-| `/api` | `BSLLMNER2_API_INTERNAL_URL` |
-| `/ollama` | `BSLLMNER2_OLLAMA_URL` |

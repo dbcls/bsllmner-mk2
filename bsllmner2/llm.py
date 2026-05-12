@@ -211,7 +211,7 @@ async def ner(
     thinking: bool = False,
     progress_file_path: Path | None = None,
     num_ctx: int | None = None,
-) -> tuple[list[ExtractEntry], list[ChatResponse]]:
+) -> tuple[list[ExtractEntry], list[ChatResponse], int]:
     # Ensure model is available, pull if necessary
     await backend.ensure_model(model)
 
@@ -273,10 +273,11 @@ async def ner(
 
             return output, response
 
-        # Process the first entry serially to verify the connection
+        # Process the first entry serially to verify the connection.
+        # If it fails before chat() returns successfully, `connection_tested`
+        # stays False so the next OSError surfaces as OllamaConnectionError.
         if bs_entries:
             first_result = await _process_entry(bs_entries[0])
-            connection_tested = True
             remaining = bs_entries[1:]
         else:
             first_result = None
@@ -302,4 +303,4 @@ async def ner(
             (len(bs_entries) - error_count) / len(bs_entries) * 100,
         )
 
-    return outputs, chat_responses
+    return outputs, chat_responses, error_count

@@ -528,7 +528,7 @@ async def async_main() -> None:
     # 6. Write bs_entries.jsonl
     with BS_ENTRIES_FILE_PATH.open("w", encoding="utf-8") as f:
         for entry in bs_entries:
-            f.write(json.dumps(entry) + "\n")
+            f.write(json.dumps(entry, ensure_ascii=False) + "\n")
     LOGGER.info("Saved BioSample entries to %s", BS_ENTRIES_FILE_PATH)
 
     LOGGER.info("Done.")

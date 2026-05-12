@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#"
+     xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:skos="http://www.w3.org/2004/02/skos/core#"
+     xmlns:oboInOwl="http://www.geneontology.org/formats/oboInOwl#"
+     xmlns:obo="http://purl.obolibrary.org/obo/"
+     xml:base="http://purl.obolibrary.org/obo/fixture.owl">
+
+  <owl:Ontology rdf:about="http://purl.obolibrary.org/obo/fixture.owl"/>
+
+  <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasExactSynonym"/>
+  <owl:AnnotationProperty rdf:about="http://www.geneontology.org/formats/oboInOwl#hasRelatedSynonym"/>
+  <owl:AnnotationProperty rdf:about="http://purl.obolibrary.org/obo/IAO_0000115"/>
+
+  <owl:Class rdf:about="http://purl.obolibrary.org/obo/CL_0000000">
+    <rdfs:label>cell</rdfs:label>
+    <skos:altLabel>biological cell</skos:altLabel>
+    <rdfs:comment>The most basic structural unit of living organisms.</rdfs:comment>
+    <obo:IAO_0000115>A material anatomical entity of cellular origin.</obo:IAO_0000115>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://purl.obolibrary.org/obo/CL_0000057">
+    <rdfs:label>fibroblast</rdfs:label>
+    <oboInOwl:hasExactSynonym>fibroblast cell</oboInOwl:hasExactSynonym>
+    <oboInOwl:hasRelatedSynonym>connective tissue cell</oboInOwl:hasRelatedSynonym>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://purl.obolibrary.org/obo/CVCL_0030">
+    <rdfs:label>HeLa</rdfs:label>
+    <skos:prefLabel>HeLa cell line</skos:prefLabel>
+    <oboInOwl:hasExactSynonym>HeLa cell</oboInOwl:hasExactSynonym>
+  </owl:Class>
+
+  <owl:Class rdf:about="http://purl.obolibrary.org/obo/CVCL_0063">
+    <rdfs:label>K-562</rdfs:label>
+    <oboInOwl:hasExactSynonym>K562</oboInOwl:hasExactSynonym>
+  </owl:Class>
+
+</rdf:RDF>
