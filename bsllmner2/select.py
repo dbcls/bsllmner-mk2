@@ -206,7 +206,7 @@ def _record_search_candidates(
 
         field_candidates = entry.search_results.setdefault(field_name, {})
         resolved = entry.results.get(field_name, [])
-        ambiguous_for_field = entry.ambiguous_fields.setdefault(field_name, set())
+        ambiguous_for_field = entry.ambiguous_fields.setdefault(field_name, {})
 
         for value in values:
             candidates = all_results.get(value, [])
@@ -216,7 +216,7 @@ def _record_search_candidates(
             if resolution.kind == "single" and resolution.picked is not None:
                 resolved.append(_resolved_from_search_result(value, resolution.picked))
             elif resolution.kind == "ambiguous":
-                ambiguous_for_field.add(value)
+                ambiguous_for_field[value] = sorted({c.term_id for c in candidates})
 
         if resolved:
             entry.results[field_name] = resolved
@@ -413,7 +413,7 @@ async def select(
             text2term_results={field: {} for field in fields},
             select_timings={field: {} for field in fields},
             results={},
-            ambiguous_fields={field: set() for field in fields},
+            ambiguous_fields={field: {} for field in fields},
         )
 
         # ``ExtractEntry.extracted`` is now ``dict | None`` (see model_validator),

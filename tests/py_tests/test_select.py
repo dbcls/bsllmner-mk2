@@ -459,10 +459,14 @@ class TestRecordSearchCandidates:
         assert len(resolved) == 1
         assert resolved[0].term_id == "ID:001"
         assert resolved[0].value == "HeLa"
-        assert sr.ambiguous_fields.get("cell_line", set()) == set()
+        assert sr.ambiguous_fields.get("cell_line", {}) == {}
 
     def test_multiple_distinct_exact_terms_mark_ambiguous(self) -> None:
-        """H9-style: ontology search returns three distinct exact term_ids → ambiguous, no auto-pick."""
+        """H9-style: ontology search returns three distinct exact term_ids → ambiguous, no auto-pick.
+
+        The ambiguous_fields record must list all competing term_ids so a reviewer can see
+        which alternatives the LLM had to choose between.
+        """
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "H9"}),
         )
@@ -471,10 +475,15 @@ class TestRecordSearchCandidates:
         c3 = _make_search_result("CVCL:E9X7", HAS_EXACT_SYN, exact_match=True, value="H9")
         _record_search_candidates([sr], "cell_line", {"H9": [c1, c2, c3]})
         assert "cell_line" not in sr.results or sr.results["cell_line"] == []
-        assert sr.ambiguous_fields["cell_line"] == {"H9"}
+        assert sr.ambiguous_fields["cell_line"] == {
+            "H9": ["CVCL:1240", "CVCL:9773", "CVCL:E9X7"],
+        }
 
     def test_single_exact_plus_non_exact_other_term_marks_ambiguous(self) -> None:
-        """PC-3-style: exact CVCL:0035 + non-exact CVCL:UU13 (subset 'PC') → ambiguous."""
+        """PC-3-style: exact CVCL:0035 + non-exact CVCL:UU13 (subset 'PC') → ambiguous.
+
+        Both term_ids must appear in the record even though only one is exact-matched.
+        """
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "PC-3"}),
         )
@@ -482,7 +491,9 @@ class TestRecordSearchCandidates:
         subset = _make_search_result("CVCL:UU13", RDFS_LABEL, exact_match=False, value="PC")
         _record_search_candidates([sr], "cell_line", {"PC-3": [exact, subset]})
         assert "cell_line" not in sr.results or sr.results["cell_line"] == []
-        assert sr.ambiguous_fields["cell_line"] == {"PC-3"}
+        assert sr.ambiguous_fields["cell_line"] == {
+            "PC-3": ["CVCL:0035", "CVCL:UU13"],
+        }
 
     def test_no_candidates_keeps_results_clean(self) -> None:
         """no_match leaves results / ambiguous_fields alone so text2term / LLM can take over."""
@@ -491,7 +502,7 @@ class TestRecordSearchCandidates:
         )
         _record_search_candidates([sr], "cell_line", {"Unknown": []})
         assert "cell_line" not in sr.results or sr.results["cell_line"] == []
-        assert sr.ambiguous_fields.get("cell_line", set()) == set()
+        assert sr.ambiguous_fields.get("cell_line", {}) == {}
 
     def test_skips_entries_with_existing_results(self) -> None:
         sr = SelectEntry(
@@ -554,7 +565,7 @@ class TestRecordText2termCandidates:
         ]
         _record_text2term_candidates([sr], "cell_line", {"H9": candidates})
         assert "cell_line" not in sr.results or sr.results["cell_line"] == []
-        assert sr.ambiguous_fields.get("cell_line", set()) == set()
+        assert sr.ambiguous_fields.get("cell_line", {}) == {}
 
     def test_skips_entries_with_existing_results(self) -> None:
         sr = SelectEntry(
@@ -1408,8 +1419,11 @@ class TestSelectAmbiguousFlow:
 
         assert len(results) == 1
         entry = results[0]
-        # Ambiguity is recorded on the entry for traceability in result JSON.
-        assert entry.ambiguous_fields["cell_line"] == {"H9"}
+        # Ambiguity is recorded together with the competing term_ids, so a reviewer can
+        # see the candidate set the LLM chose from.
+        assert entry.ambiguous_fields["cell_line"] == {
+            "H9": ["CVCL:1240", "CVCL:9773", "CVCL:E9X7"],
+        }
         # LLM is consulted (select_timings populated).
         assert entry.select_timings["cell_line"].get("H9") is not None
         # And it picks the term consistent with the BioSample title.
@@ -1451,7 +1465,9 @@ class TestSelectAmbiguousFlow:
             )
 
         entry = results[0]
-        assert entry.ambiguous_fields["cell_line"] == {"PC-3"}
+        assert entry.ambiguous_fields["cell_line"] == {
+            "PC-3": ["CVCL:0035", "CVCL:4011", "CVCL:S982"],
+        }
         assert entry.select_timings["cell_line"].get("PC-3") is not None
         assert entry.results["cell_line"][0].term_id == "CVCL:S982"
 
@@ -1490,7 +1506,7 @@ class TestSelectAmbiguousFlow:
 
         entry = results[0]
         # Ambiguous_fields untouched for this value.
-        assert entry.ambiguous_fields.get("cell_line", set()) == set()
+        assert entry.ambiguous_fields.get("cell_line", {}) == {}
         # LLM never consulted.
         assert entry.select_timings["cell_line"].get("MCF-7") is None
         assert entry.results["cell_line"][0].term_id == "CVCL:0031"

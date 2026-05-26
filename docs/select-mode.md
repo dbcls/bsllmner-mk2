@@ -122,7 +122,18 @@ The prompt is engineered to disambiguate by **biological description, not by str
 
 ### `ambiguous_fields` (audit trail)
 
-Every `SelectEntry` carries an `ambiguous_fields` map that records which `(field, value)` pairs were routed to Stage 3 due to ontology-search ambiguity. The map is serialised into the result JSON with each value list sorted for deterministic diffs, so downstream auditors can identify cases that were decided by the LLM rather than auto-picked.
+Every `SelectEntry` carries an `ambiguous_fields` map shaped as `{field_name: {ambiguous_value: [distinct_term_ids]}}`. Whenever Stage 2a detects ambiguity for a `(field, value)`, the full list of competing `term_id`s seen by `_resolve_search_candidates` is recorded (sorted for stable diffs).
+
+The picked term lives in `results[field]` together with the LLM's reasoning, so a reviewer can read a single entry and see: which alternatives the LLM had to choose between, which one it picked, and why. Example:
+
+```json
+"ambiguous_fields": {
+  "cell_line": {"H9": ["CVCL:1240", "CVCL:9773", "CVCL:E9X7"]}
+},
+"results": {
+  "cell_line": [{"value": "H9", "term_id": "CVCL:9773", "reasoning": "..."}]
+}
+```
 
 ## SelectConfig Customization
 
