@@ -85,21 +85,44 @@ Both cache directories are configurable via environment variables (see [Configur
 - `obo:IAO_0000115` (textual definition) -- surfaced to Stage 3 as `definitions`.
 - `rdfs:comment` -- surfaced to Stage 3 as `comments`. Populated mainly by ChEBI (`has_role` info is injected at build time).
 
-For each extracted value, `build_word_combinations()` generates lower-cased n-grams (NFKC normalised, CamelCase split, alpha/digit boundary split, joined by space and any of `-/_+` present in the query). Each candidate found in the index becomes a `SearchResult`. If exactly one term_id is an exact match, the field is resolved immediately and Stage 3 is skipped for that value.
+For each extracted value, `build_word_combinations()` generates lower-cased n-grams (NFKC normalised, CamelCase split, alpha/digit boundary split, joined by space and any of `-/_+` present in the query). Each candidate found in the index becomes a `SearchResult`.
+
+Resolution of these candidates is delegated to `_resolve_search_candidates`, which returns one of three verdicts:
+
+| verdict | trigger | downstream effect |
+|---|---|---|
+| `single` | every candidate (exact and non-exact) points to one ontology `term_id` **and** at least one hit is an exact synonym/label match | auto-pick: the term is appended to `results[field]`; Stage 3 is skipped for that `(field, value)` |
+| `ambiguous` | candidates span **multiple distinct `term_id`s**, or the only hits are non-exact n-gram subset matches | the `value` is added to `entry.ambiguous_fields[field]`; Stage 3 must disambiguate |
+| `no_match` | no candidates at all | Stage 2b / Stage 3 take over |
+
+The `single` rule treats curator-validated ontology synonyms (`rdfs:label`, `skos:prefLabel`, `oboInOwl:has*Synonym`) as authoritative identifiers, so common spelling variants such as `MCF-7` vs `MCF7` or `H9 ESC` vs `WA09` are normalised without invoking the LLM. As soon as a query touches **any** other term — even via a non-exact subset hit (`PC-3` surfacing both `CVCL:0035` and `CVCL:UU13`) — the verdict flips to `ambiguous` so the LLM gets to compare descriptions against the BioSample context.
 
 All species / hierarchy filtering happens at ontology build time -- per-species Cellosaurus OWLs and the CL / UBERON / MONDO / ChEBI subsets are pre-filtered. There is no runtime filter applied to the index.
 
-### Stage 2b: text2term Fallback
+### Stage 2b: text2term Candidate Supply
 
-For OWL-backed fields, ambiguous or unresolved values fall back to `text2term.map_terms(target_ontology=<acronym>, use_cache=True, cache_folder=BSLLMNER2_TEXT2TERM_CACHE_DIR)`. The acronym is `{ontology_file.stem}_nofilter` and matches the cache key used in Stage 2a. TSV/CSV ontologies are skipped (text2term operates only on OWL).
+For OWL-backed fields, `text2term.map_terms(target_ontology=<acronym>, use_cache=True, cache_folder=BSLLMNER2_TEXT2TERM_CACHE_DIR)` is consulted to broaden the candidate pool with fuzzy (TF-IDF / embedding) matches. The acronym is `{ontology_file.stem}_nofilter` and matches the cache key used in Stage 2a. TSV/CSV ontologies are skipped (text2term operates only on OWL).
+
+**text2term hits are candidate supply only — they never auto-pick a term, even if the mapping score is 1.0.** A fuzzy matcher cannot tell whether a "perfect" match is genuinely the right term or a coincidental string overlap with an unrelated term (this was the H9 / NB4 / 697 bypass bug), so the decision is always escalated to Stage 3.
 
 Failed `text2term` calls are memoised as empty lists so repeated queries do not re-hit the failing call.
 
 ## Stage 3: LLM Selection
 
-For each `(field, value)` that Stage 2 did not exact-match, candidates from word-combination search and text2term are merged (deduplicated by `term_id`, preferring label-property hits). The LLM is asked to pick a single `term_id` from this list (or return `null`) under a strict JSON Schema. Calls are issued via `asyncio.gather` with a 256-way semaphore over the Ollama client (the limit is hard-coded as `OllamaBackend(semaphore_limit=256)` and is not exposed as a CLI flag).
+For every `(field, value)` not resolved by the Stage 2a `single` verdict, candidates from word-combination search **and** text2term are merged (deduplicated by `term_id`, preferring label-property hits). The LLM is asked to pick a single `term_id` from this list (or return `null`) under a strict JSON Schema. Calls are issued via `asyncio.gather` with a 256-way semaphore over the Ollama client (the limit is hard-coded as `OllamaBackend(semaphore_limit=256)` and is not exposed as a CLI flag).
+
+The prompt is engineered to disambiguate by **biological description, not by string similarity**:
+
+- The system message frames the task as comparing each candidate's `label` + `comments` + `definitions` against the BioSample metadata, and instructs the LLM to ignore string resemblance between the input value and a candidate's label.
+- `null` is an allowed answer when no candidate is consistent with the BioSample metadata.
+- Outside knowledge and term popularity are forbidden; only the provided context and candidate descriptions may inform the decision.
+- The prompt contains no field-specific vocabulary (no `cell_line` / `disease` / `tissue` references), so the same instructions apply unchanged when new fields are added.
 
 `--no-reasoning` removes the `reasoning` property from the schema and skips the reasoning instructions in the prompt.
+
+### `ambiguous_fields` (audit trail)
+
+Every `SelectEntry` carries an `ambiguous_fields` map that records which `(field, value)` pairs were routed to Stage 3 due to ontology-search ambiguity. The map is serialised into the result JSON with each value list sorted for deterministic diffs, so downstream auditors can identify cases that were decided by the LLM rather than auto-picked.
 
 ## SelectConfig Customization
 

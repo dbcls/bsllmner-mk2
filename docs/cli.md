@@ -25,7 +25,7 @@ Runs Named Entity Recognition (NER) over BioSample records. Output: `bsllmner2-r
 
 | Option | Type | Default | Description |
 |---|---|---|---|
-| `--prompt PATH` | path | `bsllmner2/prompt/prompt_extract.yml` | YAML prompt file (list of `{role, content}` messages). |
+| `--prompt PATH` | path | `bsllmner2/prompts/extract.yml` | YAML prompt file (list of `{role, content}` messages). |
 | `--format PATH` | path | (none) | JSON Schema file passed as the Ollama `format` option. Example: `bsllmner2/format/cell_line.schema.json`. |
 
 ## bsllmner2_select

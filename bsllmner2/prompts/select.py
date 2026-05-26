@@ -92,19 +92,27 @@ def _collect_candidates_for_field(
 def _build_select_system_message(reasoning: bool) -> Message:
     base = (
         "You are a smart curator of biological metadata.\n"
-        "Pick the best ontology term ID from the provided candidates, or return null if uncertain.\n"
-        "Rules:\n"
-        "- Prefer exact string matches or canonical labels present in the metadata.\n"
-        "- Prefer widely recognized and specific terms.\n"
-        "- Do NOT invent IDs. Choose only from the provided candidates.\n"
-        "- Do NOT use outside knowledge; decide only from the provided context.\n"
+        "Choose the ontology term whose description best matches the provided sample context, "
+        "or return null if none of the candidates is consistent with the context.\n"
+        "\n"
+        "How to decide:\n"
+        "- Read each candidate's label, comments, and definitions as the ontology's authoritative description of what that term refers to.\n"
+        "- Read the provided sample metadata as the authoritative description of the actual sample.\n"
+        "- Pick the single candidate whose description is consistent with the sample's biological context (origin, lineage, condition, and other attributes recorded in the metadata).\n"
+        "- If no candidate is consistent with the context, return null.\n"
+        "\n"
+        "Hard rules:\n"
+        "- Choose only from the provided candidates; do not invent term IDs.\n"
+        "- Do not rely on outside knowledge or term popularity; decide only from the provided context and candidate descriptions.\n"
+        "- Do not pick a candidate just because its label string resembles the input value; the input value can be ambiguous and shared across multiple unrelated terms.\n"
         "- Output ONLY valid JSON matching the schema. No extra text.\n"
     )
     if reasoning:
         base += (
-            "- Also return a 'reasoning' that describes your decision process step by step: "
-            "cite the exact evidence from the provided text, compare the top candidates, "
-            "and state why others were rejected do not use outside knowledge."
+            "- Also return a 'reasoning' describing how you decided: "
+            "quote the exact evidence from the provided sample metadata, "
+            "compare it against the top candidates' descriptions, "
+            "and state why the others were rejected. Do not use outside knowledge."
         )
 
     return Message(role="system", content=base)
@@ -148,8 +156,8 @@ def _build_select_prompt_and_schema(
             if reasoning:
                 reasoning_instr = (
                     "For 'reasoning', provide: "
-                    "(1) exact evidence text, "
-                    "(2) a brief comparison of the top 2-3 candidates, "
+                    "(1) the exact evidence text from the sample metadata, "
+                    "(2) a brief comparison of the top 2-3 candidates' descriptions against that evidence, "
                     "(3) explicit rejection reasons for the others."
                 )
 
@@ -160,12 +168,13 @@ def _build_select_prompt_and_schema(
                     f"Value: {value}\n\n"
                     f"Description: {(field_config.prompt_description or field_name)}\n\n"
                     "Provenance:\n"
-                    "- The 'value' below was produced by an earlier NER step and may be noisy.\n"
-                    "- The 'ontology candidates' were assembled by ontology search (and possibly text2term) and are the ONLY allowed choices.\n"
-                    "- Decide strictly from the provided metadata and candidates; do not use outside knowledge.\n\n"
+                    "- 'Value' was produced by an earlier NER step and may be noisy or shared across multiple unrelated ontology terms.\n"
+                    "- The 'ontology candidates' below were assembled by ontology search and text2term lookups, and are the ONLY allowed choices.\n"
+                    "- Decide strictly from the provided sample metadata and the candidate descriptions; do not use outside knowledge.\n"
+                    "- Do not pick a candidate just because its label or synonym resembles the value; pick the one whose description (label, comments, definitions) is consistent with the sample metadata.\n\n"
                     f"Original extracted value: {value}\n\n"
-                    f"BioSample metadata (context):\n{bs_ctx_json}\n\n"
-                    f"Ontology candidates (JSON array):\n"
+                    f"Sample metadata (context):\n{bs_ctx_json}\n\n"
+                    "Ontology candidates (JSON array):\n"
                     f"{json.dumps(_serialize_candidates_for_llm(candidates), ensure_ascii=False, indent=2)}\n\n"
                     "Return ONLY JSON that matches the schema.\n"
                     f"{reasoning_instr}"

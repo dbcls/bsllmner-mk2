@@ -3,7 +3,7 @@ from pathlib import Path
 from typing import Any, Literal
 
 from ollama import ChatResponse
-from pydantic import BaseModel, Field, computed_field, model_validator
+from pydantic import BaseModel, Field, computed_field, field_serializer, model_validator
 
 RunStatus = Literal["running", "completed", "failed", "interrupted"]
 
@@ -62,7 +62,7 @@ class CliExtractArgs(CliCommonArgs):
     prompt: Path = Field(
         ...,
         description="Path to the prompt file in YAML format.",
-        examples=["prompt/prompt_extract.yml"],
+        examples=["prompts/extract.yml"],
     )
     format: Path | None = Field(
         None,
@@ -218,6 +218,13 @@ class SelectEntry(BaseModel):
     text2term_results: dict[str, FieldCandidates] = Field(default_factory=dict)
     select_timings: dict[str, dict[str, LlmTimingFields]] = Field(default_factory=dict)
     results: dict[str, list[ResolvedValue]] = Field(default_factory=dict)
+    ambiguous_fields: dict[str, set[str]] = Field(default_factory=dict)
+
+    @field_serializer("ambiguous_fields")
+    def _serialize_ambiguous_fields(self, value: dict[str, set[str]]) -> dict[str, list[str]]:
+        # set ordering is non-deterministic; emit sorted lists so result JSON diffs are stable
+        # across runs.
+        return {field: sorted(values) for field, values in value.items()}
 
 
 class RunMetadata(BaseModel):

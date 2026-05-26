@@ -10,7 +10,7 @@ from bsllmner2.utils import parse_bool
 
 MODULE_ROOT = Path(__file__).parent.resolve()
 FILTER_KEYS_PATH = MODULE_ROOT.joinpath("filter_keys.json")
-PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompt", "prompt_extract.yml")
+PROMPT_EXTRACT_FILE_PATH = MODULE_ROOT.joinpath("prompts", "extract.yml")
 SCHEMA_CELL_LINE_FILE_PATH = MODULE_ROOT.joinpath("format", "cell_line.schema.json")
 RESULT_DIR = Path(os.environ.get("BSLLMNER2_RESULT_DIR", str(Path.cwd().joinpath("bsllmner2-results"))))
 EXTRACT_RESULT_DIR = RESULT_DIR.joinpath("extract")

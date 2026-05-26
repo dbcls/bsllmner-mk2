@@ -3,6 +3,7 @@
 import logging
 import pickle
 from pathlib import Path
+from typing import Any
 from unittest.mock import patch
 
 import pytest
@@ -23,13 +24,15 @@ from bsllmner2.prompts.select import (
     _serialize_candidates_for_llm,
 )
 from bsllmner2.select import (
+    MatchResolution,
     SearchMemo,
     _collect_queries,
-    _distribute_results,
     _ontology_search_wrapper,
     _parse_output_object,
-    _pick_exact_match_search_result,
     _pick_search_result_by_id,
+    _record_search_candidates,
+    _record_text2term_candidates,
+    _resolve_search_candidates,
     _text2term_wrapper,
     build_index_map,
     build_text2term_cache,
@@ -62,66 +65,85 @@ def _make_search_result(
     )
 
 
-# === TestPickExactMatchSearchResult ===
+# === TestResolveSearchCandidates ===
 
 
-class TestPickExactMatchSearchResult:
-    def test_empty_list(self) -> None:
-        assert _pick_exact_match_search_result([]) is None
+class TestResolveSearchCandidates:
+    """Tests for _resolve_search_candidates: classify a candidate list as no_match / single / ambiguous."""
 
-    def test_no_exact_matches(self) -> None:
+    def test_empty_list_is_no_match(self) -> None:
+        resolution = _resolve_search_candidates([])
+        assert resolution.kind == "no_match"
+        assert resolution.picked is None
+
+    def test_only_non_exact_subset_hits_are_ambiguous(self) -> None:
         results = [
             _make_search_result("ID:001", RDFS_LABEL, exact_match=False),
-            _make_search_result("ID:002", RDFS_LABEL, exact_match=False),
         ]
-        assert _pick_exact_match_search_result(results) is None
+        resolution = _resolve_search_candidates(results)
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
 
     def test_single_exact_match(self) -> None:
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True)
-        result = _pick_exact_match_search_result([sr])
-        assert result is sr
+        resolution = _resolve_search_candidates([sr])
+        assert resolution.kind == "single"
+        assert resolution.picked is sr
 
-    def test_single_exact_among_non_exact(self) -> None:
-        exact = _make_search_result("ID:002", RDFS_LABEL, exact_match=True)
-        results = [
-            _make_search_result("ID:001", RDFS_LABEL, exact_match=False),
-            exact,
-            _make_search_result("ID:003", RDFS_LABEL, exact_match=False),
-        ]
-        assert _pick_exact_match_search_result(results) is exact
+    def test_single_exact_among_non_exact_same_term_id(self) -> None:
+        """A single exact + extra non-exact hits for the same term collapse to single."""
+        exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
+        non_exact = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=False, value="HeLa S3")
+        resolution = _resolve_search_candidates([exact, non_exact])
+        assert resolution.kind == "single"
+        assert resolution.picked is exact
 
-    def test_multiple_different_term_ids(self) -> None:
+    def test_single_exact_with_other_terms_in_non_exact_is_ambiguous(self) -> None:
+        """Even with a single exact hit, other terms surfaced via non-exact mean LLM must decide."""
+        exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="PC-3")
+        non_exact_other = _make_search_result("ID:002", RDFS_LABEL, exact_match=False, value="PC")
+        resolution = _resolve_search_candidates([exact, non_exact_other])
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
+
+    def test_multiple_distinct_exact_term_ids_is_ambiguous(self) -> None:
         results = [
             _make_search_result("ID:001", RDFS_LABEL, exact_match=True),
             _make_search_result("ID:002", RDFS_LABEL, exact_match=True),
         ]
-        assert _pick_exact_match_search_result(results) is None
+        resolution = _resolve_search_candidates(results)
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
 
     def test_same_term_id_prefers_label(self) -> None:
         non_label = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True)
         label = _make_search_result("ID:001", RDFS_LABEL, exact_match=True)
-        result = _pick_exact_match_search_result([non_label, label])
-        assert result is label
+        resolution = _resolve_search_candidates([non_label, label])
+        assert resolution.kind == "single"
+        assert resolution.picked is label
 
     def test_same_term_id_prefers_preflabel(self) -> None:
         non_label = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True)
         preflabel = _make_search_result("ID:001", SKOS_PREFLABEL, exact_match=True)
-        result = _pick_exact_match_search_result([non_label, preflabel])
-        assert result is preflabel
+        resolution = _resolve_search_candidates([non_label, preflabel])
+        assert resolution.kind == "single"
+        assert resolution.picked is preflabel
 
-    def test_same_term_id_no_label_fallback_first(self) -> None:
+    def test_same_term_id_no_label_falls_back_to_first_exact(self) -> None:
         first = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="syn1")
         second = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="syn2")
-        result = _pick_exact_match_search_result([first, second])
-        assert result is first
+        resolution = _resolve_search_candidates([first, second])
+        assert resolution.kind == "single"
+        assert resolution.picked is first
 
     def test_three_exact_same_id_label_at_end(self) -> None:
         """Label property is preferred regardless of position."""
         a = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="v1")
         b = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="v2")
         label = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="v3")
-        result = _pick_exact_match_search_result([a, b, label])
-        assert result is label
+        resolution = _resolve_search_candidates([a, b, label])
+        assert resolution.kind == "single"
+        assert resolution.picked is label
 
 
 # === TestParseOutputObject ===
@@ -413,101 +435,142 @@ class TestCollectQueries:
         assert _collect_queries([sr], "cell_line") == set()
 
 
-# === TestDistributeResults (NEW) ===
+# === TestRecordSearchCandidates ===
 
 
-class TestDistributeResults:
-    """Tests for _distribute_results: distribute search results back into SelectEntry objects."""
+class TestRecordSearchCandidates:
+    """Tests for _record_search_candidates: store ontology-search candidates, auto-pick or flag ambiguous."""
 
-    def test_distributes_candidates_to_search_results(self) -> None:
+    def test_stores_candidates_under_search_results(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
-            search_results={"cell_line": {}},
-            results={},
         )
         candidates = [_make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")]
-        all_results = {"HeLa": candidates}
-        _distribute_results([sr], "cell_line", all_results, "search_results")
+        _record_search_candidates([sr], "cell_line", {"HeLa": candidates})
         assert sr.search_results["cell_line"]["HeLa"] == candidates
 
-    def test_exact_match_sets_result_automatically(self) -> None:
+    def test_single_exact_match_auto_picks(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
-            search_results={"cell_line": {}},
-            results={},
         )
         exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
-        all_results = {"HeLa": [exact]}
-        _distribute_results([sr], "cell_line", all_results, "search_results")
-        cell_line_results = sr.results["cell_line"]
-        assert isinstance(cell_line_results, list)
-        assert len(cell_line_results) == 1
-        assert cell_line_results[0].term_id == "ID:001"
-        assert cell_line_results[0].value == "HeLa"
+        _record_search_candidates([sr], "cell_line", {"HeLa": [exact]})
+        resolved = sr.results["cell_line"]
+        assert len(resolved) == 1
+        assert resolved[0].term_id == "ID:001"
+        assert resolved[0].value == "HeLa"
+        assert sr.ambiguous_fields.get("cell_line", set()) == set()
+
+    def test_multiple_distinct_exact_terms_mark_ambiguous(self) -> None:
+        """H9-style: ontology search returns three distinct exact term_ids → ambiguous, no auto-pick."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "H9"}),
+        )
+        c1 = _make_search_result("CVCL:1240", RDFS_LABEL, exact_match=True, value="H9")
+        c2 = _make_search_result("CVCL:9773", HAS_EXACT_SYN, exact_match=True, value="H9")
+        c3 = _make_search_result("CVCL:E9X7", HAS_EXACT_SYN, exact_match=True, value="H9")
+        _record_search_candidates([sr], "cell_line", {"H9": [c1, c2, c3]})
+        assert "cell_line" not in sr.results or sr.results["cell_line"] == []
+        assert sr.ambiguous_fields["cell_line"] == {"H9"}
+
+    def test_single_exact_plus_non_exact_other_term_marks_ambiguous(self) -> None:
+        """PC-3-style: exact CVCL:0035 + non-exact CVCL:UU13 (subset 'PC') → ambiguous."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "PC-3"}),
+        )
+        exact = _make_search_result("CVCL:0035", RDFS_LABEL, exact_match=True, value="PC-3")
+        subset = _make_search_result("CVCL:UU13", RDFS_LABEL, exact_match=False, value="PC")
+        _record_search_candidates([sr], "cell_line", {"PC-3": [exact, subset]})
+        assert "cell_line" not in sr.results or sr.results["cell_line"] == []
+        assert sr.ambiguous_fields["cell_line"] == {"PC-3"}
+
+    def test_no_candidates_keeps_results_clean(self) -> None:
+        """no_match leaves results / ambiguous_fields alone so text2term / LLM can take over."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "Unknown"}),
+        )
+        _record_search_candidates([sr], "cell_line", {"Unknown": []})
+        assert "cell_line" not in sr.results or sr.results["cell_line"] == []
+        assert sr.ambiguous_fields.get("cell_line", set()) == set()
 
     def test_skips_entries_with_existing_results(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
-            search_results={"cell_line": {}},
             results={"cell_line": [ResolvedValue(value="existing", term_id="ID:999")]},
         )
         new_result = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
-        _distribute_results([sr], "cell_line", {"HeLa": [new_result]}, "search_results")
-        cell_line_results = sr.results["cell_line"]
-        assert isinstance(cell_line_results, list)
-        assert len(cell_line_results) == 1
-        assert cell_line_results[0].term_id == "ID:999"
+        _record_search_candidates([sr], "cell_line", {"HeLa": [new_result]})
+        resolved = sr.results["cell_line"]
+        assert len(resolved) == 1
+        assert resolved[0].term_id == "ID:999"
 
     def test_handles_list_values(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"diseases": ["cancer", "diabetes"]}),
-            search_results={"diseases": {}},
-            results={},
         )
         cancer_result = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="cancer")
         all_results: dict[str, list[SearchResult]] = {
             "cancer": [cancer_result],
             "diabetes": [],
         }
-        _distribute_results([sr], "diseases", all_results, "search_results")
+        _record_search_candidates([sr], "diseases", all_results)
         assert sr.search_results["diseases"]["cancer"] == [cancer_result]
         assert sr.search_results["diseases"]["diabetes"] == []
 
-    def test_skips_non_dict_extract_output(self) -> None:
-        sr = SelectEntry(
-            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),
-            search_results={},
-            results={},
-        )
-        _distribute_results([sr], "cell_line", {}, "search_results")
-
     def test_legacy_list_extracted_distributes_no_results(self) -> None:
-        """Legacy list payload is upstream-coerced to None.
-
-        ``_distribute_results`` therefore finds nothing to attach for that entry.
-        """
+        """Legacy list payload is upstream-coerced to None; no records are attached."""
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),  # pyright: ignore[reportArgumentType]
-            search_results={"cell_line": {}},
-            results={},
         )
-        # No warning is emitted because the validator already normalised
-        # ``extracted`` to None before _distribute_results runs.
-        _distribute_results([sr], "cell_line", {"HeLa": []}, "search_results")
+        _record_search_candidates([sr], "cell_line", {"HeLa": []})
         assert sr.extract.extracted is None
-        assert sr.search_results["cell_line"] == {}
+        assert "cell_line" not in sr.search_results
+        assert "cell_line" not in sr.results
 
-    def test_no_exact_match_sets_empty_resolved_list(self) -> None:
+
+# === TestRecordText2termCandidates ===
+
+
+class TestRecordText2termCandidates:
+    """Tests for _record_text2term_candidates: candidates supply only; never auto-pick."""
+
+    def test_stores_candidates_under_text2term_results(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
-            search_results={"cell_line": {}},
-            results={},
         )
-        non_exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")
-        _distribute_results([sr], "cell_line", {"HeLa": [non_exact]}, "search_results")
-        # Key is always set so downstream code can rely on its presence;
-        # the empty list keeps falsy semantics for the "needs retry" check at line 260.
-        assert sr.results["cell_line"] == []
+        candidates = [
+            _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa", text2term_score=1.0)
+        ]
+        _record_text2term_candidates([sr], "cell_line", {"HeLa": candidates})
+        assert sr.text2term_results["cell_line"]["HeLa"] == candidates
+
+    def test_text2term_exact_score_one_does_not_auto_pick(self) -> None:
+        """Even score-1.0 text2term hits must not commit on their own — that was the H9 bug."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "H9"}),
+        )
+        candidates = [
+            _make_search_result("CVCL:1240", RDFS_LABEL, exact_match=True, value="H9", text2term_score=1.0)
+        ]
+        _record_text2term_candidates([sr], "cell_line", {"H9": candidates})
+        assert "cell_line" not in sr.results or sr.results["cell_line"] == []
+        assert sr.ambiguous_fields.get("cell_line", set()) == set()
+
+    def test_skips_entries_with_existing_results(self) -> None:
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
+            results={"cell_line": [ResolvedValue(value="HeLa", term_id="ID:001")]},
+        )
+        new_candidate = _make_search_result("ID:002", RDFS_LABEL, exact_match=True, value="HeLa")
+        _record_text2term_candidates([sr], "cell_line", {"HeLa": [new_candidate]})
+        assert "cell_line" not in sr.text2term_results
+
+    def test_legacy_list_extracted_records_nothing(self) -> None:
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted=["not", "a", "dict"]),  # pyright: ignore[reportArgumentType]
+        )
+        _record_text2term_candidates([sr], "cell_line", {"HeLa": []})
+        assert "cell_line" not in sr.text2term_results
 
 
 # === TestBuildSelectSystemMessage (NEW) ===
@@ -539,6 +602,25 @@ class TestBuildSelectSystemMessage:
             msg = _build_select_system_message(reasoning=reasoning)
             assert msg.content is not None
             assert "null" in msg.content
+
+    def test_warns_against_label_string_resemblance(self) -> None:
+        """The prompt must counter the PC-3 / canonical-label bias explicitly."""
+        for reasoning in [True, False]:
+            msg = _build_select_system_message(reasoning=reasoning)
+            assert msg.content is not None
+            text = msg.content.lower()
+            assert "label" in text
+            assert "resembl" in text or "resembles" in text
+
+    def test_emphasizes_description_consistency(self) -> None:
+        """The prompt must direct attention to candidate descriptions vs sample context."""
+        for reasoning in [True, False]:
+            msg = _build_select_system_message(reasoning=reasoning)
+            assert msg.content is not None
+            text = msg.content.lower()
+            assert "comments" in text
+            assert "definitions" in text
+            assert "context" in text
 
 
 # === TestSerializeCandidatesForLlm (NEW) ===
@@ -1236,3 +1318,224 @@ class TestText2termWrapperMemo:
         assert batch2[0].text2term_results["cell_line"]["lung"] == []
         # Memo records the failure as an empty list.
         assert memo[("cell_line", "lung")] == []
+
+
+# === TestMatchResolution (basic dataclass behavior) ===
+
+
+class TestMatchResolution:
+    def test_kind_only_construct(self) -> None:
+        m = MatchResolution(kind="no_match")
+        assert m.kind == "no_match"
+        assert m.picked is None
+
+    def test_single_carries_picked(self) -> None:
+        sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True)
+        m = MatchResolution(kind="single", picked=sr)
+        assert m.kind == "single"
+        assert m.picked is sr
+
+
+# === TestSelectAmbiguousFlow (regression for H9 / PC-3 / MCF-7 / t2t-shortcut bug) ===
+
+
+def _make_owl_config_for_field(field: str, tmp_path: Path) -> tuple[SelectConfig, Path]:
+    owl = tmp_path / "cells.owl"
+    owl.write_bytes(b"<rdf:RDF/>")
+    config = SelectConfig(
+        fields={
+            field: SelectConfigField(
+                ontology_file=owl,
+                value_type="string",
+            ),
+        },
+    )
+    return config, owl
+
+
+@pytest.mark.asyncio(loop_scope="function")
+class TestSelectAmbiguousFlow:
+    """End-to-end regression tests for the new ambiguity-aware select pipeline."""
+
+    async def test_h9_three_distinct_exacts_routes_to_llm(self, tmp_path: Path) -> None:
+        """Ontology search returns 3 distinct exacts for H9; text2term offers CVCL:1240 at score 1.0.
+
+        The old buggy flow auto-picked CVCL:1240 from the text2term shortcut. The new
+        flow must mark H9 ambiguous and route the decision to the LLM, which here picks
+        CVCL:9773 (WA09 / ES cell line).
+        """
+        config, owl = _make_owl_config_for_field("cell_line", tmp_path)
+        bs_entries: list[dict[str, Any]] = [
+            {"accession": "SAMN001", "title": "H9 embryonic stem cell line"},
+        ]
+        extract_outputs = [
+            ExtractEntry(accession="SAMN001", extracted={"cell_line": "H9"}),
+        ]
+        ontology_hits = {
+            "H9": [
+                _make_search_result("CVCL:1240", RDFS_LABEL, exact_match=True, value="H9"),
+                _make_search_result("CVCL:9773", HAS_EXACT_SYN, exact_match=True, value="H9"),
+                _make_search_result("CVCL:E9X7", HAS_EXACT_SYN, exact_match=True, value="H9"),
+            ],
+        }
+        text2term_hits = {
+            "H9": [
+                _make_search_result(
+                    "CVCL:1240",
+                    RDFS_LABEL,
+                    exact_match=True,
+                    value="H9",
+                    text2term_score=1.0,
+                ),
+            ],
+        }
+        backend = FakeLlmBackend(['{"id": "CVCL:9773", "reasoning": null}'])
+        index_map = {owl: OntologyIndex()}
+
+        with (
+            patch("bsllmner2.select.search_terms", return_value=ontology_hits),
+            patch("bsllmner2.select.search_terms_with_text2term", return_value=text2term_hits),
+        ):
+            results, _responses, _timings, _errors = await select(
+                backend,
+                bs_entries,
+                "test-model",
+                extract_outputs,
+                config,
+                include_reasoning=False,
+                index_map=index_map,
+            )
+
+        assert len(results) == 1
+        entry = results[0]
+        # Ambiguity is recorded on the entry for traceability in result JSON.
+        assert entry.ambiguous_fields["cell_line"] == {"H9"}
+        # LLM is consulted (select_timings populated).
+        assert entry.select_timings["cell_line"].get("H9") is not None
+        # And it picks the term consistent with the BioSample title.
+        resolved = entry.results["cell_line"]
+        assert len(resolved) == 1
+        assert resolved[0].term_id == "CVCL:9773"
+
+    async def test_pc3_three_distinct_exacts_routes_to_llm(self, tmp_path: Path) -> None:
+        """PC-3 has three distinct exact synonyms; LLM picks the lung carcinoma per metadata context."""
+        config, owl = _make_owl_config_for_field("cell_line", tmp_path)
+        bs_entries: list[dict[str, Any]] = [
+            {"accession": "SAMD0001", "title": "PC-3 lung adenocarcinoma cell lines"},
+        ]
+        extract_outputs = [
+            ExtractEntry(accession="SAMD0001", extracted={"cell_line": "PC-3"}),
+        ]
+        ontology_hits = {
+            "PC-3": [
+                _make_search_result("CVCL:0035", RDFS_LABEL, exact_match=True, value="PC-3"),
+                _make_search_result("CVCL:4011", HAS_EXACT_SYN, exact_match=True, value="PC-3"),
+                _make_search_result("CVCL:S982", HAS_EXACT_SYN, exact_match=True, value="PC-3"),
+            ],
+        }
+        backend = FakeLlmBackend(['{"id": "CVCL:S982", "reasoning": null}'])
+        index_map = {owl: OntologyIndex()}
+
+        with (
+            patch("bsllmner2.select.search_terms", return_value=ontology_hits),
+            patch("bsllmner2.select.search_terms_with_text2term", return_value={}),
+        ):
+            results, _, _, _ = await select(
+                backend,
+                bs_entries,
+                "test-model",
+                extract_outputs,
+                config,
+                include_reasoning=False,
+                index_map=index_map,
+            )
+
+        entry = results[0]
+        assert entry.ambiguous_fields["cell_line"] == {"PC-3"}
+        assert entry.select_timings["cell_line"].get("PC-3") is not None
+        assert entry.results["cell_line"][0].term_id == "CVCL:S982"
+
+    async def test_mcf7_single_term_id_auto_picks_without_llm(self, tmp_path: Path) -> None:
+        """MCF-7 collapses to a single term_id across hits → auto-pick, LLM untouched."""
+        config, owl = _make_owl_config_for_field("cell_line", tmp_path)
+        bs_entries: list[dict[str, Any]] = [
+            {"accession": "SAMN777", "title": "MCF-7 breast cancer cell line"},
+        ]
+        extract_outputs = [
+            ExtractEntry(accession="SAMN777", extracted={"cell_line": "MCF-7"}),
+        ]
+        ontology_hits = {
+            "MCF-7": [
+                _make_search_result("CVCL:0031", RDFS_LABEL, exact_match=True, value="MCF-7"),
+                _make_search_result("CVCL:0031", HAS_EXACT_SYN, exact_match=True, value="MCF7"),
+            ],
+        }
+        # FakeLlmBackend with no responses — any LLM call would raise, proving the shortcut fired.
+        backend = FakeLlmBackend([])
+        index_map = {owl: OntologyIndex()}
+
+        with (
+            patch("bsllmner2.select.search_terms", return_value=ontology_hits),
+            patch("bsllmner2.select.search_terms_with_text2term", return_value={}),
+        ):
+            results, _, _, _ = await select(
+                backend,
+                bs_entries,
+                "test-model",
+                extract_outputs,
+                config,
+                include_reasoning=False,
+                index_map=index_map,
+            )
+
+        entry = results[0]
+        # Ambiguous_fields untouched for this value.
+        assert entry.ambiguous_fields.get("cell_line", set()) == set()
+        # LLM never consulted.
+        assert entry.select_timings["cell_line"].get("MCF-7") is None
+        assert entry.results["cell_line"][0].term_id == "CVCL:0031"
+
+    async def test_text2term_alone_does_not_auto_pick(self, tmp_path: Path) -> None:
+        """Ontology search returns nothing; text2term returns one exact score-1.0 hit.
+
+        The old buggy flow auto-picked that hit. The new flow must route to the LLM.
+        """
+        config, owl = _make_owl_config_for_field("cell_line", tmp_path)
+        bs_entries: list[dict[str, Any]] = [
+            {"accession": "SAMN333", "title": "rare cell sample"},
+        ]
+        extract_outputs = [
+            ExtractEntry(accession="SAMN333", extracted={"cell_line": "Rare-1"}),
+        ]
+        text2term_hits = {
+            "Rare-1": [
+                _make_search_result(
+                    "CVCL:R001",
+                    RDFS_LABEL,
+                    exact_match=True,
+                    value="Rare-1",
+                    text2term_score=1.0,
+                ),
+            ],
+        }
+        backend = FakeLlmBackend(['{"id": "CVCL:R001", "reasoning": null}'])
+        index_map = {owl: OntologyIndex()}
+
+        with (
+            patch("bsllmner2.select.search_terms", return_value={}),
+            patch("bsllmner2.select.search_terms_with_text2term", return_value=text2term_hits),
+        ):
+            results, _, _, _ = await select(
+                backend,
+                bs_entries,
+                "test-model",
+                extract_outputs,
+                config,
+                include_reasoning=False,
+                index_map=index_map,
+            )
+
+        entry = results[0]
+        # LLM is required for any text2term-only candidate.
+        assert entry.select_timings["cell_line"].get("Rare-1") is not None
+        assert entry.results["cell_line"][0].term_id == "CVCL:R001"

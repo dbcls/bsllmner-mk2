@@ -9,8 +9,9 @@ patch attributes on ``bsllmner2.select`` continue to work unchanged.
 """
 
 import asyncio
+from dataclasses import dataclass
 from pathlib import Path
-from typing import Any, TypedDict
+from typing import Any, Literal, TypedDict
 
 from ollama import ChatResponse, Message
 from pydantic.json_schema import JsonSchemaValue
@@ -66,9 +67,30 @@ class SelectStageTimings(TypedDict):
 SearchMemo = dict[tuple[str, str], list[SearchResult]]
 
 
+MatchKind = Literal["no_match", "single", "ambiguous"]
+
+
+@dataclass(frozen=True, slots=True)
+class MatchResolution:
+    """Verdict on whether ontology-search candidates can be auto-picked.
+
+    - ``no_match``: no candidates returned. Stage falls through to text2term / LLM.
+    - ``single``: every candidate points to one ontology term and at least one
+      hit is an exact synonym/label match. Auto-pick is safe — the term is
+      uniquely identified by curator-validated ontology metadata.
+    - ``ambiguous``: candidates span multiple terms, or all hits are non-exact
+      n-gram subset matches. The LLM must disambiguate from context.
+    """
+
+    kind: MatchKind
+    picked: SearchResult | None = None
+
+
 __all__ = [
     "INDEX_CACHE_DIR",
     "TEXT2TERM_CACHE_DIR",
+    "MatchKind",
+    "MatchResolution",
     "SearchMemo",
     "SelectStageTimings",
     "build_index_map",
@@ -92,26 +114,36 @@ def _resolved_from_search_result(
     )
 
 
-def _pick_exact_match_search_result(
-    search_results: list[SearchResult],
-) -> SearchResult | None:
-    exact_matches = [res for res in search_results if res.exact_match]
-    if not exact_matches:
-        return None
-    if len(exact_matches) == 1:
-        return exact_matches[0]
+def _resolve_search_candidates(
+    candidates: list[SearchResult],
+) -> MatchResolution:
+    """Evaluate an ontology-search candidate list for a single (field, value).
 
-    term_ids = {search_result.term_id for search_result in exact_matches}
+    Auto-pick is only allowed when **every** candidate (exact and non-exact
+    alike) resolves to the same ontology term *and* at least one hit is an
+    exact synonym/label match. Any spread across multiple term_ids — or a
+    candidate list made up only of non-exact n-gram subset hits — is treated
+    as ambiguous so the LLM stage can disambiguate from the BioSample context.
+    """
+    if not candidates:
+        return MatchResolution(kind="no_match")
+
+    term_ids = {c.term_id for c in candidates}
     if len(term_ids) > 1:
-        return None
+        return MatchResolution(kind="ambiguous")
 
-    for search_result in exact_matches:
-        if is_label_prop(search_result.prop_uri):
-            return search_result
+    exact_matches = [c for c in candidates if c.exact_match]
+    if not exact_matches:
+        # Only non-exact subset hits — too weak to commit without LLM review.
+        return MatchResolution(kind="ambiguous")
 
-    # Here, only one unique term_id exists, but no preferred property found.
-    # Return the first exact match as a fallback.
-    return exact_matches[0]
+    if len(exact_matches) == 1:
+        return MatchResolution(kind="single", picked=exact_matches[0])
+
+    for sr in exact_matches:
+        if is_label_prop(sr.prop_uri):
+            return MatchResolution(kind="single", picked=sr)
+    return MatchResolution(kind="single", picked=exact_matches[0])
 
 
 def _string_values(value: Any) -> list[str]:
@@ -143,17 +175,23 @@ def _collect_queries(
     return queries
 
 
-def _distribute_results(
+def _record_search_candidates(
     select_entries: list[SelectEntry],
     field_name: str,
     all_results: dict[str, list[SearchResult]],
-    result_attr: str,
 ) -> None:
-    """Distribute search results back into SelectEntry objects.
+    """Attach ontology-search candidates to SelectEntries and resolve where unambiguous.
 
-    For each SelectEntry, stores per-query candidates into the attribute
-    specified by *result_attr* (``"search_results"`` or ``"text2term_results"``)
-    and sets exact-match results into ``results`` as ``list[ResolvedValue]``.
+    For each entry/value, the full candidate list is stored under
+    ``search_results[field_name][value]``. The candidates are then evaluated:
+
+    - ``MatchResolution.kind == "single"`` → append the picked term to
+      ``results[field_name]`` so the LLM step skips it.
+    - ``MatchResolution.kind == "ambiguous"`` → record the value under
+      ``ambiguous_fields[field_name]`` so the LLM step picks it up.
+    - ``MatchResolution.kind == "no_match"`` → leave both ``results`` and
+      ``ambiguous_fields`` untouched; downstream text2term and LLM stages get
+      a chance to fill in.
     """
     for entry in select_entries:
         extracted = entry.extract.extracted
@@ -166,23 +204,50 @@ def _distribute_results(
         if not values:
             continue
 
-        per_query_store: dict[str, Any] = getattr(entry, result_attr)
-        field_specific = per_query_store.setdefault(field_name, {})
-
+        field_candidates = entry.search_results.setdefault(field_name, {})
         resolved = entry.results.get(field_name, [])
+        ambiguous_for_field = entry.ambiguous_fields.setdefault(field_name, set())
 
         for value in values:
             candidates = all_results.get(value, [])
-            field_specific[value] = candidates
+            field_candidates[value] = candidates
 
-            exact_match_result = _pick_exact_match_search_result(candidates)
-            if exact_match_result is not None:
-                resolved.append(_resolved_from_search_result(value, exact_match_result))
+            resolution = _resolve_search_candidates(candidates)
+            if resolution.kind == "single" and resolution.picked is not None:
+                resolved.append(_resolved_from_search_result(value, resolution.picked))
+            elif resolution.kind == "ambiguous":
+                ambiguous_for_field.add(value)
 
-        # Always set the key so downstream code can rely on its presence.
-        # An empty list still allows the next stage to retry — `_collect_queries`
-        # treats the value as "no resolved entries yet" via its truthiness check.
-        entry.results[field_name] = resolved
+        if resolved:
+            entry.results[field_name] = resolved
+
+
+def _record_text2term_candidates(
+    select_entries: list[SelectEntry],
+    field_name: str,
+    all_results: dict[str, list[SearchResult]],
+) -> None:
+    """Attach text2term candidates to SelectEntries without auto-picking.
+
+    text2term is a fuzzy mapper (TF-IDF / embeddings) that supplements the
+    ontology-search candidate pool. Its hits feed the LLM stage; they never
+    decide a term_id on their own — letting a fuzzy matcher commit would
+    silently override ambiguity already detected by ontology search.
+    """
+    for entry in select_entries:
+        extracted = entry.extract.extracted
+        if extracted is None or field_name not in extracted:
+            continue
+        if entry.results.get(field_name):
+            continue
+
+        values = _string_values(extracted[field_name])
+        if not values:
+            continue
+
+        field_candidates = entry.text2term_results.setdefault(field_name, {})
+        for value in values:
+            field_candidates[value] = all_results.get(value, [])
 
 
 def _ontology_search_wrapper(
@@ -222,7 +287,7 @@ def _ontology_search_wrapper(
                 memo[(field_name, q)] = new_results.get(q, [])
 
         results = {q: memo[(field_name, q)] for q in queries}
-        _distribute_results(select_entries, field_name, results, "search_results")
+        _record_search_candidates(select_entries, field_name, results)
 
     return select_entries
 
@@ -286,7 +351,7 @@ def _text2term_wrapper(
                     memo[(field_name, q)] = new_results.get(q, [])
 
         results = {q: memo.get((field_name, q), []) for q in queries}
-        _distribute_results(select_entries, field_name, results, "text2term_results")
+        _record_text2term_candidates(select_entries, field_name, results)
 
     return select_entries
 
@@ -348,6 +413,7 @@ async def select(
             text2term_results={field: {} for field in fields},
             select_timings={field: {} for field in fields},
             results={},
+            ambiguous_fields={field: set() for field in fields},
         )
 
         # ``ExtractEntry.extracted`` is now ``dict | None`` (see model_validator),

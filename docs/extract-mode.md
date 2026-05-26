@@ -44,7 +44,7 @@ See [CLI Reference](cli.md#bsllmner2_extract) for the full option table. Extract
 
 | Option | Default | Purpose |
 |---|---|---|
-| `--prompt PATH` | `bsllmner2/prompt/prompt_extract.yml` | Prompt YAML to use. |
+| `--prompt PATH` | `bsllmner2/prompts/extract.yml` | Prompt YAML to use. |
 | `--format PATH` | (none) | JSON Schema enforced via Ollama's `format=` parameter. |
 
 Example:
@@ -52,7 +52,7 @@ Example:
 ```bash
 docker compose exec app bsllmner2_extract \
   --bs-entries tests/data/example_biosample.json \
-  --prompt bsllmner2/prompt/prompt_extract.yml \
+  --prompt bsllmner2/prompts/extract.yml \
   --format bsllmner2/format/cell_line.schema.json \
   --model llama3.1:70b \
   --debug
@@ -60,7 +60,7 @@ docker compose exec app bsllmner2_extract \
 
 ## Prompt YAML
 
-A prompt file is a YAML list of `{role, content}` messages. The built-in `bsllmner2/prompt/prompt_extract.yml` extracts `cell_line`, `tissue`, and `organism`:
+A prompt file is a YAML list of `{role, content}` messages. The built-in `bsllmner2/prompts/extract.yml` extracts `cell_line`, `tissue`, and `organism`:
 
 ```yaml
 - role: system
