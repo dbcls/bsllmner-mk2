@@ -67,7 +67,11 @@ class OllamaBackend:
         self._semaphore = asyncio.Semaphore(self._semaphore_limit)
         self._async_client = ollama.AsyncClient(
             host=host,
-            timeout=httpx.Timeout(connect=30.0, read=300.0, write=60.0, pool=30.0),
+            timeout=httpx.Timeout(connect=30.0, read=300.0, write=60.0, pool=None),
+            limits=httpx.Limits(
+                max_connections=self._semaphore_limit,
+                max_keepalive_connections=self._semaphore_limit,
+            ),
         )
 
     @property
