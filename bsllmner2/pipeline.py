@@ -235,6 +235,12 @@ def build_extract_prompt_for_select(config: SelectConfig) -> list[Prompt]:
         "  - Do NOT extract experimental control terms into any category. They are experimental\n"
         '    conditions, not biological entities (e.g., "negative control", "NC", "vehicle", "mock",\n'
         '    "empty vector", "scramble", "non-targeting", "shControl", "siControl").\n'
+        "  - A gene or protein mentioned only as an antibody target, immunoprecipitation target, or\n"
+        "    ChIP target is NOT a knockout, knockdown, or overexpression gene. Assign such values to\n"
+        "    a ChIP-antigen category when the schema provides one; otherwise omit them. Only assign a\n"
+        "    gene to knockout / knockdown / overexpression when the input explicitly describes the\n"
+        "    gene as knocked out, knocked down, silenced, depleted, transfected, or overexpressed in\n"
+        "    the sample itself.\n"
         "\n"
         "---\n"
         "Here is the input metadata:\n"

@@ -301,6 +301,18 @@ class TestBuildExtractPromptForSelectCategoryRules:
         for term in ("negative control", "vehicle", "mock", "scramble", "shControl", "siControl"):
             assert term in content
 
+    def test_chip_target_not_perturbation_rule(self) -> None:
+        """Genes mentioned only as antibody/ChIP targets must not be classified as KO/KD/OE."""
+        content = self._prompt()
+        # The rule must explicitly mention the three target-of-pulldown phrasings the LLM
+        # has to recognise as "not a perturbation".
+        for phrase in ("antibody target", "immunoprecipitation target", "ChIP target"):
+            assert phrase in content
+        # And it must require explicit perturbation language before assigning a gene to
+        # the knockout / knockdown / overexpression categories.
+        for keyword in ("knocked out", "knocked down", "overexpressed"):
+            assert keyword in content
+
     def test_rules_placed_between_output_rules_and_metadata(self) -> None:
         """Category rules must be appended AFTER Output rules and BEFORE the input stub."""
         content = self._prompt()

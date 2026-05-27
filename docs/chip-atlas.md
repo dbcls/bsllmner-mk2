@@ -41,8 +41,8 @@ DDBJ Bulk API calls are batched in groups of 1000 and retried up to 3 times with
 
 | File | Taxonomy | Fields |
 |---|---|---|
-| `scripts/select-config-hg38.json` | 9606 (human) | `cell_line`, `cell_type`, `tissue`, `disease`, `drug`, `knockout_gene`, `knockdown_gene`, `overexpressed_gene` |
-| `scripts/select-config-mm10.json` | 10090 (mouse) | Same 8 fields, with mouse ontologies. |
+| `scripts/select-config-hg38.json` | 9606 (human) | `cell_line`, `cell_type`, `tissue`, `disease`, `drug`, `knockout_gene`, `knockdown_gene`, `overexpressed_gene`, `chip_antigen` |
+| `scripts/select-config-mm10.json` | 10090 (mouse) | Same 9 fields, with mouse ontologies. |
 
 For the SelectConfig schema itself, see [Select Mode](select-mode.md#selectconfig-customization). To customise: copy one of the files above and edit the field list / ontology paths.
 
@@ -55,7 +55,9 @@ For the SelectConfig schema itself, see [Select Mode](select-mode.md#selectconfi
 | `tissue` | `uberon_human_subset.owl` | `uberon_mouse_subset.owl` |
 | `disease` | `mondo_human_subset.owl` | `mondo_human_subset.owl` (reused) |
 | `drug` | `chebi_subset.owl` | `chebi_subset.owl` |
-| `knockout_gene` / `knockdown_gene` / `overexpressed_gene` | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
+| `knockout_gene` / `knockdown_gene` / `overexpressed_gene` / `chip_antigen` | `ncbi_gene_human.owl` | `ncbi_gene_mouse.owl` |
+
+`chip_antigen` captures the protein targeted by the antibody pulldown in a ChIP-Seq experiment (e.g., transcription factors, histone marks). It is a separate category from `knockout_gene` / `knockdown_gene` / `overexpressed_gene`, which describe genetic perturbations of the sample. Histone marks (e.g., `H3K4me3`) extracted as `chip_antigen` will not map to any `ncbi_gene` term and are recorded as unmapped.
 
 ## Processing hg38
 

@@ -141,8 +141,8 @@ Pre-built configs live in `scripts/`:
 
 | File | Purpose |
 |---|---|
-| `scripts/select-config-hg38.json` | 8 fields: `cell_line`, `cell_type`, `tissue`, `disease`, `drug`, `knockout_gene`, `knockdown_gene`, `overexpressed_gene` (human ontologies). |
-| `scripts/select-config-mm10.json` | Same 8 fields with mouse-specific ontologies. `disease` reuses `mondo_human_subset.owl`. |
+| `scripts/select-config-hg38.json` | 9 fields: `cell_line`, `cell_type`, `tissue`, `disease`, `drug`, `knockout_gene`, `knockdown_gene`, `overexpressed_gene`, `chip_antigen` (human ontologies). |
+| `scripts/select-config-mm10.json` | Same 9 fields with mouse-specific ontologies. `disease` reuses `mondo_human_subset.owl`. |
 | `scripts/select-config-plants.json` | 2 fields: `tissue`, `cell_type` (Plant Ontology). |
 
 To author a custom config:
