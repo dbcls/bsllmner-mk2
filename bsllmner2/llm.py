@@ -2,6 +2,7 @@ import asyncio
 import json
 from typing import Any, Protocol, runtime_checkable
 
+import httpx
 import ollama
 from ollama import ChatResponse, Message, Options
 from pydantic.json_schema import JsonSchemaValue
@@ -64,7 +65,10 @@ class OllamaBackend:
         self._host = host
         self._semaphore_limit = semaphore_limit if semaphore_limit is not None else resolve_default_ollama_concurrency()
         self._semaphore = asyncio.Semaphore(self._semaphore_limit)
-        self._async_client = ollama.AsyncClient(host=host)
+        self._async_client = ollama.AsyncClient(
+            host=host,
+            timeout=httpx.Timeout(connect=30.0, read=300.0, write=60.0, pool=30.0),
+        )
 
     @property
     def host(self) -> str:
