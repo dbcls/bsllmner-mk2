@@ -514,6 +514,11 @@ def search_terms_with_text2term(
             target_ontology=str(owl_file),
         )
     required = ["Source Term", "Mapped Term Label", "Mapped Term IRI", "Mapped Term CURIE", "Mapping Score"]
+    if df.empty:
+        # text2term returns an empty DataFrame (no columns) when its score
+        # filter drops every candidate. Treat as zero hits per query rather
+        # than raising — the caller already handles a query with no mappings.
+        return {q: [] for q in queries}
     missing = [c for c in required if c not in df.columns]
     if missing:
         raise ValueError(f"Expected columns missing from text2term output: {missing}. Have: {list(df.columns)}")
