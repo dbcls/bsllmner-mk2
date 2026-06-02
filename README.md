@@ -42,7 +42,6 @@ A complete walkthrough -- including ontology preparation and Select mode -- is i
 
 - [Ontology Preparation](https://dbcls.github.io/bsllmner-mk2/ontology/) -- Building the OWL files Select mode consumes.
 - [ChIP-Atlas](https://dbcls.github.io/bsllmner-mk2/chip-atlas/) -- Processing ChIP-Atlas data (hg38 / mm10).
-- [NIG Slurm](https://dbcls.github.io/bsllmner-mk2/nig-slurm/) -- Running on the NIG Slurm environment.
 
 **Contributing**
 

@@ -69,7 +69,3 @@ References:
 
 - [Tiered context length can exhaust VRAM (GitHub #14116)](https://github.com/ollama/ollama/issues/14116)
 - [New default context lengths will break (GitHub #14073)](https://github.com/ollama/ollama/issues/14073)
-
-## Slurm Configuration
-
-`init-slurm.sh` generates `slurm.sh` from a template. See [NIG Slurm](nig-slurm.md#2-generate-slurmsh) for usage.

@@ -41,7 +41,7 @@ When two runs of the same workload differ, look at:
 - **Stage time imbalance** -- compare `ner_sec`, `ontology_search_sec`, `text2term_sec`, and `llm_select_sec` in `stage_timings[]` to find the bottleneck. `ontology_search_sec` should stay sub-second; a spike there means an index rebuild, not ontology content.
 - **`text2term_sec` without `disk_io.text2term_cache_build_sec`** -- the text2term cache acronym was not registered before per-batch calls, so `map_terms()` paid a per-call cache miss. Verify `build_text2term_cache()` ran at startup.
 - **`asyncio.gather` tail** -- `llm_select_sec` is the maximum of all concurrent Stage 3 calls per batch, so one slow call dominates.
-- **Shared-cluster noise** -- on NIG Slurm, other jobs compete for GPU, network, and storage. Compare runs at different times.
+- **Shared-cluster noise** -- on a shared GPU cluster, other jobs compete for GPU, network, and storage. Compare runs at different times.
 
 ## Detecting GPU Saturation
 

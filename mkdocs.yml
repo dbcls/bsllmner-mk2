@@ -51,7 +51,6 @@ nav:
   - Operations:
       - Ontology Preparation: ontology.md
       - ChIP-Atlas: chip-atlas.md
-      - NIG Slurm: nig-slurm.md
   - Contributing:
       - Development: development.md
       - Testing: testing.md

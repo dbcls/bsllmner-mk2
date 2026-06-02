@@ -30,7 +30,7 @@ The host's project directory is bind-mounted at `/app`, so source edits take eff
 
 ### GPU Configuration
 
-`compose.yml` reserves every visible NVIDIA GPU (`deploy.resources.reservations.devices.count: all`) and the `ollama` service narrows the active set with `CUDA_VISIBLE_DEVICES`. The committed default is `0,1` (DBCLS `dbcls-ai01`, RTX 6000 Ada × 2). On a single-GPU host:
+`compose.yml` reserves every visible NVIDIA GPU (`deploy.resources.reservations.devices.count: all`) and the `ollama` service narrows the active set with `CUDA_VISIBLE_DEVICES`. The committed default is `0,1` (two GPUs). On a single-GPU host:
 
 ```yaml
 # compose.yml (ollama service)
@@ -39,8 +39,6 @@ environment:
 ```
 
 For Ollama performance tuning (KV cache, flash attention, context length tiers), see [Configuration](configuration.md#ollama-performance-tuning-docker-compose).
-
-For NIG Slurm specifics (different compose template, slurm.sh generation), see [NIG Slurm](nig-slurm.md).
 
 ## uv (Local Development)
 
