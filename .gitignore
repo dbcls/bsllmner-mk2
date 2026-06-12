@@ -202,7 +202,6 @@ cython_debug/
 
 bsllmner2/_version.py
 ollama-data/
-bsllmner2-results/
 chip-atlas-data/
 ontology/
 bs_entries/
@@ -213,7 +212,7 @@ slurm.sh
 compose.slurm.yml
 slurm-logs/
 
-# Large per-run result dumps kept locally on dbcls-ai01
-hg38-results/
-mm10-results/
+# Result dumps at repo root: bsllmner2-results/, hg38-results/,
+# mm10-results/, results-YYYY-MM/, etc.
+*results*/
 id_relation/
