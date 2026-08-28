@@ -17,7 +17,7 @@ from ollama import ChatResponse, Message
 from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.benchmark import stage_timer
-from bsllmner2.config import LOGGER
+from bsllmner2.config import LOGGER, disable_autopick
 from bsllmner2.errors import OllamaProcessingError
 from bsllmner2.llm import LlmBackend, build_ollama_options, parse_response_json
 from bsllmner2.models import (
@@ -128,6 +128,9 @@ def _resolve_search_candidates(
     if not candidates:
         return MatchResolution(kind="no_match")
 
+    if disable_autopick():
+        return MatchResolution(kind="ambiguous")
+
     term_ids = {c.term_id for c in candidates}
     if len(term_ids) > 1:
         return MatchResolution(kind="ambiguous")
@@ -155,22 +158,30 @@ def _string_values(value: Any) -> list[str]:
     return []
 
 
+def _resolved_values(entry: SelectEntry, field_name: str) -> set[str]:
+    """Values of ``field_name`` that already carry a final term and need no further search.
+
+    Array-typed fields hold one entry per extracted value, so resolution is tracked per
+    value: a resolved ``drug`` value must not stop its siblings from being searched.
+    """
+    return {rv.value for rv in entry.results.get(field_name, [])}
+
+
 def _collect_queries(
     select_entries: list[SelectEntry],
     field_name: str,
 ) -> set[str]:
     """Collect unique query strings from select entries for a given field.
 
-    Skips entries that already have final results for the field.
+    Skips values that are already resolved for the field.
     """
     queries: set[str] = set()
     for entry in select_entries:
         extracted = entry.extract.extracted
         if extracted is None or field_name not in extracted:
             continue
-        if entry.results.get(field_name):
-            continue
-        queries.update(_string_values(extracted[field_name]))
+        resolved = _resolved_values(entry, field_name)
+        queries.update(v for v in _string_values(extracted[field_name]) if v not in resolved)
 
     return queries
 
@@ -192,23 +203,29 @@ def _record_search_candidates(
     - ``MatchResolution.kind == "no_match"`` → leave both ``results`` and
       ``ambiguous_fields`` untouched; downstream text2term and LLM stages get
       a chance to fill in.
+
+    Values already resolved for the field are skipped individually, so one resolved
+    value in an array-typed field does not suppress its siblings.
     """
     for entry in select_entries:
         extracted = entry.extract.extracted
         if extracted is None or field_name not in extracted:
-            continue
-        if entry.results.get(field_name):
             continue
 
         values = _string_values(extracted[field_name])
         if not values:
             continue
 
+        already_resolved = _resolved_values(entry, field_name)
+        pending = [v for v in values if v not in already_resolved]
+        if not pending:
+            continue
+
         field_candidates = entry.search_results.setdefault(field_name, {})
         resolved = entry.results.get(field_name, [])
         ambiguous_for_field = entry.ambiguous_fields.setdefault(field_name, {})
 
-        for value in values:
+        for value in pending:
             candidates = all_results.get(value, [])
             field_candidates[value] = candidates
 
@@ -233,20 +250,27 @@ def _record_text2term_candidates(
     ontology-search candidate pool. Its hits feed the LLM stage; they never
     decide a term_id on their own — letting a fuzzy matcher commit would
     silently override ambiguity already detected by ontology search.
+
+    Values already resolved by Stage 2a are skipped individually. Skipping the whole
+    entry instead would strip fuzzy candidates from the unresolved values of an
+    array-typed field — exactly the values that need them most.
     """
     for entry in select_entries:
         extracted = entry.extract.extracted
         if extracted is None or field_name not in extracted:
-            continue
-        if entry.results.get(field_name):
             continue
 
         values = _string_values(extracted[field_name])
         if not values:
             continue
 
+        already_resolved = _resolved_values(entry, field_name)
+        pending = [v for v in values if v not in already_resolved]
+        if not pending:
+            continue
+
         field_candidates = entry.text2term_results.setdefault(field_name, {})
-        for value in values:
+        for value in pending:
             field_candidates[value] = all_results.get(value, [])
 
 

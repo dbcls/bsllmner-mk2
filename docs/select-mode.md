@@ -103,6 +103,8 @@ All species / hierarchy filtering happens at ontology build time -- per-species 
 
 For OWL-backed fields, `text2term.map_terms(target_ontology=<acronym>, use_cache=True, cache_folder=BSLLMNER2_TEXT2TERM_CACHE_DIR)` is consulted to broaden the candidate pool with fuzzy (TF-IDF / embedding) matches. The acronym is `{ontology_file.stem}_nofilter` and matches the cache key used in Stage 2a. TSV/CSV ontologies are skipped (text2term operates only on OWL).
 
+Only values left unresolved by Stage 2a are queried, and **resolution is tracked per value, not per field**. An `array` field holds one independent `(value, term_id)` pair per extracted value, so a value auto-picked by the `single` verdict must not stop its siblings from receiving fuzzy candidates -- those siblings are precisely the values that need them, having produced no word-combination hit of their own.
+
 **text2term hits are candidate supply only — they never auto-pick a term, even if the mapping score is 1.0.** A fuzzy matcher cannot tell whether a "perfect" match is genuinely the right term or a coincidental string overlap with an unrelated term (this was the H9 / NB4 / 697 bypass bug), so the decision is always escalated to Stage 3.
 
 Failed `text2term` calls are memoised as empty lists so repeated queries do not re-hit the failing call.

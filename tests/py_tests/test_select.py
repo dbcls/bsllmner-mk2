@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 import pytest
 
+from bsllmner2.config import DISABLE_AUTOPICK_ENV, EXPOSE_EXACT_MATCH_ENV
 from bsllmner2.models import (
     ExtractEntry,
     OntologyIndex,
@@ -135,6 +136,19 @@ class TestResolveSearchCandidates:
         resolution = _resolve_search_candidates([first, second])
         assert resolution.kind == "single"
         assert resolution.picked is first
+
+    def test_autopick_disabled_defers_single_to_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """With the trial flag on, an unambiguous exact match still goes to Stage 3."""
+        monkeypatch.setenv(DISABLE_AUTOPICK_ENV, "true")
+        exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
+        resolution = _resolve_search_candidates([exact])
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
+
+    def test_autopick_disabled_keeps_no_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """An empty candidate list stays no_match; the flag only removes the single verdict."""
+        monkeypatch.setenv(DISABLE_AUTOPICK_ENV, "true")
+        assert _resolve_search_candidates([]).kind == "no_match"
 
     def test_three_exact_same_id_label_at_end(self) -> None:
         """Label property is preferred regardless of position."""
@@ -368,13 +382,41 @@ class TestCollectQueries:
         queries = _collect_queries([sr], "diseases")
         assert queries == {"cancer", "diabetes"}
 
-    def test_skips_entries_with_existing_results(self) -> None:
+    def test_skips_values_already_resolved(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             results={"cell_line": [ResolvedValue(value="HeLa", term_id="ID:001")]},
         )
         queries = _collect_queries([sr], "cell_line")
         assert queries == set()
+
+    def test_array_field_keeps_unresolved_siblings(self) -> None:
+        """A resolved value must not stop its siblings in the same array field from being queried."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"drug": ["tamoxifen", "estrogen"]}),
+            results={"drug": [ResolvedValue(value="tamoxifen", term_id="CHEBI:41774")]},
+        )
+        assert _collect_queries([sr], "drug") == {"estrogen"}
+
+    def test_array_field_with_all_values_resolved_is_empty(self) -> None:
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"drug": ["tamoxifen", "estrogen"]}),
+            results={
+                "drug": [
+                    ResolvedValue(value="tamoxifen", term_id="CHEBI:41774"),
+                    ResolvedValue(value="estrogen", term_id="CHEBI:50114"),
+                ],
+            },
+        )
+        assert _collect_queries([sr], "drug") == set()
+
+    def test_resolved_value_without_term_id_still_skipped(self) -> None:
+        """Fields with no ontology are pre-populated with term-less ResolvedValues; they need no search."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"note": "free text"}),
+            results={"note": [ResolvedValue(value="free text")]},
+        )
+        assert _collect_queries([sr], "note") == set()
 
     def test_skips_entries_without_field(self) -> None:
         sr = SelectEntry(
@@ -504,16 +546,42 @@ class TestRecordSearchCandidates:
         assert "cell_line" not in sr.results or sr.results["cell_line"] == []
         assert sr.ambiguous_fields.get("cell_line", {}) == {}
 
-    def test_skips_entries_with_existing_results(self) -> None:
+    def test_skips_values_already_resolved(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
-            results={"cell_line": [ResolvedValue(value="existing", term_id="ID:999")]},
+            results={"cell_line": [ResolvedValue(value="HeLa", term_id="ID:999")]},
         )
         new_result = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
         _record_search_candidates([sr], "cell_line", {"HeLa": [new_result]})
         resolved = sr.results["cell_line"]
         assert len(resolved) == 1
         assert resolved[0].term_id == "ID:999"
+        assert "cell_line" not in sr.search_results
+
+    def test_array_field_resolves_siblings_independently(self) -> None:
+        """One resolved value must not suppress auto-pick for its siblings in the same array field."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"drug": ["tamoxifen", "estrogen"]}),
+            results={"drug": [ResolvedValue(value="tamoxifen", term_id="CHEBI:41774")]},
+        )
+        estrogen = _make_search_result("CHEBI:50114", RDFS_LABEL, exact_match=True, value="estrogen")
+        _record_search_candidates([sr], "drug", {"tamoxifen": [], "estrogen": [estrogen]})
+        assert {rv.value: rv.term_id for rv in sr.results["drug"]} == {
+            "tamoxifen": "CHEBI:41774",
+            "estrogen": "CHEBI:50114",
+        }
+        assert sr.search_results["drug"] == {"estrogen": [estrogen]}
+
+    def test_array_field_marks_unresolved_sibling_ambiguous(self) -> None:
+        """A resolved sibling must not hide the ambiguity of the remaining value."""
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"drug": ["DMSO", "IL1b"]}),
+            results={"drug": [ResolvedValue(value="DMSO", term_id="CHEBI:28262")]},
+        )
+        c1 = _make_search_result("CHEBI:001", RDFS_LABEL, exact_match=True, value="IL1b")
+        c2 = _make_search_result("CHEBI:002", HAS_EXACT_SYN, exact_match=True, value="IL1b")
+        _record_search_candidates([sr], "drug", {"IL1b": [c1, c2]})
+        assert sr.ambiguous_fields["drug"] == {"IL1b": ["CHEBI:001", "CHEBI:002"]}
 
     def test_handles_list_values(self) -> None:
         sr = SelectEntry(
@@ -549,9 +617,7 @@ class TestRecordText2termCandidates:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
         )
-        candidates = [
-            _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa", text2term_score=1.0)
-        ]
+        candidates = [_make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa", text2term_score=1.0)]
         _record_text2term_candidates([sr], "cell_line", {"HeLa": candidates})
         assert sr.text2term_results["cell_line"]["HeLa"] == candidates
 
@@ -560,14 +626,12 @@ class TestRecordText2termCandidates:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "H9"}),
         )
-        candidates = [
-            _make_search_result("CVCL:1240", RDFS_LABEL, exact_match=True, value="H9", text2term_score=1.0)
-        ]
+        candidates = [_make_search_result("CVCL:1240", RDFS_LABEL, exact_match=True, value="H9", text2term_score=1.0)]
         _record_text2term_candidates([sr], "cell_line", {"H9": candidates})
         assert "cell_line" not in sr.results or sr.results["cell_line"] == []
         assert sr.ambiguous_fields.get("cell_line", {}) == {}
 
-    def test_skips_entries_with_existing_results(self) -> None:
+    def test_skips_values_already_resolved(self) -> None:
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "HeLa"}),
             results={"cell_line": [ResolvedValue(value="HeLa", term_id="ID:001")]},
@@ -575,6 +639,26 @@ class TestRecordText2termCandidates:
         new_candidate = _make_search_result("ID:002", RDFS_LABEL, exact_match=True, value="HeLa")
         _record_text2term_candidates([sr], "cell_line", {"HeLa": [new_candidate]})
         assert "cell_line" not in sr.text2term_results
+
+    def test_array_field_supplies_candidates_to_unresolved_siblings(self) -> None:
+        """Stage 2a resolving one value must not strip fuzzy candidates from its siblings.
+
+        Those siblings are exactly the values that need text2term: having produced no
+        word-combination hit, it is their only remaining source of candidates.
+        """
+        sr = SelectEntry(
+            extract=ExtractEntry(accession="SAMN001", extracted={"drug": ["tamoxifen", "estrogen"]}),
+            results={"drug": [ResolvedValue(value="tamoxifen", term_id="CHEBI:41774")]},
+        )
+        fuzzy = _make_search_result(
+            "CHEBI:50114",
+            RDFS_LABEL,
+            exact_match=False,
+            value="estrogen",
+            text2term_score=0.82,
+        )
+        _record_text2term_candidates([sr], "drug", {"estrogen": [fuzzy]})
+        assert sr.text2term_results["drug"] == {"estrogen": [fuzzy]}
 
     def test_legacy_list_extracted_records_nothing(self) -> None:
         sr = SelectEntry(
@@ -633,6 +717,25 @@ class TestBuildSelectSystemMessage:
             assert "definitions" in text
             assert "context" in text
 
+    def test_exact_match_guidance_absent_by_default(self) -> None:
+        msg = _build_select_system_message(reasoning=False)
+        assert msg.content is not None
+        assert "exact_match" not in msg.content
+
+    def test_exact_match_guidance_frames_it_as_evidence(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The flag must present exact_match as evidence, never as a rule that overrides context.
+
+        Extraction follows the source text, so an exactly matched name can still be the parent
+        of the derivative actually used -- the prompt has to leave that door open.
+        """
+        monkeypatch.setenv(EXPOSE_EXACT_MATCH_ENV, "true")
+        for reasoning in [True, False]:
+            msg = _build_select_system_message(reasoning=reasoning)
+            assert msg.content is not None
+            assert "'exact_match': true" in msg.content
+            assert "not as a decision rule" in msg.content
+            assert "can be wrong" in msg.content
+
 
 # === TestSerializeCandidatesForLlm (NEW) ===
 
@@ -669,6 +772,24 @@ class TestSerializeCandidatesForLlm:
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
         serialized = _serialize_candidates_for_llm([sr])
         assert "comments" not in serialized[0]
+
+    def test_exposes_exact_match_when_flag_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """The trial flag surfaces exact_match without leaking the fuzzy score alongside it."""
+        monkeypatch.setenv(EXPOSE_EXACT_MATCH_ENV, "true")
+        sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
+        sr.text2term_score = 0.95
+        sr.reasoning = "test reasoning"
+        serialized = _serialize_candidates_for_llm([sr])
+        assert serialized[0]["exact_match"] is True
+        assert "text2term_score" not in serialized[0]
+        assert "reasoning" not in serialized[0]
+
+    def test_exposes_exact_match_false_when_flag_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """A non-exact candidate must carry the flag as False, not drop it."""
+        monkeypatch.setenv(EXPOSE_EXACT_MATCH_ENV, "true")
+        sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")
+        serialized = _serialize_candidates_for_llm([sr])
+        assert serialized[0]["exact_match"] is False
 
 
 # === TestSelect ===
