@@ -17,7 +17,7 @@ from ollama import ChatResponse, Message
 from pydantic.json_schema import JsonSchemaValue
 
 from bsllmner2.benchmark import stage_timer
-from bsllmner2.config import LOGGER, disable_autopick
+from bsllmner2.config import LOGGER
 from bsllmner2.errors import OllamaProcessingError
 from bsllmner2.llm import LlmBackend, build_ollama_options, parse_response_json
 from bsllmner2.models import (
@@ -127,9 +127,6 @@ def _resolve_search_candidates(
     """
     if not candidates:
         return MatchResolution(kind="no_match")
-
-    if disable_autopick():
-        return MatchResolution(kind="ambiguous")
 
     term_ids = {c.term_id for c in candidates}
     if len(term_ids) > 1:

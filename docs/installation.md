@@ -21,7 +21,7 @@ cd bsllmner-mk2
 docker compose up -d --build
 ```
 
-This builds the `app` image, pulls `ollama/ollama:0.17.7`, and starts both containers on the `bsllmner-mk2-network` bridge. Named volumes:
+This builds the `app` image, pulls `ollama/ollama:0.32.15`, and starts both containers on the `bsllmner-mk2-network` bridge. Named volumes:
 
 - `bsllmner-mk2_venv` -- the project's `.venv` inside the `app` container.
 - `bsllmner-mk2_ollama-data` -- Ollama's model cache (`/root/.ollama`).

@@ -11,7 +11,6 @@ from typing import Any
 from ollama import Message
 from pydantic.json_schema import JsonSchemaValue
 
-from bsllmner2.config import expose_exact_match
 from bsllmner2.models import SearchResult, SelectConfig, SelectEntry
 from bsllmner2.ontology_search import is_label_prop
 
@@ -65,10 +64,13 @@ def _build_select_schema(
 
 
 def _serialize_candidates_for_llm(candidates: list[SearchResult]) -> list[dict[str, Any]]:
-    excluded = {"text2term_score", "reasoning"}
-    if not expose_exact_match():
-        excluded.add("exact_match")
-    return [c.model_dump(exclude=excluded, exclude_none=True) for c in candidates]
+    """Serialise candidates for the LLM, keeping ``exact_match`` but hiding the fuzzy score.
+
+    ``exact_match`` tells the LLM which candidates the input value matched by a registered
+    label or synonym; without it a curated identity and a coincidental fuzzy hit look alike.
+    ``text2term_score`` stays hidden so the choice is driven by descriptions, not similarity.
+    """
+    return [c.model_dump(exclude={"text2term_score", "reasoning"}, exclude_none=True) for c in candidates]
 
 
 def _collect_candidates_for_field(
@@ -107,15 +109,12 @@ def _build_select_system_message(reasoning: bool) -> Message:
         "- Choose only from the provided candidates; do not invent term IDs.\n"
         "- Do not rely on outside knowledge or term popularity; decide only from the provided context and candidate descriptions.\n"
         "- Do not pick a candidate just because its label string resembles the input value; the input value can be ambiguous and shared across multiple unrelated terms.\n"
+        "- A candidate marked 'exact_match': true had the input value match its registered label or synonym "
+        "exactly. Read this as evidence of which term the ontology records that name for, not as a decision "
+        "rule. A candidate without the flag can still be correct when the sample metadata points to it, and "
+        "an exact match can be wrong when the recorded name is the parent of the derivative actually used.\n"
         "- Output ONLY valid JSON matching the schema. No extra text.\n"
     )
-    if expose_exact_match():
-        base += (
-            "- A candidate marked 'exact_match': true had the input value match its registered label or synonym "
-            "exactly. Read this as evidence of which term the ontology records that name for, not as a decision "
-            "rule. A candidate without the flag can still be correct when the sample metadata points to it, and "
-            "an exact match can be wrong when the recorded name is the parent of the derivative actually used.\n"
-        )
     if reasoning:
         base += (
             "- Also return a 'reasoning' describing how you decided: "

@@ -55,30 +55,6 @@ def resolve_default_ollama_concurrency() -> int:
     return value
 
 
-# Trial flags for the Stage 2a / Stage 3 candidate-handling experiments.
-# Both default to the shipped behaviour. Read lazily so tests and per-run env vars apply.
-EXPOSE_EXACT_MATCH_ENV = "BSLLMNER2_EXPOSE_EXACT_MATCH"
-DISABLE_AUTOPICK_ENV = "BSLLMNER2_DISABLE_AUTOPICK"
-
-
-def expose_exact_match() -> bool:
-    """Whether Stage 3 candidates carry their ``exact_match`` flag.
-
-    Without it the LLM cannot tell a value that matched a registered label or synonym
-    from one that only surfaced through a fuzzy score.
-    """
-    return parse_bool(os.environ.get(EXPOSE_EXACT_MATCH_ENV, "false"))
-
-
-def disable_autopick() -> bool:
-    """Whether Stage 2a skips its ``single`` verdict and defers every value to Stage 3.
-
-    Auto-pick commits on a name match alone, so an extracted parent-line name confirmed by
-    the ontology never reaches the stage that could weigh it against the sample metadata.
-    """
-    return parse_bool(os.environ.get(DISABLE_AUTOPICK_ENV, "false"))
-
-
 class Config(BaseModel):
     """Application configuration for bsllmner2."""
 

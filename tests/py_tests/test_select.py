@@ -8,7 +8,6 @@ from unittest.mock import patch
 
 import pytest
 
-from bsllmner2.config import DISABLE_AUTOPICK_ENV, EXPOSE_EXACT_MATCH_ENV
 from bsllmner2.models import (
     ExtractEntry,
     OntologyIndex,
@@ -136,19 +135,6 @@ class TestResolveSearchCandidates:
         resolution = _resolve_search_candidates([first, second])
         assert resolution.kind == "single"
         assert resolution.picked is first
-
-    def test_autopick_disabled_defers_single_to_llm(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """With the trial flag on, an unambiguous exact match still goes to Stage 3."""
-        monkeypatch.setenv(DISABLE_AUTOPICK_ENV, "true")
-        exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
-        resolution = _resolve_search_candidates([exact])
-        assert resolution.kind == "ambiguous"
-        assert resolution.picked is None
-
-    def test_autopick_disabled_keeps_no_match(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An empty candidate list stays no_match; the flag only removes the single verdict."""
-        monkeypatch.setenv(DISABLE_AUTOPICK_ENV, "true")
-        assert _resolve_search_candidates([]).kind == "no_match"
 
     def test_three_exact_same_id_label_at_end(self) -> None:
         """Label property is preferred regardless of position."""
@@ -717,18 +703,12 @@ class TestBuildSelectSystemMessage:
             assert "definitions" in text
             assert "context" in text
 
-    def test_exact_match_guidance_absent_by_default(self) -> None:
-        msg = _build_select_system_message(reasoning=False)
-        assert msg.content is not None
-        assert "exact_match" not in msg.content
-
-    def test_exact_match_guidance_frames_it_as_evidence(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The flag must present exact_match as evidence, never as a rule that overrides context.
+    def test_exact_match_guidance_frames_it_as_evidence(self) -> None:
+        """exact_match must be presented as evidence, never as a rule that overrides context.
 
         Extraction follows the source text, so an exactly matched name can still be the parent
         of the derivative actually used -- the prompt has to leave that door open.
         """
-        monkeypatch.setenv(EXPOSE_EXACT_MATCH_ENV, "true")
         for reasoning in [True, False]:
             msg = _build_select_system_message(reasoning=reasoning)
             assert msg.content is not None
@@ -743,13 +723,13 @@ class TestBuildSelectSystemMessage:
 class TestSerializeCandidatesForLlm:
     """Tests for _serialize_candidates_for_llm."""
 
-    def test_excludes_internal_fields(self) -> None:
+    def test_hides_fuzzy_score_and_internal_reasoning(self) -> None:
+        """The similarity score stays hidden so the choice rests on descriptions, not string overlap."""
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
         sr.text2term_score = 0.95
         sr.reasoning = "test reasoning"
         serialized = _serialize_candidates_for_llm([sr])
         assert len(serialized) == 1
-        assert "exact_match" not in serialized[0]
         assert "text2term_score" not in serialized[0]
         assert "reasoning" not in serialized[0]
 
@@ -773,20 +753,14 @@ class TestSerializeCandidatesForLlm:
         serialized = _serialize_candidates_for_llm([sr])
         assert "comments" not in serialized[0]
 
-    def test_exposes_exact_match_when_flag_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """The trial flag surfaces exact_match without leaking the fuzzy score alongside it."""
-        monkeypatch.setenv(EXPOSE_EXACT_MATCH_ENV, "true")
+    def test_exposes_exact_match(self) -> None:
+        """A registered-name match must be distinguishable from a coincidental fuzzy hit."""
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="HeLa")
-        sr.text2term_score = 0.95
-        sr.reasoning = "test reasoning"
         serialized = _serialize_candidates_for_llm([sr])
         assert serialized[0]["exact_match"] is True
-        assert "text2term_score" not in serialized[0]
-        assert "reasoning" not in serialized[0]
 
-    def test_exposes_exact_match_false_when_flag_set(self, monkeypatch: pytest.MonkeyPatch) -> None:
+    def test_exposes_exact_match_false(self) -> None:
         """A non-exact candidate must carry the flag as False, not drop it."""
-        monkeypatch.setenv(EXPOSE_EXACT_MATCH_ENV, "true")
         sr = _make_search_result("ID:001", RDFS_LABEL, exact_match=False, value="HeLa")
         serialized = _serialize_candidates_for_llm([sr])
         assert serialized[0]["exact_match"] is False

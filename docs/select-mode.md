@@ -120,6 +120,8 @@ The prompt is engineered to disambiguate by **biological description, not by str
 - Outside knowledge and term popularity are forbidden; only the provided context and candidate descriptions may inform the decision.
 - The prompt contains no field-specific vocabulary (no `cell_line` / `disease` / `tissue` references), so the same instructions apply unchanged when new fields are added.
 
+Each candidate carries `exact_match`, recording whether the input value matched that term's registered label or synonym exactly. The `text2term` similarity score is deliberately withheld, so this flag is the only signal separating a curated identity from a coincidental fuzzy hit -- without it `H9` looks equally like `WA09` (which records `H9` as a synonym) and `H9 RM` (a fuzzy hit whose label merely contains the string). The prompt frames the flag as **evidence, not a decision rule**: extraction follows the source text, so an exactly matched name can still be the parent of the derivative actually used, and a candidate without the flag can be correct when the metadata points to it.
+
 `--no-reasoning` removes the `reasoning` property from the schema and skips the reasoning instructions in the prompt.
 
 ### `ambiguous_fields` (audit trail)
