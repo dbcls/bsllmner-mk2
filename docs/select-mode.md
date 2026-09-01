@@ -67,7 +67,7 @@ The Stage 1 user message enforces these domain-agnostic constraints:
 - **Output rules** -- JSON-only output, per-`value_type` value handling, prefer exact mentions, no hallucination.
 - **Category assignment rules** -- each extracted value belongs to **at most one** category; classify by biological meaning rather than the attribute key (e.g. an attribute labelled `drug` containing `HeLa` is extracted as `cell_line`); experimental control terms (`negative control`, `NC`, `vehicle`, `mock`, `empty vector`, `scramble`, `non-targeting`, `shControl`, `siControl`, ...) are never extracted into any category.
 
-These rules ship as-is so the same prompt builder works for arbitrary select configs.
+These rules ship as-is so the same prompt builder works for arbitrary select configs, and they stay field-agnostic on purpose. An extraction rule that only fits one field belongs in that field's `prompt_description` instead: instructions shaped for `cell_line` -- strip the prose and the engineering annotations a record wraps a name in -- measurably suppress extraction for `tissue` and `cell_type`, where the recorded value legitimately reads as a description.
 
 ## Stage 2: Ontology Search
 

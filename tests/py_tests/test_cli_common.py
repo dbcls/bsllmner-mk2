@@ -504,23 +504,44 @@ class TestBuildRunMetadata:
 
 
 class TestBuildConfig:
-    """Tests for build_config."""
+    """Tests for build_config.
 
-    def test_default_config(self) -> None:
-        """Without ollama_host, the default is used."""
+    ``build_config`` layers CLI arguments on top of the environment-derived
+    :func:`get_config`, so every test here pins the relevant environment
+    variables itself. Otherwise the ambient environment decides the outcome:
+    the app container sets ``OLLAMA_HOST`` to the compose service URL.
+    """
+
+    def test_default_config(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without ollama_host and without OLLAMA_HOST, the default is used."""
+        monkeypatch.delenv("OLLAMA_HOST", raising=False)
+        monkeypatch.delenv("BSLLMNER2_DEBUG", raising=False)
         ns = argparse.Namespace(ollama_host=None, debug=False)
         config = build_config(ns)
         assert config.ollama_host == "http://localhost:11434"
         assert config.debug is False
 
-    def test_custom_ollama_host(self) -> None:
-        """With ollama_host, the default is overridden."""
+    def test_ollama_host_env_used_when_arg_absent(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Without ollama_host, OLLAMA_HOST from the environment wins over the default."""
+        monkeypatch.setenv("OLLAMA_HOST", "http://from-env:11434")
+        ns = argparse.Namespace(ollama_host=None, debug=False)
+        config = build_config(ns)
+        assert config.ollama_host == "http://from-env:11434"
+
+    def test_custom_ollama_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """ollama_host overrides both the default and OLLAMA_HOST."""
+        monkeypatch.setenv("OLLAMA_HOST", "http://from-env:11434")
         ns = argparse.Namespace(ollama_host="http://remote:11434", debug=False)
         config = build_config(ns)
         assert config.ollama_host == "http://remote:11434"
 
-    def test_debug_flag(self) -> None:
-        """debug=True sets config.debug."""
+    @pytest.mark.parametrize("env_value", [None, "false", "true"])
+    def test_debug_flag(self, monkeypatch: pytest.MonkeyPatch, env_value: str | None) -> None:
+        """debug=True sets config.debug regardless of BSLLMNER2_DEBUG."""
+        if env_value is None:
+            monkeypatch.delenv("BSLLMNER2_DEBUG", raising=False)
+        else:
+            monkeypatch.setenv("BSLLMNER2_DEBUG", env_value)
         ns = argparse.Namespace(ollama_host=None, debug=True)
         config = build_config(ns)
         assert config.debug is True
