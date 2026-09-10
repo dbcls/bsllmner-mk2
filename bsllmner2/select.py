@@ -75,11 +75,12 @@ class MatchResolution:
     """Verdict on whether ontology-search candidates can be auto-picked.
 
     - ``no_match``: no candidates returned. Stage falls through to text2term / LLM.
-    - ``single``: every candidate points to one ontology term and at least one
-      hit is an exact synonym/label match. Auto-pick is safe — the term is
-      uniquely identified by curator-validated ontology metadata.
-    - ``ambiguous``: candidates span multiple terms, or all hits are non-exact
-      n-gram subset matches. The LLM must disambiguate from context.
+    - ``single``: the exact label/synonym hits all point to one ontology term.
+      Auto-pick is safe — curator-validated metadata identifies the term, so
+      text2term and the LLM are skipped for that value.
+    - ``ambiguous``: several terms register the value as an exact name, or there
+      is no exact hit at all (only non-exact n-gram subset matches). The LLM must
+      disambiguate from context.
     """
 
     kind: MatchKind
@@ -119,26 +120,28 @@ def _resolve_search_candidates(
 ) -> MatchResolution:
     """Evaluate an ontology-search candidate list for a single (field, value).
 
-    Auto-pick is only allowed when **every** candidate (exact and non-exact
-    alike) resolves to the same ontology term *and* at least one hit is an
-    exact synonym/label match. Any spread across multiple term_ids — or a
-    candidate list made up only of non-exact n-gram subset hits — is treated
-    as ambiguous so the LLM stage can disambiguate from the BioSample context.
+    An exact label/synonym hit decides the term. Candidates are narrowed to the
+    exact matches first, and auto-pick applies as soon as those agree on one
+    term_id: a non-exact n-gram subset hit reaching some other term is a
+    fragment of the value matching a different name, and never blocks the pick.
+    Only a value several terms register exactly — or one with no exact hit at
+    all — is left to the LLM to disambiguate from the BioSample context.
+
+    The pick can be the parent of the derivative a record actually used, since
+    extraction follows the source text. That is accepted: the derivative's own
+    name is absent from the candidate list, so the LLM has nothing better to
+    choose either.
     """
     if not candidates:
         return MatchResolution(kind="no_match")
-
-    term_ids = {c.term_id for c in candidates}
-    if len(term_ids) > 1:
-        return MatchResolution(kind="ambiguous")
 
     exact_matches = [c for c in candidates if c.exact_match]
     if not exact_matches:
         # Only non-exact subset hits — too weak to commit without LLM review.
         return MatchResolution(kind="ambiguous")
 
-    if len(exact_matches) == 1:
-        return MatchResolution(kind="single", picked=exact_matches[0])
+    if len({c.term_id for c in exact_matches}) > 1:
+        return MatchResolution(kind="ambiguous")
 
     for sr in exact_matches:
         if is_label_prop(sr.prop_uri):

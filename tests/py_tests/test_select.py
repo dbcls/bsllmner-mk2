@@ -7,6 +7,8 @@ from typing import Any
 from unittest.mock import patch
 
 import pytest
+from hypothesis import given, settings
+from hypothesis import strategies as st
 
 from bsllmner2.models import (
     ExtractEntry,
@@ -98,18 +100,47 @@ class TestResolveSearchCandidates:
         assert resolution.kind == "single"
         assert resolution.picked is exact
 
-    def test_single_exact_with_other_terms_in_non_exact_is_ambiguous(self) -> None:
-        """Even with a single exact hit, other terms surfaced via non-exact mean LLM must decide."""
+    def test_exact_hit_wins_over_non_exact_hit_on_another_term(self) -> None:
+        """A fragment of the value matching another term does not block the exact pick."""
         exact = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="PC-3")
         non_exact_other = _make_search_result("ID:002", RDFS_LABEL, exact_match=False, value="PC")
         resolution = _resolve_search_candidates([exact, non_exact_other])
-        assert resolution.kind == "ambiguous"
-        assert resolution.picked is None
+        assert resolution.kind == "single"
+        assert resolution.picked is exact
+
+    def test_exact_hit_wins_over_several_non_exact_terms(self) -> None:
+        exact = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="H9 ESC")
+        others = [
+            _make_search_result("ID:002", RDFS_LABEL, exact_match=False, value="H9"),
+            _make_search_result("ID:003", SKOS_PREFLABEL, exact_match=False, value="ESC"),
+        ]
+        resolution = _resolve_search_candidates([exact, *others])
+        assert resolution.kind == "single"
+        assert resolution.picked is exact
+
+    def test_label_preferred_among_exact_hits_despite_non_exact_other_terms(self) -> None:
+        syn = _make_search_result("ID:001", HAS_EXACT_SYN, exact_match=True, value="MCF-7")
+        label = _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="MCF-7")
+        other = _make_search_result("ID:002", RDFS_LABEL, exact_match=False, value="MCF")
+        resolution = _resolve_search_candidates([syn, other, label])
+        assert resolution.kind == "single"
+        assert resolution.picked is label
 
     def test_multiple_distinct_exact_term_ids_is_ambiguous(self) -> None:
         results = [
             _make_search_result("ID:001", RDFS_LABEL, exact_match=True),
             _make_search_result("ID:002", RDFS_LABEL, exact_match=True),
+        ]
+        resolution = _resolve_search_candidates(results)
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
+
+    def test_multiple_distinct_exact_term_ids_with_non_exact_is_ambiguous(self) -> None:
+        """Non-exact hits neither rescue nor break a name several terms register exactly."""
+        results = [
+            _make_search_result("ID:001", RDFS_LABEL, exact_match=True, value="H9"),
+            _make_search_result("ID:002", HAS_EXACT_SYN, exact_match=True, value="H9"),
+            _make_search_result("ID:003", RDFS_LABEL, exact_match=False, value="H9 RM"),
         ]
         resolution = _resolve_search_candidates(results)
         assert resolution.kind == "ambiguous"
@@ -144,6 +175,76 @@ class TestResolveSearchCandidates:
         resolution = _resolve_search_candidates([a, b, label])
         assert resolution.kind == "single"
         assert resolution.picked is label
+
+
+# === TestResolveSearchCandidatesProperties ===
+
+_TERM_IDS = st.from_regex(r"ID:[0-9]{3}", fullmatch=True)
+_PROPS = st.sampled_from([RDFS_LABEL, SKOS_PREFLABEL, HAS_EXACT_SYN, None])
+
+
+def _non_exact_noise(hits: list[tuple[str, str | None]]) -> list[SearchResult]:
+    return [_make_search_result(term_id, prop, exact_match=False, value="noise") for term_id, prop in hits]
+
+
+class TestResolveSearchCandidatesProperties:
+    """Property-based tests for _resolve_search_candidates."""
+
+    @given(
+        term_id=_TERM_IDS,
+        exact_props=st.lists(_PROPS, min_size=1, max_size=4),
+        noise=st.lists(st.tuples(_TERM_IDS, _PROPS), max_size=6),
+    )
+    @settings(max_examples=200)
+    def test_non_exact_hits_never_alter_an_agreeing_exact_verdict(
+        self,
+        term_id: str,
+        exact_props: list[str | None],
+        noise: list[tuple[str, str | None]],
+    ) -> None:
+        """Exact hits agreeing on one term auto-pick the same term whatever else was found."""
+        exact = [
+            _make_search_result(term_id, prop, exact_match=True, value=f"v{i}") for i, prop in enumerate(exact_props)
+        ]
+        baseline = _resolve_search_candidates(exact)
+        with_noise = _resolve_search_candidates([*exact, *_non_exact_noise(noise)])
+
+        assert baseline.kind == "single"
+        assert with_noise.kind == "single"
+        assert baseline.picked is not None
+        assert with_noise.picked is not None
+        assert with_noise.picked.term_id == term_id
+        assert with_noise.picked.exact_match
+        assert with_noise.picked.value == baseline.picked.value
+
+    @given(
+        term_ids=st.lists(_TERM_IDS, min_size=2, max_size=4, unique=True),
+        noise=st.lists(st.tuples(_TERM_IDS, _PROPS), max_size=6),
+    )
+    @settings(max_examples=200)
+    def test_exact_hits_on_distinct_terms_are_always_ambiguous(
+        self,
+        term_ids: list[str],
+        noise: list[tuple[str, str | None]],
+    ) -> None:
+        """A name several terms register exactly is never auto-picked."""
+        exact = [_make_search_result(term_id, RDFS_LABEL, exact_match=True, value="shared") for term_id in term_ids]
+        resolution = _resolve_search_candidates([*exact, *_non_exact_noise(noise)])
+
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
+
+    @given(hits=st.lists(st.tuples(_TERM_IDS, _PROPS), min_size=1, max_size=8))
+    @settings(max_examples=200)
+    def test_candidates_without_an_exact_hit_are_always_ambiguous(
+        self,
+        hits: list[tuple[str, str | None]],
+    ) -> None:
+        """Matching a fragment of the value, however often, never commits a term."""
+        resolution = _resolve_search_candidates(_non_exact_noise(hits))
+
+        assert resolution.kind == "ambiguous"
+        assert resolution.picked is None
 
 
 # === TestParseOutputObject ===
@@ -507,10 +608,10 @@ class TestRecordSearchCandidates:
             "H9": ["CVCL:1240", "CVCL:9773", "CVCL:E9X7"],
         }
 
-    def test_single_exact_plus_non_exact_other_term_marks_ambiguous(self) -> None:
-        """PC-3-style: exact CVCL:0035 + non-exact CVCL:UU13 (subset 'PC') → ambiguous.
+    def test_exact_hit_auto_picks_despite_non_exact_other_term(self) -> None:
+        """PC-3-style: exact CVCL:0035 + non-exact CVCL:UU13 (subset 'PC') → auto-pick CVCL:0035.
 
-        Both term_ids must appear in the record even though only one is exact-matched.
+        No audit record is written: the LLM never had to choose between the two.
         """
         sr = SelectEntry(
             extract=ExtractEntry(accession="SAMN001", extracted={"cell_line": "PC-3"}),
@@ -518,10 +619,11 @@ class TestRecordSearchCandidates:
         exact = _make_search_result("CVCL:0035", RDFS_LABEL, exact_match=True, value="PC-3")
         subset = _make_search_result("CVCL:UU13", RDFS_LABEL, exact_match=False, value="PC")
         _record_search_candidates([sr], "cell_line", {"PC-3": [exact, subset]})
-        assert "cell_line" not in sr.results or sr.results["cell_line"] == []
-        assert sr.ambiguous_fields["cell_line"] == {
-            "PC-3": ["CVCL:0035", "CVCL:UU13"],
-        }
+        resolved = sr.results["cell_line"]
+        assert len(resolved) == 1
+        assert resolved[0].term_id == "CVCL:0035"
+        assert resolved[0].exact_match is True
+        assert sr.ambiguous_fields.get("cell_line", {}) == {}
 
     def test_no_candidates_keeps_results_clean(self) -> None:
         """no_match leaves results / ambiguous_fields alone so text2term / LLM can take over."""

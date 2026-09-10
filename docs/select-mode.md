@@ -91,11 +91,15 @@ Resolution of these candidates is delegated to `_resolve_search_candidates`, whi
 
 | verdict | trigger | downstream effect |
 |---|---|---|
-| `single` | every candidate (exact and non-exact) points to one ontology `term_id` **and** at least one hit is an exact synonym/label match | auto-pick: the term is appended to `results[field]`; Stage 3 is skipped for that `(field, value)` |
-| `ambiguous` | candidates span **multiple distinct `term_id`s**, or the only hits are non-exact n-gram subset matches | the `value` is added to `entry.ambiguous_fields[field]`; Stage 3 must disambiguate |
+| `single` | the exact hits all point to one ontology `term_id` | auto-pick: the term is appended to `results[field]`; Stage 2b and Stage 3 are skipped for that `(field, value)` |
+| `ambiguous` | the exact hits span **multiple distinct `term_id`s**, or there are no exact hits at all (only non-exact n-gram subset matches) | the `value` is added to `entry.ambiguous_fields[field]`; Stage 3 must disambiguate |
 | `no_match` | no candidates at all | Stage 2b / Stage 3 take over |
 
-The `single` rule treats curator-validated ontology synonyms (`rdfs:label`, `skos:prefLabel`, `oboInOwl:has*Synonym`) as authoritative identifiers, so common spelling variants such as `MCF-7` vs `MCF7` or `H9 ESC` vs `WA09` are normalised without invoking the LLM. As soon as a query touches **any** other term — even via a non-exact subset hit (`PC-3` surfacing both `CVCL:0035` and `CVCL:UU13`) — the verdict flips to `ambiguous` so the LLM gets to compare descriptions against the BioSample context.
+An exact hit decides the term. Candidates are filtered down to the exact matches first and only the survivors are checked for agreement, so a non-exact subset hit pointing elsewhere (`PC-3` also surfacing `CVCL:UU13`) does not push the value into Stage 3. Curator-validated labels and synonyms (`rdfs:label`, `skos:prefLabel`, `oboInOwl:has*Synonym`) are authoritative identifiers: `MCF-7` vs `MCF7` or `H9 ESC` vs `WA09` resolve without invoking the LLM. Only when several terms register the same name (`H9` belongs to both `CVCL:1240` and `WA09`) is there nothing to pick, and the verdict falls back to `ambiguous`.
+
+Exactness is measured on the **whole** value -- `exact_match` is `_normalize_key(query) == _normalize_key(annotation_value)`, and word-combination search always looks up the normalised full query alongside its n-grams -- so a value is never auto-picked on the strength of a fragment of itself.
+
+The accepted cost is the parent/derivative case: extraction follows the source text, so a value matching a registered name exactly can still be the parent of the derivative the record actually used (`BLaER` read off a record describing a `BLaER1` derivative). Stage 3 cannot repair that, because the derivative's own name never entered the candidate list; the exact hit is taken and the LLM call is saved.
 
 All species / hierarchy filtering happens at ontology build time -- per-species Cellosaurus OWLs and the CL / UBERON / MONDO / ChEBI subsets are pre-filtered. There is no runtime filter applied to the index.
 
@@ -105,7 +109,9 @@ For OWL-backed fields, `text2term.map_terms(target_ontology=<acronym>, use_cache
 
 Only values left unresolved by Stage 2a are queried, and **resolution is tracked per value, not per field**. An `array` field holds one independent `(value, term_id)` pair per extracted value, so a value auto-picked by the `single` verdict must not stop its siblings from receiving fuzzy candidates -- those siblings are precisely the values that need them, having produced no word-combination hit of their own.
 
-**text2term hits are candidate supply only — they never auto-pick a term, even if the mapping score is 1.0.** A fuzzy matcher cannot tell whether a "perfect" match is genuinely the right term or a coincidental string overlap with an unrelated term (this was the H9 / NB4 / 697 bypass bug), so the decision is always escalated to Stage 3.
+**text2term hits are candidate supply only — they never auto-pick a term, even if the mapping score is 1.0.** A fuzzy matcher cannot tell whether a "perfect" match is genuinely the right term or a coincidental string overlap with an unrelated one, and short cell-line names (`H9`, `NB4`, `697`) attract exactly those neighbours, so the decision is always escalated to Stage 3.
+
+Withholding auto-pick here costs no exact match. A text2term row is dropped unless its mapped label already exists in the word-combination index, so any hit reproducing the value exactly is one Stage 2a has necessarily resolved already.
 
 Failed `text2term` calls are memoised as empty lists so repeated queries do not re-hit the failing call.
 
@@ -120,7 +126,7 @@ The prompt is engineered to disambiguate by **biological description, not by str
 - Outside knowledge and term popularity are forbidden; only the provided context and candidate descriptions may inform the decision.
 - The prompt contains no field-specific vocabulary (no `cell_line` / `disease` / `tissue` references), so the same instructions apply unchanged when new fields are added.
 
-Each candidate carries `exact_match`, recording whether the input value matched that term's registered label or synonym exactly. The `text2term` similarity score is deliberately withheld, so this flag is the only signal separating a curated identity from a coincidental fuzzy hit -- without it `H9` looks equally like `WA09` (which records `H9` as a synonym) and `H9 RM` (a fuzzy hit whose label merely contains the string). The prompt frames the flag as **evidence, not a decision rule**: extraction follows the source text, so an exactly matched name can still be the parent of the derivative actually used, and a candidate without the flag can be correct when the metadata points to it.
+Each candidate carries `exact_match`, recording whether the input value matched that term's registered label or synonym exactly. Stage 2a already resolves the case where the exact hits agree, so a flagged candidate reaches Stage 3 only when several terms claim the same name -- the flag is what separates those competing identities (`WA09`, which records `H9` as a synonym) from the fuzzy candidates text2term supplies alongside them (`H9 RM`, whose label merely contains the string). The `text2term` similarity score is deliberately withheld, so no other signal of that kind is available. The prompt frames the flag as **evidence, not a decision rule**: a candidate without it can still be correct when the metadata points there.
 
 `--no-reasoning` removes the `reasoning` property from the schema and skips the reasoning instructions in the prompt.
 
