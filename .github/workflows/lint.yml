@@ -13,6 +13,8 @@ on:
 jobs:
   ruff:
     runs-on: ubuntu-24.04
+    env:
+      RUFF_VERSION: "0.16.7"
     steps:
       - name: Checkout Code
         uses: actions/checkout@v6
@@ -23,10 +25,10 @@ jobs:
           python-version: "3.12"
 
       - name: Run ruff check
-        run: uvx ruff check bsllmner2/ tests/
+        run: uvx ruff@${{ env.RUFF_VERSION }} check bsllmner2/ tests/
 
       - name: Run ruff format check
-        run: uvx ruff format --check bsllmner2/ tests/
+        run: uvx ruff@${{ env.RUFF_VERSION }} format --check bsllmner2/ tests/
 
   mypy:
     runs-on: ubuntu-24.04
