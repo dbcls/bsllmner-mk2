@@ -9,7 +9,7 @@ BioSample JSON/JSONL
          |
          v
 +--------------------+
-| Filter keys        |  bsllmner2/biosample.py
+| Normalise entry    |  bsllmner2/biosample.py
 | (filter_keys.json) |
 +--------------------+
          |
@@ -32,11 +32,9 @@ BioSample JSON/JSONL
    ExtractResult JSON
 ```
 
-Input is loaded as JSON (a list of objects) or JSONL (one object per line). Each entry is normalised with `construct_llm_input_json()` before being appended to the prompt's final user message:
+Input is loaded as JSON (a list of objects) or JSONL (one object per line). Before an entry is appended to the prompt's final user message, `construct_llm_input_json()` normalises it into a flat JSON object that maps each attribute name to its value, and drops every key listed in `bsllmner2/filter_keys.json`. The prompt therefore carries the sample attributes only. Identifiers, submission dates, the owner, and the submission package do not reach the LLM.
 
-- Keys listed in `bsllmner2/filter_keys.json` are dropped.
-- Non-EBI entries pass through unchanged (minus filtered keys).
-- EBI-style entries (top-level `characteristics: dict`) are flattened to `{key: characteristics[key][0]["text"]}`. Attributes whose value is **not** a non-empty list of objects containing a `text` key are silently dropped.
+For the input formats that the function recognises, and the object that each format produces, see [Data Formats](data-formats.md#llm-input-normalisation).
 
 ## CLI
 

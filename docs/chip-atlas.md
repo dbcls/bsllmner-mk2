@@ -32,7 +32,7 @@ Output under `chip-atlas-data/`:
 | `experimentList.json` | Parsed `ChipAtlasExperiment` list. |
 | `SRA_Accessions.tab` | NCBI SRA accession mapping source. |
 | `srx_to_biosample.json` | SRX -> BioSample ID mapping. |
-| `bs_entries.jsonl` | BioSample entries (one JSON per line). |
+| `bs_entries.jsonl` | BioSample entries in the NCBI format (one JSON per line). See [Data Formats](data-formats.md#biosample-input-bs_entries). |
 | `bs_entries/{prefix}/{accession}.json` | Per-accession cache. |
 
 DDBJ Bulk API calls are batched in groups of 1000 and retried up to 3 times with exponential backoff. Cached entries are reused on re-runs unless `--force` is given.

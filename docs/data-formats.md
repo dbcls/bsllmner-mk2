@@ -4,16 +4,16 @@ This page is the canonical schema reference for every file bsllmner-mk2 reads or
 
 ## BioSample Input (bs_entries)
 
-A list of BioSample entries. Accepted as either a JSON array or JSONL (one object per line). Each entry must contain an `accession`.
+A list of BioSample entries. Accepted as either a JSON array or JSONL (one object per line). Each entry must contain a top-level `accession`. `bsllmner2` logs a warning and skips an entry that has no `accession`.
 
 ```json
 [
   {
-    "accession": "SAMN00000001",
-    "title": "HeLa cell RNA-seq",
+    "accession": "SAMEA00000001",
     "characteristics": {
-      "cell_line": "HeLa",
-      "organism": "Homo sapiens"
+      "title": [{"text": "HeLa cell RNA-seq"}],
+      "cell line": [{"text": "HeLa"}],
+      "organism": [{"text": "Homo sapiens"}]
     }
   }
 ]
@@ -22,11 +22,79 @@ A list of BioSample entries. Accepted as either a JSON array or JSONL (one objec
 JSONL:
 
 ```
-{"accession": "SAMN00000001", "title": "HeLa cell RNA-seq", ...}
-{"accession": "SAMN00000002", "title": "HEK293 cell ChIP-seq", ...}
+{"accession": "SAMEA00000001", "characteristics": {...}}
+{"accession": "SAMN00000002", "BioSample": {...}}
 ```
 
-EBI-style entries (those whose `characteristics` is a dict mapping each key to a list of `{text, ...}` objects) are flattened by `construct_llm_input_json()` before being passed to the LLM; the first element's `text` is taken. Keys listed in `bsllmner2/filter_keys.json` are dropped.
+### LLM input normalisation
+
+`construct_llm_input_json()` turns each entry into a flat JSON object that maps an attribute name to its value. That object is the only part of the entry that reaches the LLM. Three rules hold for every input format:
+
+- Every key that `bsllmner2/filter_keys.json` lists is dropped.
+- A value is a string. If one attribute name carries two or more different values in the same entry, the value is a list of strings instead. Repeated identical values collapse into one.
+- The object does not carry the `accession`. The pipeline reads the `accession` from the raw entry.
+
+| Input format | Detection | Source of the attributes |
+|---|---|---|
+| EBI | the top-level `characteristics` is a dict | each `characteristics` key, with the `text` of the first list element as the value |
+| NCBI | the entry has an object under a top-level `BioSample` key, or the entry itself has `Attributes` or `Description` | `Attributes.Attribute[]`, plus three keys that come from `Description` |
+| other | neither of the above | the entry itself, minus the filtered top-level keys |
+
+In the EBI format, a `characteristics` value that is not a non-empty list of objects holding a `text` key is dropped.
+
+In the NCBI format, the attribute name is `Attribute[].attribute_name` and the value is `Attribute[].content`. The normalisation ignores `harmonized_name` and `display_name`, because every name that `filter_keys.json` lists appears as an `attribute_name`. An attribute whose `attribute_name` or `content` is not a non-empty string is dropped. `Attributes.Attribute` is a list when the entry holds two or more attributes, a single object when it holds one, and `Attributes` itself can be absent or `null`.
+
+An NCBI entry nests the record under a `BioSample` key when it comes from the ddbj-search-converter JSONL, and keeps the record at the top level when it comes from the BioSample Bulk API. Both nestings produce the same object. Besides the attributes, three keys come from `Description`:
+
+| Output key | Source |
+|---|---|
+| `title` | `Description.Title` |
+| `organism` | `Description.Organism.OrganismName`, or `Description.Organism.taxonomy_name` when `OrganismName` is absent |
+| `description` | `Description.Comment.Paragraph` |
+
+Every other key of an NCBI entry is dropped: `access`, `publication_date`, `last_update`, `submission_date`, `id`, `accession`, `Ids`, `Owner`, `Models`, `Package`, `Links`, `Status`, and `Description.SampleName`. `Description.SampleName` repeats the `sample_name` attribute whenever it is present, so dropping it loses no value.
+
+For example, this NCBI entry:
+
+```json
+{
+  "BioSample": {
+    "access": "public",
+    "last_update": "2021-04-19T22:11:48.000+09:00",
+    "Ids": {"Id": {"namespace": "BioSample", "is_primary": "1", "content": "SAMN00000002"}},
+    "Description": {
+      "Title": "ChIP-seq of HeLa",
+      "Organism": {"taxonomy_id": "9606", "OrganismName": "Homo sapiens"},
+      "Comment": {"Paragraph": "HeLa cells from a 31 years old donor"}
+    },
+    "Owner": {"Name": {"content": "Example University"}},
+    "Models": {"Model": {"content": "Generic"}},
+    "Attributes": {
+      "Attribute": [
+        {"attribute_name": "cell line", "content": "HeLa", "harmonized_name": "cell_line", "display_name": "cell line"},
+        {"attribute_name": "External Id", "content": "SAMN00000002"},
+        {"attribute_name": "tissue", "content": "cervix"},
+        {"attribute_name": "tissue", "content": "epithelium"}
+      ]
+    }
+  },
+  "accession": "SAMN00000002"
+}
+```
+
+reaches the LLM as:
+
+```json
+{
+  "cell line": "HeLa",
+  "tissue": ["cervix", "epithelium"],
+  "title": "ChIP-seq of HeLa",
+  "organism": "Homo sapiens",
+  "description": "HeLa cells from a 31 years old donor"
+}
+```
+
+`External Id` is absent from the result because `filter_keys.json` lists it.
 
 ## Mapping TSV (for evaluation)
 
