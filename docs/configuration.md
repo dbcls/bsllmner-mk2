@@ -44,7 +44,7 @@ Set on the `ollama` service in `compose.yml`. Override via shell exports before 
 | `OLLAMA_FLASH_ATTENTION` | `1` | Enable Flash Attention. |
 | `OLLAMA_NUM_PARALLEL` | `16` | Parallel inference slots. Shell-overrideable via `OLLAMA_NUM_PARALLEL=8 docker compose up`. |
 | `OLLAMA_MAX_QUEUE` | `1024` | Request queue cap. |
-| `CUDA_VISIBLE_DEVICES` | `0,1` | GPUs exposed inside the container. |
+| `CUDA_VISIBLE_DEVICES` | `0,1` | GPUs exposed inside the container. Shell-overrideable via `CUDA_VISIBLE_DEVICES=0 docker compose up` on a host with one GPU. |
 | `OLLAMA_SCHED_SPREAD` | `1` | Spread inference work across GPUs. |
 | `OLLAMA_LOAD_TIMEOUT` | `30m` | Model load timeout. |
 

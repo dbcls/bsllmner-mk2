@@ -63,12 +63,21 @@ if [[ -z "${GPUS_CSV}" ]]; then
   exit 1
 fi
 
-# Convert comma-separated GPU IDs to JSON array format
-# e.g., "2,3" -> '[ "2", "3" ]'
-DEVICE_IDS=$(echo "$GPUS_CSV" | tr ',' '\n' | sed 's/.*/"&"/' | paste -sd, - | sed 's/.*/[ & ]/')
+# SLURM_JOB_GPUS holds the minor number of /dev/nvidiaN, while device_ids in Compose
+# is read as an NVML index. The two orders differ on some hosts, so passing the number
+# through makes the container take a GPU the job was not allocated. Pass the UUID
+# instead: the job cgroup only shows the allocated GPUs, so nvidia-smi lists exactly
+# those.
+mapfile -t GPU_UUIDS < <(nvidia-smi --query-gpu=uuid --format=csv,noheader)
+EXPECTED=$(echo "$GPUS_CSV" | tr ',' '\n' | grep -c .)
+if [[ ${#GPU_UUIDS[@]} -ne "$EXPECTED" ]]; then
+  log "ERROR: the job was allocated $EXPECTED GPU(s) but ${#GPU_UUIDS[@]} are visible"
+  exit 1
+fi
+DEVICE_IDS=$(printf '"%s",' "${GPU_UUIDS[@]}" | sed 's/,$//; s/.*/[ & ]/')
 
-log "GPU IDs (CSV): $GPUS_CSV"
-log "Device IDs (JSON): $DEVICE_IDS"
+log "GPU IDs (CSV, minor numbers): $GPUS_CSV"
+log "Device IDs (JSON, UUIDs): $DEVICE_IDS"
 
 # Generate compose file from template
 log_section "Docker Compose Setup"
