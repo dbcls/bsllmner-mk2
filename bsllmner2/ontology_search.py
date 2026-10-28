@@ -534,8 +534,11 @@ def search_terms_with_text2term(
             raw_value = row["Mapped Term Label"]
             value_key = _normalize_key(raw_value)
             term_uri = row["Mapped Term IRI"]
-            raw_term_id = row["Mapped Term CURIE"]
-            term_id = _normalize_term_id(raw_term_id)
+            # Derive term_id from the IRI, as build_index does, so the join with the index does not
+            # depend on how bioregistry abbreviates the IRI. For an OBO PURL whose prefix is not in
+            # the registry (e.g. NCBIGene_7157) text2term reports "OBO:NCBIGENE_7157", which would
+            # never match the index term_id "NCBIGene:7157".
+            term_id = _normalize_term_id(term_uri or row["Mapped Term CURIE"])
             text2term_score = row["Mapping Score"]
 
             id_val = (term_id, value_key)

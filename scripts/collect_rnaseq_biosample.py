@@ -109,18 +109,14 @@ async def collect_biosample_ids(
             print(f"Total search results: {pagination['total']}")
 
         if page_num % 50 == 0:
-            print(
-                f"  Page {page_num}: matched {total_matched}, "
-                f"unique BioSample IDs: {len(biosample_ids)}"
-            )
+            print(f"  Page {page_num}: matched {total_matched}, unique BioSample IDs: {len(biosample_ids)}")
 
         if not pagination.get("hasNext") or not pagination.get("nextCursor"):
             break
         cursor = pagination["nextCursor"]
 
     print(
-        f"Done scanning. {total_matched} RNA-Seq Homo sapiens experiments, "
-        f"{len(biosample_ids)} unique BioSample IDs."
+        f"Done scanning. {total_matched} RNA-Seq Homo sapiens experiments, {len(biosample_ids)} unique BioSample IDs."
     )
     return list(biosample_ids)
 

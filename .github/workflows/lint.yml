@@ -22,11 +22,14 @@ jobs:
         with:
           python-version: "3.12"
 
+      - name: Install Dependencies
+        run: uv sync --locked --all-extras
+
       - name: Run ruff check
-        run: uvx ruff check bsllmner2/ tests/
+        run: uv run ruff check bsllmner2/ tests/ scripts/
 
       - name: Run ruff format check
-        run: uvx ruff format --check bsllmner2/ tests/
+        run: uv run ruff format --check bsllmner2/ tests/ scripts/
 
   mypy:
     runs-on: ubuntu-24.04

@@ -166,6 +166,9 @@ ignore = [
 
   # Custom exception class (not required)
   "TRY002",
+
+  # Copyright notice (this project does not put a license header in each file)
+  "CPY001",
 ]
 
 [tool.ruff.lint.per-file-ignores]

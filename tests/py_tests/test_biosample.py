@@ -506,21 +506,29 @@ _entry_strategy = st.dictionaries(st.text(max_size=20), _any_json_value, max_siz
 _attribute_name_strategy = st.sampled_from(
     ["cell line", "tissue", "title", "organism", "description", "SRA accession", "vendor", ""],
 )
-_attribute_strategy = st.fixed_dictionaries({
-    "attribute_name": _attribute_name_strategy,
-    "content": st.sampled_from(["HeLa", "cervix", "Homo sapiens", ""]),
-})
-_ncbi_record_strategy = st.fixed_dictionaries({
-    "accession": st.just("SAMN00000001"),
-    "Owner": st.just({"Name": {"content": "Example University"}}),
-    "Attributes": st.fixed_dictionaries({
-        "Attribute": st.lists(_attribute_strategy, max_size=6),
-    }),
-    "Description": st.fixed_dictionaries({
-        "Title": st.sampled_from(["ChIP-seq of HeLa", ""]),
-        "Organism": st.fixed_dictionaries({"OrganismName": st.sampled_from(["Homo sapiens", ""])}),
-    }),
-})
+_attribute_strategy = st.fixed_dictionaries(
+    {
+        "attribute_name": _attribute_name_strategy,
+        "content": st.sampled_from(["HeLa", "cervix", "Homo sapiens", ""]),
+    }
+)
+_ncbi_record_strategy = st.fixed_dictionaries(
+    {
+        "accession": st.just("SAMN00000001"),
+        "Owner": st.just({"Name": {"content": "Example University"}}),
+        "Attributes": st.fixed_dictionaries(
+            {
+                "Attribute": st.lists(_attribute_strategy, max_size=6),
+            }
+        ),
+        "Description": st.fixed_dictionaries(
+            {
+                "Title": st.sampled_from(["ChIP-seq of HeLa", ""]),
+                "Organism": st.fixed_dictionaries({"OrganismName": st.sampled_from(["Homo sapiens", ""])}),
+            }
+        ),
+    }
+)
 
 
 class TestConstructLlmInputJsonProperty:

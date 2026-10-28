@@ -60,6 +60,11 @@ class TestNormalizeTermId:
         result = _normalize_term_id("https://purl.obolibrary.org/obo/CL_0000001")
         assert result == "CL:0000001"
 
+    def test_mixed_case_obo_purl_keeps_prefix_case(self) -> None:
+        """A mixed-case OBO PURL (ncbi_gene_human.owl) keeps its case, matching the owlready2 class name."""
+        result = _normalize_term_id("http://purl.obolibrary.org/obo/NCBIGene_7157")
+        assert result == "NCBIGene:7157"
+
     def test_url_with_fragment(self) -> None:
         """URL with fragment extracts the fragment."""
         result = _normalize_term_id("http://example.org/ontology#GO_0008150")
@@ -171,6 +176,18 @@ class TestNormalizeTermIdProperty:
         url = f"http://example.org{path}"
         result = _normalize_term_id(url)
         assert "://" not in result
+
+    @given(
+        prefix=st.from_regex(r"[A-Za-z][0-9A-Za-z]{1,9}", fullmatch=True),
+        local=st.from_regex(r"[0-9A-Za-z]{1,10}", fullmatch=True),
+    )
+    @settings(max_examples=200)
+    def test_obo_purl_forms_agree_with_local_name(self, prefix: str, local: str) -> None:
+        """Both OBO PURL forms normalize to the same term_id as the bare local name build_index starts from."""
+        local_name = f"{prefix}_{local}"
+        expected = _normalize_term_id(local_name)
+        assert _normalize_term_id(f"http://purl.obolibrary.org/obo/{local_name}") == expected
+        assert _normalize_term_id(f"http://purl.obolibrary.org/obo/onto#{local_name}") == expected
 
 
 # === _expand_prop_uri ===
@@ -1179,3 +1196,63 @@ class TestSearchTermsWithText2term:
         _args, kwargs = mock_map_terms.call_args
         assert kwargs["target_ontology"] == str(TEST_OWL_FILE)
         assert "use_cache" not in kwargs
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_term_id_derived_from_iri_not_curie(self, mock_map_terms: MagicMock) -> None:
+        """term_id comes from the mapped IRI, so a bioregistry fallback CURIE (OBO:...) still joins the index."""
+        df = self._make_text2term_df()
+        df["Mapped Term CURIE"] = ["OBO:TEST_0001", "OBO:TEST_0003"]
+        mock_map_terms.return_value = df
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        assert {r.term_id for r in results["Alpha Cell"]} == {"TEST:0001", "TEST:0003"}
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_empty_curie_joins_by_iri(self, mock_map_terms: MagicMock) -> None:
+        """text2term reports an empty CURIE when bioregistry cannot abbreviate the IRI; the hit is kept."""
+        df = self._make_text2term_df()
+        df["Mapped Term CURIE"] = ["", ""]
+        mock_map_terms.return_value = df
+        index = build_index_from_owl(TEST_OWL_FILE)
+        results = search_terms_with_text2term(["Alpha Cell"], TEST_OWL_FILE, index=index)
+        assert {r.term_id for r in results["Alpha Cell"]} == {"TEST:0001", "TEST:0003"}
+
+    PROD_LIKE_OWL = """<?xml version="1.0"?>
+<rdf:RDF xmlns:owl="http://www.w3.org/2002/07/owl#"
+     xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#"
+     xmlns:rdfs="http://www.w3.org/2000/01/rdf-schema#">
+    <owl:Ontology rdf:about="http://purl.obolibrary.org/obo/prodlike.owl"/>
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/NCBIGene_7157">
+        <rdfs:label>TP53</rdfs:label>
+    </owl:Class>
+    <owl:Class rdf:about="http://purl.obolibrary.org/obo/cellosaurus#CVCL_0030">
+        <rdfs:label>HeLa</rdfs:label>
+    </owl:Class>
+</rdf:RDF>
+"""
+
+    @patch("bsllmner2.ontology_search.text2term.map_terms")
+    def test_production_iri_styles_join_index(self, mock_map_terms: MagicMock, tmp_path: Path) -> None:
+        """IRIs shaped like ncbi_gene_human.owl and cellosaurus_human.owl join the index despite the OBO: CURIEs.
+
+        bioregistry does not know the NCBIGene_ prefix and reports OBO:NCBIGENE_7157 (upper-cased by
+        text2term), which can never equal the index term_id NCBIGene:7157.
+        """
+        owl = tmp_path / "prodlike.owl"
+        owl.write_text(self.PROD_LIKE_OWL)
+        mock_map_terms.return_value = pd.DataFrame(
+            {
+                "Source Term": ["TP53", "HeLa"],
+                "Mapped Term Label": ["TP53", "HeLa"],
+                "Mapped Term IRI": [
+                    "http://purl.obolibrary.org/obo/NCBIGene_7157",
+                    "http://purl.obolibrary.org/obo/cellosaurus#CVCL_0030",
+                ],
+                "Mapped Term CURIE": ["OBO:NCBIGENE_7157", "OBO:CELLOSAURUS#CVCL_0030"],
+                "Mapping Score": [1.0, 1.0],
+            }
+        )
+        index = build_index_from_owl(owl)
+        results = search_terms_with_text2term(["TP53", "HeLa"], owl, index=index)
+        assert [(r.term_id, r.label, r.exact_match) for r in results["TP53"]] == [("NCBIGene:7157", "TP53", True)]
+        assert [(r.term_id, r.label, r.exact_match) for r in results["HeLa"]] == [("CVCL:0030", "HeLa", True)]
