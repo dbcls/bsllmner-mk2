@@ -8,6 +8,7 @@ Defined in `pyproject.toml` under `[project.scripts]`:
 |---|---|
 | `bsllmner2_extract` | `bsllmner2.cli_extract:run_cli_extract` |
 | `bsllmner2_select` | `bsllmner2.cli_select:run_cli_select` |
+| `bsllmner2_reselect` | `bsllmner2.cli_reselect:run_cli_reselect` |
 
 For options, see [CLI Reference](cli.md).
 

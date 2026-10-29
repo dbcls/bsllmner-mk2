@@ -251,6 +251,7 @@ Written to `bsllmner2-results/select/select_{run_name}.json`.
 | `entries[].select_timings` | `dict[str, dict[str, LlmTimingFields]]` | Per `(field, value)` Stage 3 LLM call timing. |
 | `entries[].results` | `dict[str, list[ResolvedValue]]` | Final per-field selections. See [ResolvedValue](#resolvedvalue). |
 | `run_metadata` | `RunMetadata` | Run identification and status. See [ExtractResult](#extractresult). |
+| `run_metadata.reselect` | `ReselectInfo \| null` | Set by `bsllmner2_reselect`: `source_result_file` (file name of the source `SelectResult`), `source_sha256`, `source_run_name` and `fields` (the fields whose unresolved values were reselected). `null` for `bsllmner2_select` runs. See [Select Mode](select-mode.md#reselect-mode). |
 | `evaluation` | `EvaluationMetrics \| null` | Set when `--mapping` is supplied. `accuracy`, `precision`, `recall`, `f1` are stored as 0-1 ratios (not percentages). |
 | `performance` | `PerformanceSummary \| null` | Per-batch timing summary. Always populated in normal runs; only `null` when the run aborted before any batch executed. |
 | `errors` | `list[ErrorLog]` | Captured errors (Bsllmner2Error / per-entry LLM failures). Empty list when no errors occurred. |

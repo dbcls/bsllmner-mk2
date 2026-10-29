@@ -8,6 +8,7 @@ A CLI tool that extracts biological named entities from [BioSample](https://www.
 
 - **Extract mode** (`bsllmner2_extract`) -- Performs Named Entity Recognition (NER) over BioSample metadata and emits structured JSON.
 - **Select mode** (`bsllmner2_select`) -- Runs the same NER pass, searches each extracted value against ontologies (Cellosaurus, Cell Ontology, UBERON, MONDO, ChEBI, NCBI Gene, Plant Ontology), and lets the LLM pick the best ontology term per field.
+- **Reselect mode** (`bsllmner2_reselect`) -- Repeats the ontology search and the LLM selection for the values a select run left unresolved, without extracting again.
 
 ## Quick Start
 
@@ -34,7 +35,7 @@ A complete walkthrough -- including ontology preparation and Select mode -- is i
 
 **Reference**
 
-- [CLI](https://dbcls.github.io/bsllmner-mk2/cli/) -- `bsllmner2_extract` / `bsllmner2_select` options.
+- [CLI](https://dbcls.github.io/bsllmner-mk2/cli/) -- `bsllmner2_extract` / `bsllmner2_select` / `bsllmner2_reselect` options.
 - [Data Formats](https://dbcls.github.io/bsllmner-mk2/data-formats/) -- Input/output schemas.
 - [Configuration](https://dbcls.github.io/bsllmner-mk2/configuration/) -- Environment variables and Ollama tuning.
 

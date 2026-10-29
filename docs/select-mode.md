@@ -145,6 +145,27 @@ The picked term lives in `results[field]` together with the LLM's reasoning, so 
 }
 ```
 
+## Reselect Mode
+
+`bsllmner2_reselect` repeats Stage 2 and Stage 3 for values that an earlier `bsllmner2_select` run left without a term, and leaves everything else in that run untouched. Use it when the mapping code or an ontology file changed and you want the unresolved values to get a second chance without extracting again.
+
+The input is the `SelectResult` file of the source run (`--from-result`), the BioSample records that run consumed (`--bs-entries`, the Stage 3 prompt needs them as context) and the select config (`--select-config`). `--fields` limits the work to the named fields; by default every field with an `ontology_file` is taken.
+
+For each entry of the source run and each selected field, the target values are the values of `extract.extracted[field]` that do not appear in `results[field]`. An entry without target values is skipped and does not appear in the output. The target values go through the same `select()` pipeline as a normal run, with two restrictions: the select config is cut down to the selected fields, and the `ExtractEntry` holds only the target values. Stage 1 does not run; the extracted values are taken from the source run as they are.
+
+The output is a `SelectResult` whose `entries` are the processed entries in full. For each target `(field, value)` the entry's `search_results`, `text2term_results`, `select_timings` and `ambiguous_fields` are replaced by what the new pass produced, and a resolved value is appended to `results[field]` when Stage 2a or Stage 3 picked a term. Values and fields that were not targets keep their original candidates and results. `run_metadata.reselect` records the source file name, its SHA-256, the source run name and the selected fields (see [Data Formats](data-formats.md#selectresult)).
+
+`bsllmner2_reselect` has no `--resume`. A reselect run is small compared with the source run, so a failed run is repeated from the start. Values that got candidates but no term from the LLM are unresolved again after the run; a second reselect run would ask the LLM about them once more.
+
+```bash
+docker compose exec app bsllmner2_reselect \
+  --from-result bsllmner2-results/select/select_example.json \
+  --bs-entries tests/data/example_biosample.json \
+  --select-config scripts/select-config-hg38.json \
+  --fields knockout_gene knockdown_gene overexpressed_gene chip_antigen \
+  --model llama3.1:70b --run-name example_reselect
+```
+
 ## SelectConfig Customization
 
 Pre-built configs live in `scripts/`:

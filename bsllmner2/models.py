@@ -111,6 +111,15 @@ class CliSelectArgs(CliCommonArgs):
     include_reasoning: bool = True
 
 
+class CliReselectArgs(CliCommonArgs):
+    """Arguments of ``bsllmner2_reselect``. ``bs_entries`` holds the records the source run consumed."""
+
+    from_result: Path = Field(..., description="SelectResult JSON of the source run")
+    select_config: Path = Field(..., description="Path to the select configuration JSON file")
+    fields: list[str] | None = Field(None, description="Fields to reselect; None means every field with an ontology")
+    include_reasoning: bool = True
+
+
 class Prompt(BaseModel):
     role: Literal["system", "user", "assistant"] = Field(
         ...,
@@ -225,6 +234,15 @@ class SelectEntry(BaseModel):
     ambiguous_fields: dict[str, dict[str, list[str]]] = Field(default_factory=dict)
 
 
+class ReselectInfo(BaseModel):
+    """Where a ``bsllmner2_reselect`` run took its entries from."""
+
+    source_result_file: str = Field(..., description="File name of the source SelectResult")
+    source_sha256: str = Field(..., description="SHA-256 of the source SelectResult file")
+    source_run_name: str = Field(..., description="run_name of the source run")
+    fields: list[str] = Field(..., description="Fields whose unresolved values were reselected")
+
+
 class RunMetadata(BaseModel):
     run_name: str
     model: str
@@ -234,6 +252,7 @@ class RunMetadata(BaseModel):
     status: RunStatus = "running"
     processing_time_sec: float | None = None
     total_entries: int | None = None
+    reselect: ReselectInfo | None = None
 
 
 # === Timing models (moved from benchmark.py) ===
