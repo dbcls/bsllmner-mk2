@@ -33,7 +33,7 @@ uv run ruff format bsllmner2/ tests/ scripts/
 uv run ruff format --check bsllmner2/ tests/ scripts/
 ```
 
-Ruff is configured with `select = ["ALL"]` and an explicit `ignore` list (see `[tool.ruff.lint]` in `pyproject.toml`). `target-version = "py310"` and `line-length = 120`.
+Ruff is configured with `select = ["ALL"]` and an explicit `ignore` list (see `[tool.ruff.lint]` in `pyproject.toml`). `target-version = "py312"` and `line-length = 120`.
 
 ## Mutation Testing
 

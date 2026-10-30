@@ -1,6 +1,6 @@
 """Tests for Pydantic model validation in bsllmner2.models."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -53,7 +53,7 @@ def _make_minimal_run_metadata(**overrides: object) -> RunMetadata:
     defaults: dict[str, object] = {
         "run_name": "test-run",
         "model": "llama3.1:70b",
-        "start_time": datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+        "start_time": datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
     }
     defaults.update(overrides)
     return RunMetadata(**defaults)
@@ -439,7 +439,7 @@ class TestErrorInfo:
 
 class TestErrorLog:
     def test_valid_construction(self) -> None:
-        ts = datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc)
+        ts = datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC)
         el = ErrorLog(
             timestamp=ts,
             error=ErrorInfo(type="ValueError", message="bad value", traceback="tb"),

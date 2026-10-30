@@ -17,9 +17,10 @@ name = "bsllmner-mk2"
 authors = [{ name = "DBCLS" }]
 description = "Named Entity Recognition (NER) of biological terms in BioSample records using LLMs, developed as bsllmner-mk2."
 readme = { file = "README.md", content-type = "text/markdown" }
-requires-python = ">=3.10"
+requires-python = ">=3.12"
 license = { text = "MIT" }
 dependencies = [
+  "httpx",
   "ollama",
   "owlready2",
   "pydantic",
@@ -34,9 +35,15 @@ Homepage = "https://github.com/dbcls/bsllmner-mk2"
 Documentation = "https://dbcls.github.io/bsllmner-mk2"
 Repository = "https://github.com/dbcls/bsllmner-mk2.git"
 
-[project.optional-dependencies]
-tests = [
+[project.scripts]
+bsllmner2_extract = "bsllmner2.cli_extract:run_cli_extract"
+bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
+bsllmner2_reselect = "bsllmner2.cli_reselect:run_cli_reselect"
+
+[dependency-groups]
+dev = [
   "hypothesis",
+  "mkdocs-material",
   "mutmut",
   "mypy",
   "pytest",
@@ -47,14 +54,6 @@ tests = [
   "ruff",
   "types-PyYAML",
 ]
-
-[project.scripts]
-bsllmner2_extract = "bsllmner2.cli_extract:run_cli_extract"
-bsllmner2_select = "bsllmner2.cli_select:run_cli_select"
-bsllmner2_reselect = "bsllmner2.cli_reselect:run_cli_reselect"
-
-[dependency-groups]
-dev = ["mkdocs-material>=9.7.1"]
 
 [tool.pytest.ini_options]
 addopts = "-v --tb=short --strict-markers --cov=bsllmner2 --cov-report=term-missing"
@@ -85,7 +84,7 @@ module = [
 ignore_missing_imports = true
 
 [tool.ruff]
-target-version = "py310"
+target-version = "py312"
 line-length = 120
 exclude = ["bsllmner2/_version.py"]
 

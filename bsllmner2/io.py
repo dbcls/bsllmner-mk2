@@ -5,7 +5,7 @@ import shutil
 import tempfile
 from collections.abc import Sequence
 from pathlib import Path
-from typing import Any, TypeVar, cast
+from typing import Any, cast
 
 import yaml
 from pydantic import BaseModel, TypeAdapter
@@ -221,10 +221,7 @@ def dump_select_result(result: SelectResult, run_name: str) -> Path:
     return _dump_result(result, SELECT_RESULT_DIR, f"select_{run_name}.json")
 
 
-_T = TypeVar("_T", bound=BaseModel)
-
-
-def _load_result(path: Path, model_class: type[_T]) -> _T:
+def _load_result[T: BaseModel](path: Path, model_class: type[T]) -> T:
     if not path.exists():
         raise FileNotFoundError(f"Result file {path} does not exist.")
 

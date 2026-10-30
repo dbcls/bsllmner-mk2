@@ -32,6 +32,8 @@ jobs:
         uses: docker/build-push-action@v6
         with:
           context: .
+          target: runtime
+          pull: true
           push: true
           build-args: |
             VERSION=${{ github.ref_name }}

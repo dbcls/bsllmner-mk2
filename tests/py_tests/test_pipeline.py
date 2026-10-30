@@ -1,7 +1,7 @@
 """Tests for pipeline module (evaluation + builders + time utils)."""
 
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 
 import pytest
@@ -85,32 +85,32 @@ class TestComputeProcessingTime:
 
     def test_normal(self) -> None:
         """Normal case: end > start → positive seconds."""
-        start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 1, 12, 1, 30, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        end = datetime(2024, 1, 1, 12, 1, 30, tzinfo=UTC)
         result = compute_processing_time(start, end)
         assert result == 90.0
 
     def test_same_time(self) -> None:
         """Same start and end → 0.0."""
-        t = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        t = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         assert compute_processing_time(t, t) == 0.0
 
     def test_one_hour_difference(self) -> None:
         """One hour difference → 3600.0."""
-        start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
+        end = datetime(2024, 1, 1, 13, 0, 0, tzinfo=UTC)
         assert compute_processing_time(start, end) == 3600.0
 
     def test_cross_day_boundary(self) -> None:
         """Crossing day boundary works correctly."""
-        start = datetime(2024, 1, 1, 23, 59, 0, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 2, 0, 1, 0, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, 23, 59, 0, tzinfo=UTC)
+        end = datetime(2024, 1, 2, 0, 1, 0, tzinfo=UTC)
         assert compute_processing_time(start, end) == 120.0
 
     def test_end_before_start_raises_value_error(self) -> None:
         """end_time < start_time raises ValueError."""
-        start = datetime(2024, 1, 1, 13, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+        start = datetime(2024, 1, 1, 13, 0, 0, tzinfo=UTC)
+        end = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         with pytest.raises(ValueError, match="before start_time"):
             compute_processing_time(start, end)
 
@@ -398,9 +398,9 @@ class TestPopulateRunMetadata:
         end_time: datetime | None = None,
     ) -> RunMetadata:
         if start_time is None:
-            start_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc)
+            start_time = datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC)
         if end_time is None:
-            end_time = datetime(2024, 1, 1, 12, 10, 0, tzinfo=timezone.utc)
+            end_time = datetime(2024, 1, 1, 12, 10, 0, tzinfo=UTC)
         return RunMetadata(
             run_name="test_run",
             model="test-model",
@@ -419,7 +419,7 @@ class TestPopulateRunMetadata:
         md_no_end = RunMetadata(
             run_name="test_run",
             model="test-model",
-            start_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=timezone.utc),
+            start_time=datetime(2024, 1, 1, 12, 0, 0, tzinfo=UTC),
             end_time=None,
             status="completed",
         )

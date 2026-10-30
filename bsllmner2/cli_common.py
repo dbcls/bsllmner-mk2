@@ -7,7 +7,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Any, TypeVar
+from typing import Any
 
 from bsllmner2.config import DEFAULT_NUM_CTX, LOGGER, RESUME_BATCH_SIZE, Config, default_config, get_config
 from bsllmner2.errors import Bsllmner2Error
@@ -15,8 +15,6 @@ from bsllmner2.io import load_bs_entries
 from bsllmner2.models import BsEntries, ErrorLog, RunMetadata, RunStatus
 from bsllmner2.pipeline import build_error_log
 from bsllmner2.utils import get_now, parse_bool
-
-T = TypeVar("T")
 
 
 def str_to_bool(v: str) -> bool:
@@ -168,7 +166,7 @@ class BatchInfo:
     entries: list[dict[str, Any]]
 
 
-async def process_batches(
+async def process_batches[T](
     entries: list[dict[str, Any]],
     batch_size: int,
     process_fn: Callable[[BatchInfo], Awaitable[T]],

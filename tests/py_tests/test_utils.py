@@ -1,6 +1,6 @@
 """Tests for :mod:`bsllmner2.utils`."""
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 import pytest
 from hypothesis import given
@@ -16,12 +16,12 @@ class TestGetNow:
         assert isinstance(get_now(), datetime)
 
     def test_returns_utc_aware_datetime(self) -> None:
-        assert get_now().tzinfo == timezone.utc
+        assert get_now().tzinfo == UTC
 
     def test_monotonic_between_two_snapshots(self) -> None:
-        before = datetime.now(timezone.utc)
+        before = datetime.now(UTC)
         result = get_now()
-        after = datetime.now(timezone.utc)
+        after = datetime.now(UTC)
         assert before <= result <= after
 
 

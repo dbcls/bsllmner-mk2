@@ -3,6 +3,8 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      target: dev
+      pull: true
     container_name: bsllmner-mk2-app
     volumes:
       - ${PWD}:/app
@@ -18,7 +20,7 @@ services:
       - bsllmner-mk2-network
 
   ollama:
-    image: ollama/ollama:0.32.15
+    image: ollama/ollama:0.40.13
     container_name: bsllmner-mk2-ollama
     volumes:
       - ollama-data:/root/.ollama

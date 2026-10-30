@@ -46,7 +46,7 @@ A complete walkthrough -- including ontology preparation and Select mode -- is i
 
 **Contributing**
 
-- [Development](https://dbcls.github.io/bsllmner-mk2/development/) -- Local development setup.
+- [Development](https://dbcls.github.io/bsllmner-mk2/development/) -- Local development setup, Docker image stages, release process.
 - [Testing](https://dbcls.github.io/bsllmner-mk2/testing/) -- pytest, mypy, ruff, mutmut, model evaluation.
 - [Benchmarking](https://dbcls.github.io/bsllmner-mk2/benchmarking/) -- Reading performance and accuracy data.
 

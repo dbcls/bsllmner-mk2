@@ -14,15 +14,32 @@ For options, see [CLI Reference](cli.md).
 
 ## Local Development Setup
 
-Requirements: Python 3.10+, [uv](https://docs.astral.sh/uv/), Docker (for end-to-end runs against Ollama), and an NVIDIA GPU if you intend to exercise the LLM path.
+Requirements: Python 3.12+, [uv](https://docs.astral.sh/uv/), Docker (for end-to-end runs against Ollama), and an NVIDIA GPU if you intend to exercise the LLM path.
 
 ```bash
-uv sync --all-extras           # install runtime + test dependencies
+uv sync                         # install runtime + dev dependencies
 docker compose up -d --build    # bring up app + ollama containers
 docker compose exec app bash    # interactive shell inside app container
 ```
 
+The `dev` dependency group in `pyproject.toml` holds the test, lint, and docs tools. `uv sync --no-dev` leaves the group out.
+
 For test commands, lint, type check, and mutation testing, see [Testing](testing.md).
+
+## Docker Image
+
+All stages of the `Dockerfile` start from `python:3.14-slim-trixie`. The tag names the Python minor version, the Debian codename, and the variant, but not the patch version or the digest. Docker Hub keeps rebuilding the tag, so a build with `--pull` gets the security updates of the base image.
+
+| Stage | Used by | Contents |
+|---|---|---|
+| `build-base` | `builder`, `dev` | uv, `gcc`, and `libc6-dev`. |
+| `builder` | `runtime` | Installs the runtime dependencies and the project into `/app/.venv` with `uv sync --no-dev --no-editable`. |
+| `dev` | `compose.yml`, `compose.slurm.yml.template` | `build-base`, `curl`, `jq`, the runtime dependencies, and the `dev` dependency group. The project is editable, so the bind-mounted source takes effect. |
+| `runtime` | The published image (the default target) | `/app/.venv` from `builder`, `scripts/`, `LICENSE`, and `README.md`. The stage has no uv, no pip, no C compiler, and no `dev` dependencies. |
+
+owlready2 has no wheels, so its install compiles the C extension `owlready2_optimized`. If the compiler is missing, the install falls back to pure Python without an error, and ontology loading becomes slower. For this reason, `builder` and `dev` fail the build if `owlready2_optimized` does not import. `dev` keeps the compiler, so that `uv sync` in the container also builds the extension.
+
+`builder` deletes the Pellet jars that owlready2 bundles. Vulnerability scanners report the libraries in these jars, and nothing in the image uses them: bsllmner2 does not run OWL reasoners, and the image has no Java. owlready2 lists the `pellet/` directory on import, so `builder` keeps the directory.
 
 ## scripts/ Reference
 
@@ -84,4 +101,4 @@ git tag X.Y.Z
 git push origin X.Y.Z
 ```
 
-The tag push triggers `.github/workflows/release.yml`, which builds and publishes the Docker image to `ghcr.io/dbcls/bsllmner-mk2` and creates a GitHub Release with auto-generated notes.
+The tag push triggers `.github/workflows/release.yml`. The workflow builds the `runtime` stage with `--pull`, publishes the image to `ghcr.io/dbcls/bsllmner-mk2`, and creates a GitHub Release with auto-generated notes.

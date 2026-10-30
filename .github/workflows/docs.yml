@@ -25,10 +25,10 @@ jobs:
       - name: Setup uv
         uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.12"
+          python-version: "3.14"
 
       - name: Install Dependencies
-        run: uv sync --locked --all-extras
+        run: uv sync --locked
 
       - name: Build Documentation
         run: uv run mkdocs build --strict

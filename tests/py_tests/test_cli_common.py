@@ -2,7 +2,7 @@
 
 import argparse
 import json
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -460,8 +460,8 @@ class TestBuildRunMetadata:
 
     def test_all_fields_set(self) -> None:
         """All fields are set correctly."""
-        start = datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc)
-        end = datetime(2026, 3, 2, 13, 0, 0, tzinfo=timezone.utc)
+        start = datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC)
+        end = datetime(2026, 3, 2, 13, 0, 0, tzinfo=UTC)
         meta = build_run_metadata(
             run_name="test-run",
             model="llama3.1:70b",
@@ -483,7 +483,7 @@ class TestBuildRunMetadata:
             run_name="run",
             model="model",
             thinking=False,
-            start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc),
+            start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC),
             end_time=None,
             status="running",
         )
@@ -496,7 +496,7 @@ class TestBuildRunMetadata:
             run_name="run",
             model="model",
             thinking=False,
-            start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=timezone.utc),
+            start_time=datetime(2026, 3, 2, 12, 0, 0, tzinfo=UTC),
             end_time=None,
             status=status,
         )

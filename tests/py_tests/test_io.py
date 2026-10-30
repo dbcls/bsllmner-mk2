@@ -2,7 +2,7 @@
 
 import json
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from pathlib import Path
 from unittest.mock import patch
 
@@ -497,7 +497,7 @@ def _make_extract_result(run_name: str = "test-run") -> ExtractResult:
         run_metadata=RunMetadata(
             run_name=run_name,
             model="test-model",
-            start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+            start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
         ),
     )
 
@@ -555,7 +555,7 @@ class TestDumpSelectResult:
             run_metadata=RunMetadata(
                 run_name="my-run",
                 model="test-model",
-                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             ),
         )
 
@@ -577,7 +577,7 @@ class TestDumpSelectResult:
             run_metadata=RunMetadata(
                 run_name="my-run",
                 model="test-model",
-                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             ),
         )
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
@@ -591,7 +591,7 @@ class TestDumpSelectResult:
             run_metadata=RunMetadata(
                 run_name="my-run",
                 model="test-model",
-                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             ),
         )
         with patch("bsllmner2.io.SELECT_RESULT_DIR", temp_dir):
@@ -626,7 +626,7 @@ class TestLoadSelectResult:
             run_metadata=RunMetadata(
                 run_name="my-run",
                 model="test-model",
-                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=timezone.utc),
+                start_time=datetime(2024, 1, 1, 0, 0, 0, tzinfo=UTC),
             ),
         )
 

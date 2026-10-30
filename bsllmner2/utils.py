@@ -5,7 +5,7 @@ keeps the import graph acyclic: anything in the package may freely import from
 here.
 """
 
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 _TRUTHY = frozenset({"true", "1", "yes", "on"})
 _FALSY = frozenset({"false", "0", "no", "off"})
@@ -13,7 +13,7 @@ _FALSY = frozenset({"false", "0", "no", "off"})
 
 def get_now() -> datetime:
     """Return the current UTC time as a timezone-aware ``datetime``."""
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def parse_bool(value: str | bool, *, strict: bool = False) -> bool:
